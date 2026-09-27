@@ -208,8 +208,14 @@ def build_risk_state(*, positions: list, aligned_returns: dict, nav: Optional[fl
         state = hoc_kernel.liquidity_state(days, pol) if days is not None else "UNAVAILABLE"
         if state == "UNAVAILABLE":
             unknown_liq += 1
+        # Release 77 - carry WHICH owned source answered. UNAVAILABLE stays a real
+        # verdict; before this it could not be told apart from "no source was asked",
+        # which is exactly how all 25 holdings read UNAVAILABLE here while the
+        # opportunity-cost owner read all 25 LIQUID off the owned price panel.
         liq_rows.append({"instrument_id": tk, "days_to_liquidate": _r(days, 3),
-                         "liquidity_state": state})
+                         "liquidity_state": state,
+                         "dollar_volume_source": lq.get("dollar_volume_source"),
+                         "median_dollar_volume": _f(lq.get("median_dollar_volume"))})
     worst_days = max((r["days_to_liquidate"] for r in liq_rows if r["days_to_liquidate"] is not None),
                      default=None)
 

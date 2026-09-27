@@ -95,25 +95,94 @@ def build_aligned_returns(*, positions: list, price_panel: Optional[dict],
     return aligned
 
 
-def _liquidity(positions: list, scoring: Optional[dict], policy: dict) -> dict:
+#: Release 77 - the owned trailing window the equity dollar-volume fallback reads.
+#: The SAME window ``engine.holding_opportunity_cost`` measures its liquidity over,
+#: so the two owners cannot disagree about one holding by construction.
+_ADV_WINDOW = 20
+
+#: Where a position's dollar volume came from. An UNAVAILABLE liquidity state is a
+#: real answer and stays one; this says whether it was reached because no source
+#: held the input, or because no source was CONSULTED.
+ADV_SOURCE_SCORING = "SCORING_RANKINGS_ADV_DOLLAR"
+ADV_SOURCE_OWNED_PANEL = "OWNED_PRICE_PANEL_TRAILING_MEDIAN_DOLLAR_VOLUME"
+ADV_SOURCE_OWNED_CONTRACT_VOLUME = "OWNED_CONTRACT_AVERAGE_DAILY_VOLUME"
+ADV_SOURCE_NONE = "NO_OWNED_SOURCE_HELD_THIS_INSTRUMENT"
+
+
+def _owned_equity_dollar_volume(*, price_panel: Optional[dict], tickers: list,
+                                as_of: Optional[str]) -> dict:
+    """Owned trailing median dollar volume per equity, from the ONE price-panel owner.
+
+    THE DEFECT THIS ANSWERS. ``load_cross_asset_risk`` accepted ``scoring`` and never
+    loaded it when the caller passed None - and the GET route passes only
+    ``portfolio_state``. Every other input on that path has a loader fallback; this
+    one did not, so ``adv_dollar`` was empty on every live read and all 25 holdings
+    were reported LIQUIDITY UNAVAILABLE while the opportunity-cost owner, reading the
+    owned panel, reported all 25 LIQUID.
+
+    This does NOT soften the unavailable state: a name the panel does not carry still
+    returns None and is still reported UNAVAILABLE. It reads the input that was there
+    all along.
+    """
+    if not tickers or not as_of:
+        return {}
+    from paper_trader.api import price_panel as pp
+    try:
+        panel = (price_panel if price_panel is not None
+                 else pp.load_operational_price_panel())
+    except Exception:  # noqa: BLE001
+        return {}
+    series = (panel or {}).get("series") or {}
+    out: dict = {}
+    for tk in tickers:
+        s = series.get(tk)
+        if not s:
+            continue
+        try:
+            j = pp.asof_index(s.get("dates") or [], as_of)
+            if j >= 0:
+                out[tk] = pp.trailing_median_dollar_volume(s, j, _ADV_WINDOW)
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _liquidity(positions: list, scoring: Optional[dict], policy: dict,
+               *, price_panel: Optional[dict] = None,
+               as_of: Optional[str] = None) -> dict:
     from paper_trader.engine import holding_opportunity_cost as hoc_kernel
     adv = {r.get("ticker"): _f(r.get("adv_dollar")) for r in ((scoring or {}).get("rankings") or [])}
+    owned = _owned_equity_dollar_volume(
+        price_panel=price_panel, as_of=as_of,
+        tickers=sorted({p["instrument_id"] for p in positions
+                        if p.get("instrument_type") in (None, ic.IT_CASH_EQUITY)
+                        and adv.get(p["instrument_id"]) is None}))
     out = {}
     rate = float(policy.get("liquidity_participation_rate", 0.10))
     for p in positions:
         tk = p["instrument_id"]
         mv = _f(p.get("notional_usd"))
+        src = ADV_SOURCE_NONE
         if p.get("instrument_type") in (None, ic.IT_CASH_EQUITY):
             dv = adv.get(tk)
+            if dv is not None:
+                src = ADV_SOURCE_SCORING
+            else:
+                dv = _f(owned.get(tk))
+                if dv is not None:
+                    src = ADV_SOURCE_OWNED_PANEL
         else:
             try:
                 units = mrd.average_daily_volume(tk)
                 un = (_f(p.get("mark")) or 0.0) * float(p.get("multiplier") or 1.0) * float(p.get("fx_to_usd") or 1.0)
                 dv = (units * un) if (units is not None and un) else None
+                if dv is not None:
+                    src = ADV_SOURCE_OWNED_CONTRACT_VOLUME
             except Exception:  # noqa: BLE001
                 dv = None
         out[tk] = {"days_to_liquidate": hoc_kernel.days_to_liquidate(mv, dv, rate),
-                   "median_dollar_volume": dv}
+                   "median_dollar_volume": dv,
+                   "dollar_volume_source": src}
     return out
 
 
@@ -146,7 +215,7 @@ def load_cross_asset_risk(*, portfolio_state: Optional[dict] = None,
         dd = desk.current_drawdown(performance=performance)
     except Exception:  # noqa: BLE001
         dd = {"state": "UNAVAILABLE", "owner": "api.paper_trading_desk.current_drawdown"}
-    liq = _liquidity(positions, scoring, pol)
+    liq = _liquidity(positions, scoring, pol, price_panel=price_panel, as_of=as_of)
     state = kernel.build_risk_state(positions=positions, aligned_returns=aligned_returns,
                                     nav=cap.get("nav"), cash=cap.get("cash"), drawdown=dd,
                                     liquidity=liq, policy=pol, as_of=as_of)

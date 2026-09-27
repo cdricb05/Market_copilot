@@ -464,6 +464,18 @@ def _now_iso() -> str:
     return _now().isoformat()
 
 
+def _coerce_int(value: Any) -> Optional[int]:
+    """An int, or None. R77 - a value that cannot be read is None so the decision
+    reconciliation SKIPS it; it is never coerced to 0, which would read as
+    agreement between owners that were never compared."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _coerce_date(value: Any) -> Optional[date]:
     if value is None:
         return None
@@ -3722,6 +3734,115 @@ SESSION_AUTHORITY_VIOLATION_CODES = (
 )
 
 
+#: Release 77 - violation codes for the DECISION-level reconciliation. The
+#: freshness owner's consistency check compares dates and book identity; it was
+#: never a claim about what the decision owners recommend, which is why three
+#: contradicting owner verdicts for 2026-09-25 all read CONSISTENT.
+V_RETENTION_EXIT_UNACCOUNTED = "RETENTION_EXIT_UNACCOUNTED_FOR"
+V_DEFERRAL_LEDGER_CONTRADICTED = "DEFERRAL_LEDGER_CONTRADICTS_ADJUSTMENT_LOG"
+V_LIQUIDITY_OWNERS_DISAGREE = "LIQUIDITY_OWNERS_DISAGREE_ON_HELD_NAMES"
+
+DECISION_RECONCILIATION_OWNER = "api.workflow_state.check_decision_reconciliation"
+
+
+def check_decision_reconciliation(*, hoc_exit_count: Any,
+                                  proposal_exit_count: Any,
+                                  mandatory_exit_obligation: Any,
+                                  withheld_retention_exits: Any,
+                                  proposal_deferred_trade_count: Any,
+                                  adjustment_log_deferral_counts: Any,
+                                  hoc_liquidity_states: Any,
+                                  cross_asset_liquidity_states: Any) -> list[dict]:
+    """Release 77 - the composed payload may not publish two owners' verdicts that
+    contradict each other with nothing naming the gap.
+
+    THE THREE GAPS THIS CLOSES, all observed on 2026-09-25 while
+    ``consistency_status`` read CONSISTENT with zero violations:
+
+    1. The opportunity-cost owner ruled ELEVEN holdings outside the retention rules
+       and the reassessment surface published ``EXIT: 0``. Churn control had
+       withheld them, which is legitimate - but a withheld retention exit is not a
+       resolved one, and nothing on the payload said either word.
+    2. The proposal's adjustment log recorded "15 trades deferred" and its final
+       deferral ledger recorded 0, because the log is cumulative across repair
+       rounds and the ledger is the last round only.
+    3. Cross-asset risk reported liquidity UNAVAILABLE for all 25 holdings while
+       the opportunity-cost owner reported all 25 LIQUID off the owned price panel.
+
+    PURE. It asks the owners' already-published answers whether the payload is
+    telling the operator something none of them said. An input it cannot read is
+    SKIPPED, never scored as agreement.
+    """
+    violations: list[dict] = []
+    hoc_exits = _coerce_int(hoc_exit_count)
+    prop_exits = _coerce_int(proposal_exit_count)
+    withheld = _coerce_int(withheld_retention_exits)
+    obligation = str(mandatory_exit_obligation or "").strip().upper()
+
+    # 1. Every retention exit is either in the proposal, declared outstanding, or
+    #    named as withheld. Silence is the violation.
+    if hoc_exits is not None and hoc_exits > 0:
+        accounted = (prop_exits is not None and prop_exits >= hoc_exits)
+        declared = obligation not in ("", "NONE")
+        named = withheld is not None and withheld > 0
+        if not (accounted or declared or named):
+            violations.append({
+                "code": V_RETENTION_EXIT_UNACCOUNTED,
+                "concept": "retention_exit",
+                "authoritative_owner": "engine.holding_opportunity_cost",
+                "retention_exits_ruled": hoc_exits,
+                "proposal_exit_actions": prop_exits,
+                "mandatory_exit_obligation": mandatory_exit_obligation,
+                "retention_exits_withheld": withheld,
+                "detail": ("The opportunity-cost owner ruled %d holding(s) outside "
+                           "the retention rules. The proposal does not exit them, "
+                           "no outstanding obligation is declared, and no "
+                           "withholding ledger names them."
+                           % hoc_exits)})
+
+    # 2. The deferral ledger and the adjustment log may differ (rounds), but the
+    #    payload must carry the reconciliation rather than both bare numbers.
+    final_def = _coerce_int(proposal_deferred_trade_count)
+    log_counts = [c for c in (_coerce_int(x)
+                              for x in (adjustment_log_deferral_counts or []))
+                  if c is not None]
+    if final_def is not None and log_counts:
+        if any(c != final_def for c in log_counts):
+            violations.append({
+                "code": V_DEFERRAL_LEDGER_CONTRADICTED,
+                "concept": "deferred_trades",
+                "authoritative_owner": "engine.constrained_reallocation",
+                "final_ledger_deferred_trade_count": final_def,
+                "adjustment_log_deferral_counts": log_counts,
+                "detail": ("The proposal's final deferral ledger reports %d "
+                           "deferred trade(s) while its adjustment log reports "
+                           "%s. Both are published and neither is labelled as "
+                           "belonging to a superseded repair round."
+                           % (final_def,
+                              ", ".join(str(c) for c in log_counts)))})
+
+    # 3. Two owners, one set of held names, one liquidity question.
+    hoc_liq = dict(hoc_liquidity_states or {})
+    xa_liq = dict(cross_asset_liquidity_states or {})
+    shared = sorted(set(hoc_liq) & set(xa_liq))
+    disputed = [tk for tk in shared
+                if (str(xa_liq.get(tk)) == "UNAVAILABLE")
+                != (str(hoc_liq.get(tk)) == "UNAVAILABLE")]
+    if disputed:
+        violations.append({
+            "code": V_LIQUIDITY_OWNERS_DISAGREE,
+            "concept": "liquidity",
+            "authoritative_owner": "engine.holding_opportunity_cost",
+            "held_names_compared": len(shared),
+            "disputed_name_count": len(disputed),
+            "disputed_names": disputed[:25],
+            "detail": ("%d of %d held name(s) are reported UNAVAILABLE by one "
+                       "liquidity owner and priced by the other. A missing input "
+                       "is a real answer; two different answers to one question "
+                       "is not." % (len(disputed), len(shared)))})
+    return violations
+
+
 def check_session_authority(*, session_status: Any, eligible_market_date: Any,
                             expected_completed_market_date: Any,
                             latest_completed_close_date: Any,
@@ -5395,6 +5516,37 @@ def load_workflow_state(
         consistency_status = INCONSISTENT
     if semantic_violations:
         consistency_violations = list(consistency_violations) + semantic_violations
+        consistency_status = INCONSISTENT
+    # Release 77 — THE DECISION RECONCILIATION. Three owner verdicts contradicted
+    # one another for 2026-09-25 and every one of the checks above passed, because
+    # they compare dates and identity, not what the decision owners recommend.
+    # Read from the ALREADY-COMPOSED owner views; nothing is recalculated here, and
+    # an input this composition does not hold is skipped rather than scored as
+    # agreement.
+    # Only the inputs THIS composition actually holds are passed. The other three
+    # are None on purpose: the checker skips an input it cannot read rather than
+    # scoring it as agreement, and inventing a second read of the proposal artifact
+    # here would make the workflow composer a decision owner.
+    decision_reconciliation_violations = _safe(
+        lambda: check_decision_reconciliation(
+            hoc_exit_count=((holding_opportunity_cost_presentation.get(
+                "recommendation_counts") or {}).get("EXIT")),
+            proposal_exit_count=((reallocation_proposal_presentation.get(
+                "action_counts") or {}).get("EXIT")),
+            mandatory_exit_obligation=(canonical_portfolio_decision or {}).get(
+                "mandatory_exit_obligation"),
+            withheld_retention_exits=(
+                ((reassessment_presentation or {}).get(
+                    "withholding_reconciliation") or {}).get(
+                        "retention_exits_withheld")),
+            proposal_deferred_trade_count=None,
+            adjustment_log_deferral_counts=None,
+            hoc_liquidity_states=None,
+            cross_asset_liquidity_states=None),
+        warnings, "Decision reconciliation") or []
+    if decision_reconciliation_violations:
+        consistency_violations = (list(consistency_violations)
+                                  + decision_reconciliation_violations)
         consistency_status = INCONSISTENT
     # Release 46.2 — THE PORTFOLIO-ATTENTION INVARIANT. The composed payload may never
     # assert that the eligible session needs nothing while the canonical reassessment

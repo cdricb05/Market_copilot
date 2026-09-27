@@ -304,6 +304,87 @@ def _dataset_digest(census: dict) -> list:
             for d in ranked[:MAX_BRIEF_DATASETS]]
 
 
+#: The fixed field order inside the ``refused_by`` token. One string, not five,
+#: because the handoff budget counts words in string values.
+REFUSED_BY_FIELDS = "campaign_id|verdict|blocker_reason|ruling_scope|reopen"
+
+
+def _queued_with_rulings(pipe, census: dict) -> list:
+    """Queued census proposals, each joined to the ruling that already covers it.
+
+    THE DEFECT THIS ANSWERS. ``director_brief`` projected six scalar fields per
+    queued hypothesis and consulted neither ``mem.director_rulings()`` nor the
+    census's own ``R68_MECHANISM_CHECK`` block. The brief was therefore strictly
+    LESS informative about novelty than the census file it was built from, and a
+    director reading it could not see that the proposal in front of him had been
+    refused by rank in an earlier campaign. R73 refused census ranks 9 and 12 by
+    name; R71 refused rank 10 by name; both were re-commissioned afterwards.
+
+    The join is by (asset_class, economic_family), which is the scope a
+    family-wide ruling is recorded at. A wildcard ``information_family`` ('*')
+    ruling covers every information family in that economic family, so it matches
+    too. Nothing is filtered OUT: a refused proposal stays visible, carrying its
+    refusal and its reopen condition, because the director alone rules and needs
+    to see what he is being asked to overturn.
+    """
+    rulings: list = []
+    try:
+        rulings = list(pipe.mem.director_rulings() or ())
+    except Exception:                                        # noqa: BLE001
+        rulings = []
+    out: list = []
+    for q in (census.get("queued_hypotheses") or ()):
+        ac = q.get("asset_class")
+        fam = q.get("family")
+        covering = [r for r in rulings
+                    if r.get("asset_class") == ac
+                    and r.get("economic_family") == fam]
+        row = {"rank": q.get("rank"), "proposal": q.get("proposal"),
+               "agent": q.get("agent"), "asset_class": ac,
+               "family": fam,
+               "horizon_sessions": q.get("horizon_sessions")}
+        # The census's R68_MECHANISM_CHECK block is deliberately NOT copied. It is
+        # a static snapshot of a check the director must run live anyway, its
+        # verdict is prose where the ruling store's is a code, and the census file
+        # is already an ARTIFACT_POINTER. ``already_ruled`` below is the fact that
+        # actually changes a decision, and it is carried for every proposal.
+        mc = q.get("R68_MECHANISM_CHECK") or {}
+        if mc and not covering:
+            row["census_novelty_claim_is_false"] = mc.get(
+                "the_novelty_claim_above_is_false")
+        if covering:
+            # ONE binding ruling per proposal, codes only, never the rationale.
+            # The handoff contract budgets this brief at 500 words: a rationale
+            # excerpt per ruling took it to 1007, and every covering ruling took it
+            # to 609. Handing a role more than it needs is the same failure the
+            # budget exists to prevent. The binding ruling is the NARROWEST scope,
+            # newest first - a MECHANISM-scoped refusal is more specific than the
+            # family-wide one it sits under, and it is the one a director would
+            # have to overturn. ``verdict``/``blocker_reason`` are the ruling
+            # table's own column names; an earlier draft read a non-existent
+            # ``decision`` key and every refusal rendered None.
+            binding = sorted(
+                covering,
+                key=lambda r: (0 if r.get("ruling_scope") == "MECHANISM" else 1,
+                               str(r.get("updated_at") or "")))[0]
+            row["already_ruled"] = True
+            # ONE pipe-delimited token, deliberately unspaced. ``prose_words``
+            # budgets STRING VALUES by whitespace, so five separate code fields
+            # per proposal cost five words and this costs one - and the five codes
+            # are all still there, in a fixed order, machine-splittable on "|".
+            # That is what makes the refusal affordable inside the 500-word
+            # handoff budget the contract enforces.
+            row["refused_by"] = "|".join(str(x or "?") for x in (
+                binding.get("campaign_id"), binding.get("verdict"),
+                binding.get("blocker_reason"), binding.get("ruling_scope"),
+                "reopen=" + str(binding.get("reopen_condition") or "?")))
+            row["covering_ruling_count"] = len(covering)
+        else:
+            row["already_ruled"] = False
+        out.append(row)
+    return out
+
+
 def _census(contract_dir: Optional[Path] = None) -> dict:
     p = Path(contract_dir or CONTRACT_DIR) / CENSUS_FILE
     if not p.exists():
@@ -350,12 +431,15 @@ def director_brief(pipe, *, run_id: str, campaign_id: str,
                 "%s#available_pit_datasets" % CENSUS_FILE,
             "blocked_datasets": (census.get("must_not_repeat") or {}).get(
                 "human_gated_not_for_the_agents") or [],
-            "queued_hypotheses": [
-                {"rank": q.get("rank"), "proposal": q.get("proposal"),
-                 "agent": q.get("agent"), "asset_class": q.get("asset_class"),
-                 "family": q.get("family"),
-                 "horizon_sessions": q.get("horizon_sessions")}
-                for q in (census.get("queued_hypotheses") or ())],
+            # R77 - each queued proposal now carries the STANDING REFUSAL that
+            # already covers it, if there is one. Before this the projection kept
+            # rank/proposal/agent/asset_class/family/horizon and nothing else: it
+            # dropped the census's own R68_MECHANISM_CHECK verdict AND never read
+            # the ruling store, so a proposal a predecessor had refused BY RANK
+            # reached the next director looking open. Ranks 9, 10 and 12 were
+            # refused by name in R71 and R73 and were re-commissioned twice after
+            # that, costing two whole campaigns. See _queued_with_rulings.
+            "queued_hypotheses": _queued_with_rulings(pipe, census),
             "current_campaign": state,
         },
         metrics={
@@ -369,6 +453,8 @@ def director_brief(pipe, *, run_id: str, campaign_id: str,
         },
         pointers={
             "census": str(Path(contract_dir or CONTRACT_DIR) / CENSUS_FILE),
+            "standing_rulings": "mem.director_rulings(asset_class,economic_family)",
+            "refused_by_field_order": REFUSED_BY_FIELDS,
             "charter": "docs/PROJECT_CHARTER.md",
             "frontier": "docs/PNL_OPPORTUNITY_FRONTIER.md",
             "sleeve_contract": "docs/STRATEGY_SLEEVE_CONTRACT.md",

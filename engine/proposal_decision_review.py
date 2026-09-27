@@ -1288,6 +1288,63 @@ def classify_changes(*, proposal: dict, hoc_assessment: Optional[dict],
     }
 
 
+#: Release 77 - the adjustment action a superseded repair round leaves behind.
+#: Imported by name rather than re-spelled so a rename cannot silently unhook the
+#: reconciliation below.
+_ADJ_TRADES_DEFERRED = _cr.ADJ_TRADES_DEFERRED
+
+
+def superseded_deferral_notes(proposal: dict) -> dict:
+    """Deferral notes in the adjustment log that the FINAL ledger does not carry.
+
+    THE DEFECT THIS ANSWERS. ``engine.reallocation_proposal`` repairs a
+    risk-contribution breach by RE-SOLVING, and when it merges the rounds it
+    CONCATENATES ``constraint_adjustments`` while REPLACING ``turnover`` with the
+    last round's ledger. For 2026-09-25 round 0 deferred fifteen trades and wrote
+    the note; the repaired round deferred none and replaced the ledger. So one
+    artifact published "15 trades deferred" as an adjustment and
+    ``deferred_trade_count: 0`` as the ledger, and this review - correctly reading
+    the ledger - told the operator nothing had been withheld.
+
+    Neither number was wrong. The adjustment log is cumulative across rounds and
+    the ledger describes the final solve only, and nothing said so. This names the
+    superseded notes instead of deleting them: the log is evidence of how the
+    target was reached and is never rewritten here.
+    """
+    cro = proposal.get("constraint_reoptimization") or {}
+    turn = cro.get("turnover") or {}
+    final_count = int(turn.get("deferred_trade_count") or 0)
+    notes = [a for a in (cro.get("constraint_adjustments") or [])
+             if isinstance(a, dict) and a.get("action") == _ADJ_TRADES_DEFERRED]
+    rounds = len(cro.get("risk_contribution_repair_rounds") or [])
+    stale = [a for a in notes
+             if int(_f(a.get("deferred_trades")) or 0) != final_count]
+    return {
+        "owner": CALCULATION_OWNER,
+        "final_ledger_deferred_trade_count": final_count,
+        "deferral_notes_in_adjustment_log": len(notes),
+        "repair_rounds_applied": rounds,
+        "superseded_notes": stale,
+        "superseded_deferred_trade_counts": [
+            int(_f(a.get("deferred_trades")) or 0) for a in stale],
+        "adjustment_log_is_cumulative_across_rounds": True,
+        "final_ledger_describes_last_round_only": True,
+        "reconciled": not stale,
+        "statement": (
+            "The adjustment log and the final deferral ledger agree."
+            if not stale else
+            "The adjustment log records %s deferral note(s) from a repair round "
+            "whose solution was SUPERSEDED (%s), while the final target defers %d "
+            "trade(s). %d risk-contribution repair round(s) re-solved the target "
+            "after those notes were written. The log is cumulative; the ledger is "
+            "the last round only. The final ledger is what this proposal would do."
+            % (len(stale),
+               ", ".join(str(int(_f(a.get("deferred_trades")) or 0))
+                         for a in stale),
+               final_count, rounds)),
+    }
+
+
 def withheld_changes(proposal: dict) -> dict:
     """What the FULL TARGET did NOT do, from the kernel's own deferral ledger."""
     turn = ((proposal.get("constraint_reoptimization") or {}).get("turnover") or {})
@@ -1297,6 +1354,10 @@ def withheld_changes(proposal: dict) -> dict:
         "deferred_trade_count": turn.get("deferred_trade_count") or len(deferred),
         "deferred_reasons": sorted({d.get("deferred_reason") for d in deferred
                                     if d.get("deferred_reason")}),
+        # Release 77 - a zero here used to be indistinguishable from "the log says
+        # fifteen and this reads the other field". The reconciliation travels with
+        # the count it explains.
+        "superseded_deferral_notes": superseded_deferral_notes(proposal),
         "budget_binds": turn.get("budget_binds"),
         "budget": turn.get("budget"),
         "unbudgeted_one_way_turnover": turn.get("unbudgeted_one_way_turnover"),

@@ -1,0 +1,206 @@
+{
+ "contract": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "campaign_id": "R77_SHORT_VOLUME_AND_CROSS_ASSET_LEAD_LAG",
+ "ruled_by": "quant-research-director",
+ "ruled_on": "2026-09-26",
+ "frozen_spec": "research/agents/campaign_r77_short_volume_and_lead_lag/campaign_spec.json",
+
+ "VERDICT": "NEEDS_HUMAN_DECISION",
+
+ "VERDICT_ONE_LINE": "Both cells this campaign was commissioned to prosecute are already refused in durable research memory, one of them by a reopen condition that names and excludes the exact information the campaign was told to use. Zero experiments pre-registered, zero burden charged, zero lockbox looks spent. The blocking fact is not a missing dataset and not a rule that needs widening: it is that the director brief has never joined the durable ruling store, so refused cells keep being re-queued as open ones.",
+
+ "WHAT_THE_OPERATOR_ASKED_AND_WHAT_THE_MEASUREMENT_RETURNED": [
+  {
+   "operator_statement": "R76's CAMPAIGN_R76_OUTCOME.json records EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME (census rank 12) as UNEXAMINED, asserting no verdict: 'It is not settled and is available to the next campaign.' That cell is CANDIDATE 1 of this campaign.",
+   "measurement": "FALSIFIED on the second clause. R59 memory already holds a durable director ruling US_EQUITY|SHORT_TERM_REVERSAL = REFUSED_AS_ALREADY_MEASURED / FAMILY_EXHAUSTED, recorded by the R73 director on 2026-09-25T19:07:14+00:00, whose rationale names 'Census ranks 9 and 12' explicitly and whose reopen condition is verbatim NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME.",
+   "why_R76_was_not_lying": "R76's director declined to assert a verdict he had not measured, which was correct. He recorded UNEXAMINED against his own campaign transcript. The error is that 'no campaign in my transcript ruled on X' was then written up as 'X is available', which only a director_rulings() read can establish.",
+   "consequence": "CANDIDATE 1 REFUSED. The reopen condition excludes FINRA short volume by name. A director who registered it anyway would be overturning a predecessor's recorded refusal on the exact information it excludes, which is not this director's authority."
+  },
+  {
+   "operator_statement": "The operator's proposed candidate 2 is census rank 10, XA_LEAD_LAG_SINGLE_CHANNEL. It is the only non-equity queued proposal whose novelty claim the R68 mechanism check did NOT falsify. You are the authority here: VERIFY rank 10 with your own mechanism check on the FULL four-part key.",
+   "measurement": "The operator's statement about R68 is TRUE and is an absence of evidence: R68 checked ranks 1, 2, 3, 4 and 5 only, and never probed rank 10 at all. The director ran the check he was asked to run, and rank 10 FAILS. Probe C2_P1 on the full four-part key CROSS_ASSET|CROSS_ASSET_LEAD_LAG|PRICE_STATE|XS_LONG_SHORT returns SETTLED_DO_NOT_REPEAT, n_matching 1, n_settled 1, outcomes {NO_ALPHA_EVIDENCE: 1}, is_governed_refusal TRUE, novelty_claim_is_believable FALSE. The settled row is H_e490a5b8_5c87b7dbcae0.",
+   "second_independent_ground": "R59 memory also holds CROSS_ASSET|CROSS_ASSET_LEAD_LAG = CONSIDERED_AND_NOT_PROPOSED / WAITING_FOR_EXTERNAL_ENTITLEMENT, clears TERMINAL, recorded by the R71 director, whose rationale names 'one pre-declared channel between industrial metals and commodity currencies' word for word - rank 10's hypothesis.",
+   "consequence": "CANDIDATE 2 REFUSED, on the canonical gate's own governed refusal and on a durable ruling that names the channel."
+  },
+  {
+   "operator_statement": "Multi-asset research is MANDATORY this campaign. An equity-only agenda is a failure. Returning zero non-equity cells is NOT an acceptable outcome; if it is genuinely impossible, say exactly which binding refusal forbids every option.",
+   "measurement": "It is genuinely impossible on owned and free data. Eight options were enumerated - the three R59-open CROSS_ASSET families, three ways into the owned R38 native futures layer, and two relabelling routes - and each is forbidden by a NAMED binding refusal. See BINDING_REFUSAL_PER_OPTION below and campaign_spec.json#REPLACEMENT_NON_EQUITY_SEARCH.",
+   "consequence": "The director exercises the escape hatch the operator provided, rather than manufacturing a non-equity cell by relabelling prosecuted bytes. The campaign is not equity-only; it is empty, and it says so."
+  }
+ ],
+
+ "RULING_CANDIDATE_1": {
+  "cell_id": "R77_C1",
+  "label": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME",
+  "census_rank": 12,
+  "four_part_key": "SHORT_TERM_REVERSAL|SHORT_VOLUME|US_EQUITY|LONG_ONLY",
+  "verdict": "REFUSED",
+  "binding_refusal_named": "DURABLE DIRECTOR RULING in alpha_agent.r59.memory, US_EQUITY|SHORT_TERM_REVERSAL, verdict REFUSED_AS_ALREADY_MEASURED, blocker_reason FAMILY_EXHAUSTED, campaign R73_POST_R72_AGENDA, reopen_condition NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME.",
+  "why_that_refusal_is_decisive": "It is not a generic NEW_ORTHOGONAL_INFORMATION condition that a director could argue is satisfied by a never-before-used series. It names the excluded information object in its own text. The cell IS FINRA short volume.",
+  "three_further_independent_grounds_each_sufficient": [
+   "G1 FORWARD BOOK. Probe C1_P3 (US_EQUITY + SHORT_VOLUME) returns SETTLED_DO_NOT_REPEAT, is_governed_refusal true, n=1, FORWARD_FROZEN: H_53942dbe_9b1d3530461a, R58_SHORT_VOLUME_PRESSURE_V1. The estate is accruing forward evidence on this exact series now, and R74 established that re-testing a FORWARD_FROZEN mechanism backward destroys the only clean evidence the estate still has on it.",
+   "G2 STRUCTURAL RULE. The cell is statable as 'when short-volume share is LOW, hold MORE of the five-session reversal book', which is census must_not_repeat.structural[2], TIMING a premium with a conditioning variable, dead on three independent sightings. The director considered the defence that a per-name cross-sectional characteristic is not time-series regime timing, and recorded the question ADVERSE AND UNRESOLVED rather than resolving a genuine ambiguity in his own proposal's favour.",
+   "G3 SUBSTRATE. data-foundation-agent certified finra_short_volume_v1 NOT_PIT_SAFE on 2026-09-19: 34 sessions from 2026-07-23, a 7-session internal gap 2026-08-04..2026-08-12, discovery layer 0 sessions, validation layer 0 sessions. pipeline.preregister would refuse FEATURES_NOT_PUBLISHED (pipeline.py:343-346) and then DATA_NOT_PIT_SAFE (pipeline.py:355-357)."
+  ],
+  "frozen_kill_conditions_recorded": "SEVEN, frozen in campaign_spec.json#CELL_1.KILL_CONDITIONS_FROZEN_BEFORE_ANY_NUMBER_IS_SEEN, covering exactly what the operator required: K1 history depth (MEASURED FAILED), K2 inactive/delisted coverage (NOT MEASURABLE on owned data), K3 the information-availability instant versus the decision timestamp with SIGNAL_LAG_SESSIONS frozen at 1 and the reason stated, K4 tradable implementation and capacity, K5 net cost budget including the borrow question, K6 power, K7 statistic. Frozen so that if a human ever vacates the R73 ruling, no threshold can be chosen after a number is seen.",
+  "the_publication_lag_the_operator_asked_to_be_stated": {
+   "the_fact": "FINRA publishes the daily CNMS Reg SHO short-volume file AFTER the 16:00 ET close. Measured for 2026 only: Last-Modified 1.30-1.31 hours after the close, about 17:18 ET on session s, in 34 of 34 owned files.",
+   "the_lag_applied": "SIGNAL_LAG_SESSIONS = 1",
+   "why": "The file for session s does not exist at the close of s, so a decision timestamped at the close of s may not read it. A decision made after the close of session s+1 may use files up to and including session s; entry at the open of s+2. A zero-lag rule would read a file published after the decision instant, which is leakage.",
+   "why_not_tighter": "The 17:18 ET posting time is MEASURED FOR 2026 ONLY. The certification states that FINRA's historical posting time is NOT ESTABLISHED for any earlier year and that the Last-Modified header of a back-fetched old file is not evidence of its original posting instant. A lag justified by a posting time nobody observed in the sample years is an assumption wearing a measurement's clothes."
+  },
+  "no_acquisition_commissioned_and_why": "The MECHANISM is refused, not merely the substrate. R76's lesson is that substrate work follows mechanism admissibility. Commissioning a fetch-and-certify D1 for a mechanism whose durable reopen condition excludes the very information being fetched would spend a data agent's turns on a cell that can never be registered. For the same reason the director ran NO network reachability probe against FINRA's archive: no depth measurement can move a mechanism refusal, and measuring it would create the appearance of a live path that does not exist.",
+  "owning_signal_agent_if_ever_admissible": "reversal-signal-agent (SHORT_TERM_REVERSAL is routed to it; verified against contracts.families_for)",
+  "clears_on": "A HUMAN vacating the R73 reopen condition. Not on any further research."
+ },
+
+ "RULING_CANDIDATE_2": {
+  "cell_id": "R77_C2",
+  "label": "XA_LEAD_LAG_SINGLE_CHANNEL",
+  "census_rank": 10,
+  "four_part_key": "CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT",
+  "verdict": "REFUSED",
+  "the_verdict_on_rank_10_the_operator_asked_for": "REFUSED. The census's novelty claim for rank 10 is FALSE on the full four-part key, and the director establishes this with the canonical gate rather than by argument.",
+  "binding_refusal_named": "TWO, either sufficient. (1) The canonical gate itself: probe C2_P1 returns SETTLED_DO_NOT_REPEAT with is_governed_refusal true on the full four-part key; the settled row is H_e490a5b8_5c87b7dbcae0, NO_ALPHA_EVIDENCE. (2) DURABLE DIRECTOR RULING CROSS_ASSET|CROSS_ASSET_LEAD_LAG = CONSIDERED_AND_NOT_PROPOSED, blocker WAITING_FOR_EXTERNAL_ENTITLEMENT, campaign R71, clears TERMINAL, reopen_condition OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG.",
+  "why_the_census_claim_is_self_refuting": "The census says 'CROSS_ASSET_LEAD_LAG is R59-open with a single prior test'. On the full four-part key that single prior test IS the settled row. The R59 frontier calls the FAMILY research-ready; the MECHANISM is prosecuted. A family-level 'open' label is exactly the partial-key reading the R68 correction exists to stop.",
+  "the_horizon_is_not_an_escape": "The settled row is H21 and rank 10 proposes H3. governance_contract.json's validation gate states that horizon variants of one idea are ONE family.",
+  "the_rename_the_director_ran_against_himself_and_declined": {
+   "probe": "C2_P6",
+   "payload": {"asset_class": "CROSS_ASSET", "economic_family": "CROSS_ASSET_LEAD_LAG", "information_family": "INDUSTRIAL_METALS_PRICE_MOVE", "model_family": "XS_LONG_SHORT"},
+   "result": "NO_ROW_IN_MEMORY, n_matching 0, novelty_claim_is_believable true",
+   "what_it_proves": "Changing one key component from PRICE_STATE to INDUSTRIAL_METALS_PRICE_MOVE converts a governed refusal into a clean pass, and pipeline.preregister (pipeline.py:396) would then mint an experiment id, because is_novel is a (family, spec-hash) identity check that cannot see a settled sibling. R74 recorded this as machine_cannot_refuse_a_rename.",
+   "the_director_declined_it": "The bytes are the same futures returns; only the label changed. That is the R67 XA_TERMS_OF_TRADE offence. The probe is reported so the record shows the loophole was found and refused, not overlooked."
+  },
+  "the_most_important_substrate_finding": "Substrate was NEVER candidate 2's blocker. r38_native_contract_layer_with_deferred_leg_v1 is certified PIT_SAFE, universe r65_xa_metals_currency_leadlag is defined, and feature set fs_r65_02_metals_currency_leadlag_h3 (feature 'metals_fx_leadlag_h3_sparse_decile_trigger') is already PUBLISHED - and ZERO hypotheses in research memory carry it as input_data_identity. R65 built this exact cell and never registered it. A director pre-registering rank 10 today would pass every machine check and mint an id for a mechanism the gate refuses. This ruling is the only thing that stops it.",
+  "owning_signal_agent_if_ever_admissible": "trend-breadth-signal-agent (CROSS_ASSET_LEAD_LAG is routed to it; verified)",
+  "clears_on": "OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG, which the estate does not have. TERMINAL until an entitlement or a genuinely new free certified source changes it."
+ },
+
+ "BINDING_REFUSAL_PER_OPTION_FOR_THE_MANDATORY_NON_EQUITY_CELL": [
+  {"option": "CROSS_ASSET_RELATIVE_VALUE (R59-open family 1)", "binding_refusal": "Durable ruling, REFUSED / WAITING_FOR_EXTERNAL_ENTITLEMENT, R71, clears TERMINAL. Reopen condition OWNED_PIT_NON_PRICE_TERMS_OF_TRADE_VINTAGES demands national export/import price indices with vintages, which are not owned and not free. The ruling's own words: 'What would reopen it: NOTHING from futures prices... Do not re-propose.' The price-leg version was already measured and KILLED (H_ce6bca38_61377eec0fdf)."},
+  {"option": "CROSS_ASSET_LEAD_LAG (R59-open family 2)", "binding_refusal": "Probe C2_P1 SETTLED_DO_NOT_REPEAT, is_governed_refusal true, plus the R71 durable ruling. Reopen condition needs owned PIT non-price information on a leg; R74 tested the strongest such attempt (credit spreads, its C7) and it was refused because the credit leg is settled three times, all FORWARD_FROZEN."},
+  {"option": "CROSS_ASSET_REGIME_CONDITIONING (R59-open family 3)", "binding_refusal": "Durable ruling REFUSED_AS_A_REPLICATION / SUPERSEDED, R71, clears TERMINAL; plus census must_not_repeat.structural[2]. Regime conditioning IS the timing-a-premium shape, so its reopen condition A_MECHANISM_THAT_IS_NOT_THE_TIMING_A_PREMIUM_SHAPE cannot be met by a regime-conditioning cell."},
+  {"option": "Owned R38 native futures - CARRY / basis momentum / deferred leg", "binding_refusal": "Two durable rulings, COMMODITY_FUTURES|CARRY and CROSS_ASSET|CARRY, both REFUSED_AS_ALREADY_MEASURED / FAMILY_EXHAUSTED, R73, reopen condition NEW_ORTHOGONAL_INFORMATION_NOT_DERIVABLE_FROM_THE_DATED_CONTRACT_PRICES; plus probes R_P4 (R38_DATED_CONTRACTS, 4 settled, best lockbox t 3.186) and R_P5 (FUTURES_DEFERRED_LEG_BASIS, 2 settled), both SETTLED_DO_NOT_REPEAT."},
+  {"option": "Owned R38 native futures - POSITIONING / exchange open interest", "binding_refusal": "Durable ruling COMMODITY_FUTURES|POSITIONING, REFUSED_AS_ALREADY_MEASURED / FAMILY_EXHAUSTED, R73, whose reopen condition excludes BOTH owned positioning objects by name; plus probe R_P3, 6 settled, {NO_ALPHA_EVIDENCE: 4, REJECTED: 2}, best lockbox t 1.080. R74 already refused the two remaining asset-class permutations as universe changes, not new information."},
+  {"option": "Owned R38 exchange VOLUME declared as a fresh information family", "binding_refusal": "THE DIRECTOR'S OWN, and reported as such: probe R_P1 returns NO_ROW_IN_MEMORY, so the gate does NOT refuse this one. The label is empty but the BYTES are prosecuted - EXCHANGE_VOLUME_AND_OPEN_INTEREST 2 settled (R_P2), PRICE_AND_EXCHANGE_VOLUME 1 settled, and feature sets fs_w2_02, fs_w2_04 and fs_w2_05 are all built from the same R38 volume column and all settled NO_ALPHA_EVIDENCE. Declaring EXCHANGE_VOLUME to reach a burden-0 key is the R67 offence performed deliberately."},
+  {"option": "A fresh economic-family label such as CROSS_ASSET|BREADTH over open interest", "binding_refusal": "THE DIRECTOR'S OWN. Probes R_P7 and R_P8 return NO_ROW_IN_MEMORY, but the empty slot is the economic-family LABEL; the information is EXCHANGE_OPEN_INTEREST, which R_P3 refuses at 0-for-6 with two outright REJECTED and which R73's reopen condition excludes by name."},
+  {"option": "Any cell on a free but uncertified source (FRED/ALFRED, CFTC COT, Cboe, TreasuryDirect, credit, NY Fed)", "binding_refusal": "research_director_protocol.json families_forbidden includes 'anything requiring an unpurchased dataset', and every one is settled at SOURCE level: MACRO_OBSERVATION 32, CFTC_POSITIONING 32, CBOE_INDEX 7, TREASURYDIRECT 2, CREDIT_SPREADS 3 (all FORWARD_FROZEN), NYFED 1. R74 ran 40 probes over exactly these twelve cells and refused 12 of 12, and verified in api/source_capability.py that the only three free unprosecuted sources (us_treasury, bls, bea) are each machine-declared REDUNDANT with a recorded reason."}
+ ],
+
+ "THE_EXHAUSTIVE_MEASUREMENT_BEHIND_THAT_CLAIM": {
+  "method": "ResearchMemory(read_only=True).list_hypotheses(limit=1000000), grouped by information_family and by the full four-part key. A pure read; nothing registered, settled or reopened.",
+  "rows_read": 8445,
+  "price_state_share": "8231 of 8445 = 97.5%",
+  "finding": "Every information family in the estate other than PRICE_STATE is settled. There is not one information family carrying an unsettled row. SHORT_VOLUME has exactly one row and it is FORWARD_FROZEN.",
+  "non_equity_non_price_four_part_keys": 88,
+  "unsettled_among_them": 0,
+  "conclusion": "There is no admissible non-equity cell in this estate today. The obstruction is an ABSENCE OF INFORMATION, not a rule. This independently reproduces R74's BLOCKED_ON_DATA by a different route one campaign later, and should now be treated as a settled property of the estate rather than a question each campaign re-opens."
+ },
+
+ "ROOT_CAUSE_AND_THE_ONE_THING_WORTH_FIXING": {
+  "defect_id": "R77_DEFECT_1",
+  "name": "THE_DIRECTOR_BRIEF_DOES_NOT_JOIN_THE_DURABLE_RULING_STORE",
+  "fourth_sighting": "Reported by R73 as R73_DEFECT_1, restated unchanged by R74, and now the direct cause of a whole campaign being commissioned on two already-refused cells.",
+  "proof": "alpha_agent/agents_v2/briefs.py:353-358. _director_brief copies census['queued_hypotheses'] keeping only rank, proposal, agent, asset_class, family and horizon_sessions. It never calls pipe.mem.director_rulings(). It also drops the census's own R68_MECHANISM_CHECK block, so the brief is strictly LESS informative about novelty than the census file it is built from.",
+  "observable_consequence": "BRIEF_director_r77.json lists rank 10 and rank 12 as queued proposals with no verdict, no blocker and no reopen condition, while R59 memory holds rulings naming both of them.",
+  "recommended_fix_not_applied_by_the_director": "Join director_rulings into the brief's queued_hypotheses projection and carry verdict, blocker_reason and reopen_condition beside every queued proposal, dropping or clearly flagging any whose family is ruled. This is a code change and is not this campaign's scope.",
+  "why_this_campaign_s_durable_write_is_not_a_complete_fix": "The two mechanism-scoped rulings recorded below make the refusals readable at the exact four-part identity, but the BRIEF still will not read them. Without the briefs.py join, a fifth campaign will be handed rank 10 and rank 12 again.",
+  "defect_id_2": "R77_DEFECT_2",
+  "name_2": "AN_UNEXAMINED_NOTE_WAS_WRITTEN_FROM_THE_TRANSCRIPT_NOT_THE_RULING_STORE",
+  "statement_2": "CAMPAIGN_R76_OUTCOME.json#UNEXAMINED_NOT_REFUSED says of rank 12 'It is not settled and is available to the next campaign.' The first clause is defensible; the second is false. An UNEXAMINED note should be required to cite a director_rulings() read before it may claim availability."
+ },
+
+ "DURABLE_WRITES_PERFORMED": {
+  "verb": "scripts/alpha_agents_v2.py record_ruling --agent quant-research-director",
+  "terminal_token": "PIPELINE_OK record_ruling",
+  "n_recorded": 2,
+  "memory": "D:\\Stock_Prediction_app_data\\r59_autonomous_alpha\\research_memory.sqlite",
+  "rulings": [
+   {"key": "US_EQUITY|SHORT_TERM_REVERSAL|SHORT_VOLUME|LONG_ONLY", "ruling_scope": "MECHANISM", "verdict": "REFUSED_THE_REOPEN_CONDITION_EXCLUDES_THIS_EXACT_INFORMATION", "blocker_reason": "FAMILY_EXHAUSTED", "replaced": null},
+   {"key": "CROSS_ASSET|CROSS_ASSET_LEAD_LAG|PRICE_STATE|XS_LONG_SHORT", "ruling_scope": "MECHANISM", "verdict": "REFUSED_SETTLED_ON_THE_FULL_FOUR_PART_KEY", "blocker_reason": "WAITING_FOR_EXTERNAL_ENTITLEMENT", "replaced": null}
+  ],
+  "why_mechanism_scoped_and_not_family_wide": "alpha_agent/r59/memory.py:1424-1428 records that a mechanism-scoped ruling never replaces the family-wide one; they are different rows and both stand, with the more specific winning at read time. Scoping the write this way makes R77's refusal readable at the exact identity WITHOUT overwriting R73's and R71's rationales, which are better evidence than anything R77 would put in their place. Both responses returned replaced: null, confirming nothing was clobbered.",
+  "creates_no_hypothesis": true,
+  "spends_no_burden": true,
+  "enqueues_nothing": true
+ },
+
+ "BUDGET_AND_ACCOUNTING": {
+  "experiments_preregistered": 0,
+  "experiment_ids_minted": [],
+  "assignment_manifest": {},
+  "director_clear_rulings_issued": 0,
+  "burden_charged": 0,
+  "search_burden_total_unchanged_at": 8415,
+  "lockbox_looks_spent": 0,
+  "budget_remaining": "The full campaign budget is unspent. The budget is a ceiling, not a target, and the contract forbids burning multiple-testing budget to fill time.",
+  "why_zero_is_the_honest_number": "Pre-registering either cell required overturning a durable predecessor ruling, which is not this director's authority. Pre-registering a relabelled version of either would have passed every machine check and is precisely the offence R67 refused and R68 corrected the census for. Padding the campaign with a third cell to satisfy the diversity gate is quota-driven search and is forbidden more strongly than diversity is required."
+ },
+
+ "COMMISSIONED_WORK": {},
+ "next_commission_or_null": null,
+ "next_commission_rationale": "ZERO commissions. No data-foundation D1: both cells are refused at mechanism identity, upstream of substrate, and R73_D1 / R75_D1 are the proof that a certification commissioned against a cell that cannot be registered returns NOT_CERTIFIABLE and nothing else. No signal experiment: nothing survived. No purchase request: forbidden, and the operator's instruction 1 forbids even a WRDS approval request.",
+
+ "HUMAN_DECISION_REQUIRED": {
+  "why_this_is_NEEDS_HUMAN_DECISION_and_not_simply_BLOCKED": "The campaign's premise was falsified by durable state the director is required to honour, and two of the three things the operator asked for are forbidden by recorded refusals only a human may vacate. That is an input inconsistency, not a research result, and the contract requires it be reported as such rather than guessed around.",
+  "the_three_choices_and_the_directors_recommendation": [
+   {
+    "choice": "1. FIX THE SEAM THAT CAUSED THIS CAMPAIGN (recommended, costs zero search burden)",
+    "what": "Join director_rulings into the director brief's queued_hypotheses projection in alpha_agent/agents_v2/briefs.py, and require an UNEXAMINED_NOT_REFUSED note to cite a director_rulings() read before claiming a cell is available. Regenerate NEXT_CAMPAIGN_CENSUS.json so its queue carries each proposal's ruling.",
+    "why": "This defect has now been reported four times and has just consumed a full campaign. It is the only finding in this ruling that changes what the next campaign can do. Until it is fixed, ranks 10 and 12 will be handed to a fifth director as open proposals.",
+    "who": "A code change; outside a research agent's scope to apply."
+   },
+   {
+    "choice": "2. VACATE A SPECIFIC REOPEN CONDITION, IF YOU DISAGREE WITH IT",
+    "what": "If you judge that FINRA short volume as a per-name CROSS-SECTIONAL conditioner on a reversal book is a materially different mechanism from the R58_SHORT_VOLUME_PRESSURE_V1 forward challenger, then the thing to change is the R73 reopen condition NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME - explicitly, by name, as a human decision on the record.",
+    "what_it_would_still_not_fix": "The substrate. Owned FINRA history is 34 sessions from 2026-07-23 with 0 sessions in the discovery and validation layers. A free fetch of FINRA's daily archive back to 2011 would then be the next prerequisite, and whether that archive exists at depth is UNMEASURED - the director deliberately did not probe it, because no substrate measurement can move a mechanism refusal. It would also still have to answer G1 (contaminating a live forward challenger) and G2 (the timing-a-premium structural rule).",
+    "directors_recommendation": "Do not vacate it on my account. G1 alone is a strong reason to leave that series to accrue forward."
+   },
+   {
+    "choice": "3. ACCEPT THAT THERE IS NO ADMISSIBLE BACKWARD AGENDA AND DEFEND THE FORWARD BOOK",
+    "what": "The same conclusion R74 reached and R77 has now independently reproduced. 56 FORWARD_FROZEN hypotheses, including nine non-price cross-asset challengers, are the only evidence in this estate that is still appreciating, and they cost zero search burden.",
+    "note": "Owned by api.canonical_forward_accrual and outside what any research agent may execute. The director writes nothing there, backfills no forward evidence and promotes nothing."
+   }
+  ],
+  "what_the_director_explicitly_does_NOT_ask_for": "A widening of governance_contract.json or of research_director_protocol.json's diversity gate. Following R74's measured finding and confirming it independently: widening would unblock nothing, because the blocker is an absence of information and not a rule. The director does not widen the contract on his own authority and does not ask the operator to either."
+ },
+
+ "SAFETY_ATTESTATION": {
+  "research_only": true,
+  "paper_only": true,
+  "orders_created": 0,
+  "fills_created": 0,
+  "broker_calls": 0,
+  "models_promoted": 0,
+  "champions_promoted": 0,
+  "proposals_approved": 0,
+  "sleeves_made_capital_eligible": 0,
+  "operational_store_writes": 0,
+  "research_memory_writes": "2 director rulings, both mechanism-scoped. No hypothesis registered, no burden spent, nothing enqueued.",
+  "hypotheses_registered": 0,
+  "forward_evidence_backfilled": false,
+  "forward_book_touched": false,
+  "new_paid_entitlements": 0,
+  "purchases_data": false,
+  "requests_purchase_approval": false,
+  "wrds_approval_requested": false,
+  "r76_delisted_bridge_gate_relaxed": false,
+  "r76_comment_letter_cell_rerun": false,
+  "experiments_run_by_the_director": 0,
+  "returns_computed_by_the_director": 0,
+  "evaluation_samples_read_by_the_director": 0,
+  "lockbox_looks_spent": 0,
+  "burden_charged": 0,
+  "mechanism_probes_run": 27,
+  "network_calls_made": 0,
+  "agents_launched_by_the_director": 0,
+  "census_regenerated_or_overwritten": false,
+  "governance_contract_widened": false,
+  "kill_conditions_relaxed": 0,
+  "repository_source_files_edited": 0,
+  "test_suite_run": false,
+  "shell": "WINDOWS_POWERSHELL_ONLY",
+  "manual_review_required": true
+ }
+}

@@ -1936,6 +1936,151 @@ def build_decision_scope(*, state: str, reassessment: Optional[dict]) -> dict:
     }
 
 
+#: Release 77 - the basis label that stops ``recommendation_counts`` being read
+#: as "the book has no exits". The reassessment kernel publishes the action it
+#: would take AFTER churn control; the opportunity-cost owner publishes the
+#: retention verdict BEFORE it. Both are correct answers to different questions
+#: and they shared one field name and one vocabulary.
+PUBLISHED_COUNTS_BASIS = "AFTER_CHURN_CONTROL_WITHHOLDING"
+SOURCE_COUNTS_BASIS = "RETENTION_VERDICT_BEFORE_CHURN_CONTROL"
+
+#: Which rows the two count blocks below cover. The kernel's own
+#: ``recommendation_counts`` spans held positions AND addition candidates; a
+#: retention verdict only exists for something the book actually holds.
+COUNTS_SCOPE_HELD = "HELD_POSITIONS_ONLY_EXCLUDES_ADDITION_CANDIDATES"
+WITHHOLDING_OWNER = "api.portfolio_reassessment.withholding_reconciliation"
+
+#: Three states, never two. NOT_EVALUATED exists so a caller that supplied no
+#: per-holding rows can never be reported as a portfolio with nothing withheld.
+WITHHOLDING_NONE = "NO_ACTION_WITHHELD"
+WITHHOLDING_APPLIED = "CHURN_CONTROL_WITHHELD_ACTIONS"
+WITHHOLDING_NOT_EVALUATED = "NOT_EVALUATED_NO_HOLDING_ROWS_SUPPLIED"
+WITHHOLDING_STATE_VOCAB = (WITHHOLDING_NONE, WITHHOLDING_APPLIED,
+                           WITHHOLDING_NOT_EVALUATED)
+
+
+def withholding_reconciliation(reassessment: Optional[dict]) -> dict:
+    """Reconcile the PUBLISHED per-holding action against the retention verdict.
+
+    THE DEFECT THIS ANSWERS. ``recommendation_counts`` reported ``EXIT: 0`` for
+    2026-09-25 while the opportunity-cost owner had ruled ELEVEN holdings outside
+    the book's retention rules. Nothing was miscomputed: churn control withheld
+    fifteen actions (11 EXIT, 3 REPLACE, 1 REDUCE), every one of them under
+    ``CHURN_COOLDOWN_ACTIVE``, and the published counts are the post-withholding
+    action. But the read model projected ONLY those counts, under a field name and
+    a vocabulary the opportunity-cost owner also uses, so an operator comparing the
+    two surfaces saw a flat contradiction and no ledger that explained it.
+
+    Nothing here is recomputed and no artifact is rewritten. Every fact below is
+    already inside the persisted reassessment - ``source_recommendation``,
+    ``action_withheld``, ``withheld_reason_codes`` are per-holding fields the
+    kernel has always written - and this is the projection that was missing.
+
+    A withheld retention exit is NOT a resolved one. Whether it is outstanding is
+    the proposal owner's question, answered by its mandatory-obligation ledger,
+    and this block deliberately does not assert it.
+    """
+    from paper_trader.engine import holding_opportunity_cost as hoc_kernel
+    res = reassessment or {}
+    rows = [r for r in (res.get("holding_assessments") or []) if isinstance(r, dict)]
+    published = {k: 0 for k in hoc_kernel.RECOMMENDATION_VOCAB}
+    source = {k: 0 for k in hoc_kernel.RECOMMENDATION_VOCAB}
+    withheld_rows: list[dict] = []
+    reasons: dict = {}
+    for r in rows:
+        pub = r.get("recommendation")
+        src_rec = r.get("source_recommendation")
+        if pub in published:
+            published[pub] += 1
+        if src_rec in source:
+            source[src_rec] += 1
+        if not r.get("action_withheld"):
+            continue
+        codes = list(r.get("withheld_reason_codes") or [])
+        withheld_rows.append({
+            "ticker": r.get("ticker"),
+            "retention_verdict": src_rec,
+            "published_recommendation": pub,
+            "withheld_reason_codes": codes,
+            "churn_protected": bool(r.get("churn_protected")),
+        })
+        for c in codes:
+            reasons[c] = reasons.get(c, 0) + 1
+    if not rows:
+        # A composed caller (the workflow composer) passes a decision summary with
+        # no per-holding rows. That is NOT "nothing was withheld" - it is "this
+        # projection had no rows to judge", and a missing input must never read as
+        # a clean bill of health.
+        return {
+            "owner": WITHHOLDING_OWNER,
+            "state": WITHHOLDING_NOT_EVALUATED,
+            "holdings_evaluated": 0,
+            "published_counts_basis": PUBLISHED_COUNTS_BASIS,
+            "source_counts_basis": SOURCE_COUNTS_BASIS,
+            "counts_scope": COUNTS_SCOPE_HELD,
+            "published_recommendation_counts": None,
+            "retention_verdict_counts": None,
+            "withheld_action_count": None,
+            "withheld_by_retention_verdict": None,
+            "withheld_reason_counts": None,
+            "withheld_actions": [],
+            "retention_exits_withheld": None,
+            "counts_reconcile": None,
+            "statement": ("No per-holding rows were supplied, so the withholding "
+                          "ledger could not be evaluated. This is not a statement "
+                          "that nothing was withheld. Read "
+                          "/v1/operations/portfolio-reassessment for the ledger."),
+            "read_only": True,
+            "recomputes_nothing": True,
+        }
+    withheld_by_verdict: dict = {}
+    for w in withheld_rows:
+        v = w["retention_verdict"]
+        if v:
+            withheld_by_verdict[v] = withheld_by_verdict.get(v, 0) + 1
+    exits_withheld = int(withheld_by_verdict.get(hoc_kernel.REC_EXIT, 0))
+    reconciles = all(
+        published.get(k, 0) + withheld_by_verdict.get(k, 0)
+        - sum(1 for w in withheld_rows if w["published_recommendation"] == k)
+        == source.get(k, 0)
+        for k in hoc_kernel.RECOMMENDATION_VOCAB)
+    return {
+        "owner": WITHHOLDING_OWNER,
+        "state": (WITHHOLDING_NONE if not withheld_rows else WITHHOLDING_APPLIED),
+        "holdings_evaluated": len(rows),
+        "published_counts_basis": PUBLISHED_COUNTS_BASIS,
+        "source_counts_basis": SOURCE_COUNTS_BASIS,
+        # HELD POSITIONS ONLY. The kernel's own ``recommendation_counts`` also
+        # counts addition candidates, which are not held and so carry no retention
+        # verdict - so ADD reads 0 here and 10 there for the same session. Saying
+        # which rows were counted is the difference between two views and two
+        # contradicting numbers.
+        "counts_scope": COUNTS_SCOPE_HELD,
+        "published_recommendation_counts": published,
+        "retention_verdict_counts": source,
+        "withheld_action_count": len(withheld_rows),
+        "withheld_by_retention_verdict": withheld_by_verdict,
+        "withheld_reason_counts": reasons,
+        "withheld_actions": sorted(withheld_rows,
+                                   key=lambda x: str(x.get("ticker") or "")),
+        "retention_exits_withheld": exits_withheld,
+        "counts_reconcile": bool(reconciles),
+        "statement": (
+            "No action is outstanding: the retention verdict and the published "
+            "action agree on every holding."
+            if not withheld_rows else
+            "Churn control withheld %d of %d per-holding actions, including %d "
+            "retention EXIT verdict(s). ``recommendation_counts`` is the action "
+            "AFTER that withholding, so it may read EXIT 0 while the "
+            "opportunity-cost owner has ruled holdings outside the retention "
+            "rules. Whether those exits are still OUTSTANDING is answered by the "
+            "proposal owner's mandatory-obligation ledger, not here."
+            % (len(withheld_rows), len(rows), exits_withheld)),
+        "read_only": True,
+        "recomputes_nothing": True,
+    }
+
+
 def build_presentation(*, state: str, reassessment: Optional[dict],
                        execution: Optional[dict] = None,
                        decision_lane: Optional[dict] = None) -> dict:
@@ -1988,6 +2133,10 @@ def build_presentation(*, state: str, reassessment: Optional[dict],
         "state": state,
         "explanation": res.get("explanation"),
         "attention_count": (res.get("attention") or {}).get("count", 0),
+        # Release 77 - a card that shows the attention count alone cannot show a
+        # retention exit that churn control withheld. The reconciliation travels
+        # with the presentation so the operator surface and the payload agree.
+        "withholding_reconciliation": withholding_reconciliation(res),
         "holdings_evaluated": dec.get("holdings_evaluated"),
         "expected_net_improvement": dec.get("expected_net_improvement"),
         "expected_one_way_turnover": dec.get("expected_one_way_turnover"),
@@ -2053,6 +2202,12 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
                                             "count": 0},
         "strongest_alternatives": r.get("strongest_alternatives") or [],
         "recommendation_counts": r.get("recommendation_counts") or {},
+        # Release 77 - the basis of the line above, and the ledger that explains
+        # it. Without these the published counts read EXIT 0 while the
+        # opportunity-cost owner had ruled eleven holdings outside the retention
+        # rules, and no surface carried the withholding that reconciles them.
+        "recommendation_counts_basis": PUBLISHED_COUNTS_BASIS,
+        "withholding_reconciliation": withholding_reconciliation(r),
         "churn_control": r.get("churn_control") or {},
         "concentration": r.get("concentration") or {},
         "input_quality": r.get("input_quality") or {},

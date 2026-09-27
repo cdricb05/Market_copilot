@@ -1191,9 +1191,24 @@ def build_proposal(*, input_contract: dict, policy: Optional[dict] = None) -> di
                 # The ledger of the WHOLE repair: the final target, every adjustment
                 # in order, every constraint that reshaped, the final verification.
                 reoptimisation["best_feasible_target"] = again["best_feasible_target"]
+                # R77 - stamp the round on every adjustment as it merges. This log
+                # is CONCATENATED across rounds while ``turnover`` below is REPLACED
+                # by the last round's ledger, so an unstamped log published a
+                # superseded round's "15 trades deferred" note beside a final ledger
+                # that deferred none. The rows are unchanged apart from the stamp:
+                # the log stays the full record of how the target was reached.
+                _round_no = len(reoptimisation["risk_contribution_repair_rounds"])
+                _prior = [dict(a, repair_round=a.get("repair_round", 0))
+                          if isinstance(a, dict) else a
+                          for a in (reoptimisation.get("constraint_adjustments")
+                                    or [])]
                 reoptimisation["constraint_adjustments"] = (
-                    list(reoptimisation.get("constraint_adjustments") or [])
-                    + list(again.get("constraint_adjustments") or []))
+                    _prior
+                    + [dict(a, repair_round=_round_no) if isinstance(a, dict) else a
+                       for a in (again.get("constraint_adjustments") or [])])
+                reoptimisation["constraint_adjustment_rounds"] = _round_no
+                reoptimisation["adjustment_log_is_cumulative_across_rounds"] = True
+                reoptimisation["final_ledger_describes_last_round_only"] = True
                 reoptimisation["constraints_that_reshaped"] = sorted(
                     set(reoptimisation.get("constraints_that_reshaped") or [])
                     | set(again.get("constraints_that_reshaped") or []))

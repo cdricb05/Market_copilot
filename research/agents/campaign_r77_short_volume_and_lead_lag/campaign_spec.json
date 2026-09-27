@@ -1,0 +1,2140 @@
+{
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "contract": "research/agents/governance_contract.json",
+ "campaign_id": "R77_SHORT_VOLUME_AND_CROSS_ASSET_LEAD_LAG",
+ "campaign_class": "TWO_CELL_ADMISSIBILITY_ADJUDICATION",
+ "authored_by": "quant-research-director",
+ "authored_on": "2026-09-26",
+ "frozen": true,
+ "spec_status": "FROZEN__BOTH_CELLS_REFUSED_ON_MEASURED_GROUNDS",
+ "ONE_PARAGRAPH": "This campaign was commissioned on two cells the operator believed open: census rank 12 (EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME, recorded UNEXAMINED by R76) and census rank 10 (XA_LEAD_LAG_SINGLE_CHANNEL, the only non-equity queued proposal the R68 mechanism check had not falsified). The director ran the real four-part mechanism check on both and queried the durable director-ruling store, and BOTH premises are false. Rank 10's FULL four-part key CROSS_ASSET|CROSS_ASSET_LEAD_LAG|PRICE_STATE|XS_LONG_SHORT returns SETTLED_DO_NOT_REPEAT with is_governed_refusal true - the canonical gate's own refusal, not the director's opinion. Rank 12 returns NO_ROW_IN_MEMORY on its label but is the subject of a DURABLE DIRECTOR RULING already in R59 memory, recorded by the R73 director, which names census rank 12 explicitly and whose reopen condition is verbatim NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME. The reopen condition names and excludes the exact information this campaign was told to use. Zero experiments are pre-registered. The root cause is a reported, still-unfixed defect: the director brief copies the census queue verbatim and never joins the director-ruling store, so a durably refused cell is re-presented to every new director as an open proposal.",
+ "experiments_preregistered": 0,
+ "experiment_ids_minted": [],
+ "lockbox_looks_spent": 0,
+ "burden_charged": 0,
+ "assignment_manifest": {},
+ "durable_writes": [
+  "two MECHANISM-SCOPED director rulings (see DIRECTOR_R77_RULING.json); no hypothesis, no burden, no forward registration"
+ ],
+ "forward_registrations_touched": [],
+ "PRIOR_STATE_VERIFIED_NOT_ASSUMED": {
+  "search_burden_total": 8415,
+  "qualified_survivors": 0,
+  "source": "BRIEF_director_r77.json METRICS block",
+  "settled_rows_read": 8445,
+  "read_method": "alpha_agent.r59.memory.ResearchMemory(read_only=True).list_hypotheses + .director_rulings() + .mechanism_state via the canonical CLI. Pure reads.",
+  "certified_datasets_read": "alpha_agent.agents_v2.pipeline._events(EV_DATA/EV_UNIVERSE/EV_FEATURES)"
+ },
+ "CELL_1": {
+  "cell_id": "R77_C1",
+  "label": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME",
+  "census_rank": 12,
+  "operator_premise": "R76's CAMPAIGN_R76_OUTCOME.json#UNEXAMINED_NOT_REFUSED records this cell as 'UNEXAMINED and asserted no verdict. It is not settled and is available to the next campaign.'",
+  "director_verdict": "REFUSED",
+  "the_operator_premise_is_false_and_here_is_why": "R76's director did not probe it and honestly said so. But 'the R76 director did not rule on it' is not the same fact as 'the estate has not ruled on it'. The R73 director HAD already ruled on it, durably, in research memory, three campaigns earlier, naming census rank 12 in the rationale text. R76 recorded UNEXAMINED against the campaign transcript rather than against the durable ruling store, and the operator inherited that.",
+  "four_part_mechanism_key": {
+   "asset_class": "US_EQUITY",
+   "economic_family": "SHORT_TERM_REVERSAL",
+   "information_family": "SHORT_VOLUME",
+   "expression_model_family": "LONG_ONLY",
+   "canonical_family_key_string": "SHORT_TERM_REVERSAL|SHORT_VOLUME|US_EQUITY|LONG_ONLY",
+   "model_family_is_derived_not_chosen": "alpha_agent/agents_v2/pipeline.py:391 sets model_family = 'XS_LONG_SHORT' if long_short else 'LONG_ONLY'. The census records rank 12 long_short=false, so LONG_ONLY is the key the pipeline would build. The XS_LONG_SHORT variant was probed too (C1_P10) so the refusal cannot be escaped by flipping the book."
+  },
+  "hypothesis_as_queued": "Five-session losers rebound more when the selling was NOT short-driven (low FINRA short-volume share): non-informational selling is what liquidity provision is paid for.",
+  "expected_sign_as_queued": -1,
+  "long_short_as_queued": false,
+  "horizon_sessions_as_queued": 5,
+  "BINDING_REFUSAL": {
+   "kind": "DURABLE_DIRECTOR_RULING_IN_R59_MEMORY",
+   "owner": "alpha_agent.r59.memory.ResearchMemory.director_rulings",
+   "read_by": "& ...python.exe -c ResearchMemory(None, read_only=True).director_rulings()",
+   "row_verbatim": {
+    "asset_class": "US_EQUITY",
+    "economic_family": "SHORT_TERM_REVERSAL",
+    "information_family": "*",
+    "model_family": "*",
+    "verdict": "REFUSED_AS_ALREADY_MEASURED",
+    "blocker_reason": "FAMILY_EXHAUSTED",
+    "reopen_condition": "NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME",
+    "campaign_id": "R73_POST_R72_AGENDA",
+    "decided_by": "quant-research-director",
+    "source_artifact": "research/agents/campaign_r73_post_r72_agenda/DIRECTOR_R73_RULING.json",
+    "updated_at": "2026-09-25T19:07:14+00:00",
+    "ruling_scope": "ECONOMIC_FAMILY",
+    "rationale": "Census ranks 9 and 12 both re-propose H5 reversal in US equities. Rank 9 is measured: H_33091e17_f54d875405f5 ('P8 Small-cap H5 liquidity-provision reversal, Russell 2000 point-in-time members, 100 lowest trailing 5-session total return') was KILLED by the skeptic, and a second construction H_2da223a3_b3a63be33bcc (turnover-weighted immediacy) is pre-registered and unmeasured. Rank 12's conditioning variable is not new information either: FINRA:SHORT_VOLUME is a declared information object of the CLOSED mechanism FAILS_TO_DELIVER_AND_SHORT_INTEREST, and R58_SHORT_VOLUME_PRESSURE_V1|SHORT_VOLUME|US_EQUITY|RANK_TOPN is already FORWARD_FROZEN - the estate is accruing forward evidence on that series and must not re-test it backward. The reversal leg itself carries 18 settled SHORT_HORIZON_REVERSAL rows and a closed SHORT_HORIZON_REVERSAL_GAP_FADE mechanism."
+   },
+   "why_this_is_decisive_and_not_merely_relevant": "The reopen condition is not a generic NEW_ORTHOGONAL_INFORMATION that a director may argue is satisfied. It names the excluded information object in its own text: '...THAT_IS_NOT_FINRA_SHORT_VOLUME'. The cell this campaign was commissioned to register IS FINRA short volume. There is no reading on which the condition is met, and a director who registered it anyway would be overturning a predecessor's recorded refusal on the exact information it excludes.",
+   "who_may_overturn_it": "Not this director. Widening or vacating a recorded refusal on the information it names is a human decision, and governance_contract.json is not widened on director authority."
+  },
+  "THREE_FURTHER_INDEPENDENT_GROUNDS_EACH_SUFFICIENT": [
+   {
+    "ground": "G1_FORWARD_BOOK_CONTAMINATION",
+    "measured_by": "probe C1_P3",
+    "finding": "US_EQUITY + SHORT_VOLUME returns SETTLED_DO_NOT_REPEAT, n_matching 1, outcomes {FORWARD_FROZEN: 1}, is_governed_refusal true. The row is H_53942dbe_9b1d3530461a, R58_SHORT_VOLUME_PRESSURE_V1|SHORT_VOLUME|US_EQUITY|RANK_TOPN.",
+    "consequence": "The estate is ACCRUING forward evidence on FINRA short volume right now. R74 established that re-testing a FORWARD_FROZEN mechanism backward destroys the only clean evidence the estate still has on it. This is the estate's most expensive recorded mistake and it is not repeated here."
+   },
+   {
+    "ground": "G2_STRUCTURAL_RULE_TIMING_A_PREMIUM_WITH_A_CONDITIONING_VARIABLE",
+    "rule": "NEXT_CAMPAIGN_CENSUS.json#must_not_repeat.structural[2], 'TIMING a premium with a conditioning variable. Three independent sightings (R43, R63 macro timing lanes, index-level implied-state timing): the premium is real, the timing signal is zero.'",
+    "the_director_applied_R75s_verbal_test_verbatim_and_reports_BOTH_readings": {
+     "adverse_reading": "The cell can be stated in the forbidden form: 'when short-volume share is LOW, hold MORE of the five-session reversal book.' On that reading it is verbatim the refused shape and dies on structural[2] alone.",
+     "the_defence_the_director_considered": "The three recorded sightings are all TIME-SERIES regime timing of a premium's exposure size. Short-volume share is a per-name CROSS-SECTIONAL characteristic that selects WHICH losers to hold, not a regime state that scales the book. A two-way cross-sectional book is arguably a different object.",
+     "the_ruling": "The director does NOT need to resolve this, because G0 (the durable ruling) and G1 (forward contamination) each dispose of the cell independently. It is recorded UNRESOLVED and ADVERSE rather than resolved in the cell's favour, because resolving a genuine ambiguity in favour of one's own proposal is the behaviour the anti-overfitting budget exists to prevent."
+    }
+   },
+   {
+    "ground": "G3_SUBSTRATE_ALREADY_MEASURED_DEAD_ON_OWNED_DATA",
+    "owner": "data-foundation-agent, certification event 2026-09-19T14:04:39+00:00",
+    "dataset_id": "finra_short_volume_v1",
+    "pit_status": "NOT_PIT_SAFE",
+    "verbatim_from_the_certification_note": "DATA_HOLD for RS1 - the defect is HISTORY DEPTH, not timestamp integrity. Owned store = prospective-only collection: 34 daily CNMS files, 416,238 rows, first market date 2026-07-23, last 2026-09-18, 12,108-12,333 symbols per file. ... INTERNAL GAP: 7 consecutive sessions missing, 2026-08-04..2026-08-12 ... DIRECTOR GATE (continuous from <= 2018-01-01 with delisted members covered): FAILED. LAYER DEPTH: discovery 2011-07..2017 = 0 sessions; validation 2018..2022 = 0 sessions; lockbox 2023.. = 34 sessions. The repo already states this: alpha_agent/r58/challengers.py:296 'owned history begins 2026-07-23 ... No honest backtest is possible'.",
+    "pipeline_consequence": "alpha_agent/agents_v2/pipeline.py:343-346 refuses FEATURES_NOT_PUBLISHED (no feature set exists on this dataset), and pipeline.py:355-357 would then refuse DATA_NOT_PIT_SAFE. Pre-registration of this cell is not merely inadvisable, it is machine-refused.",
+    "why_the_director_did_NOT_commission_an_acquisition_D1": "Because the MECHANISM is refused, not the substrate. R76's lesson is that a cell must clear mechanism admissibility BEFORE substrate work is commissioned; commissioning a fetch-and-certify D1 for a mechanism whose durable reopen condition excludes the very information being fetched would burn a data agent's turns on a cell that can never be registered. The director therefore also did NOT run a network reachability probe against FINRA's archive: no depth measurement can move a mechanism refusal, and measuring it would create the appearance of a live path that does not exist."
+   }
+  ],
+  "KILL_CONDITIONS_FROZEN_BEFORE_ANY_NUMBER_IS_SEEN": {
+   "status": "FROZEN AND UNMET. These are recorded because the operator required them and because if a HUMAN ever vacates the R73 ruling, the conditions must already be frozen and must not be chosen after a coverage number is known. K1 is ALREADY MEASURED FAILED by the canonical owner; it is not re-measured here and its floor is not relaxed.",
+   "conditions": [
+    {
+     "id": "K1_HISTORY_DEPTH",
+     "pass_if": "owned FINRA daily short-volume files cover EVERY session from 2011-07-01 to the panel's last session with no missing session, so that the discovery / validation / lockbox layers each carry a non-empty sample.",
+     "state": "MEASURED_FAILED",
+     "measured_value": "34 sessions, 2026-07-23..2026-09-18, plus a 7-session internal gap 2026-08-04..2026-08-12. Discovery layer 0 sessions, validation layer 0 sessions.",
+     "on_fail": "HALT BEFORE MEASUREMENT. The floor is not shrunk to fit the two months that exist, which is exactly the refusal R73_D1 and R75_D1 both recorded."
+    },
+    {
+     "id": "K2_INACTIVE_AND_DELISTED_COVERAGE",
+     "pass_if": ">= 0.95 of point-in-time S&P 500 members that were DELISTED during the sample join the FINRA file on their contemporaneous ticker on >= 95% of their in-universe sessions, AND the false-match rate from ticker recycling is measured at <= 0.02 on a hand-checked sample of >= 100 delisted names, with a confidence interval.",
+     "state": "NOT_MEASURABLE_ON_OWNED_DATA",
+     "measured_value": "The certification records: 'Coverage of historically delisted members cannot be measured: there is no owned history.' Over the 24 overlapping 2026 sessions a raw ticker join covered 99.0-99.6% of CURRENT members, with 4 proven spelling artifacts (BRK/B vs BRK.B, BF/B vs BF.B, AVB-202608, EA-202608) and 1 unexplained absence (VMRK).",
+     "the_structural_point_the_director_records_in_the_cells_favour": "Unlike the EDGAR bridge that killed R76, a historical FINRA daily file is CONTEMPORANEOUS: the 2013 file lists 2013's tickers, including names that later died, so a (date, ticker) join against a PIT panel is survivorship-safe in principle rather than a current-snapshot map. This is stated so the record is not unfairly adverse. It does not rescue the cell, because K1 fails and the mechanism is refused.",
+     "on_fail": "HALT BEFORE MEASUREMENT."
+    },
+    {
+     "id": "K3_INFORMATION_AVAILABILITY_INSTANT_VS_DECISION_TIMESTAMP",
+     "the_publication_fact_measured_by_the_data_agent": "FINRA publishes the daily CNMS Reg SHO short-volume file AFTER the 16:00 ET close. Measured for 2026 only: HTTP Last-Modified was 1.30-1.31 hours after the close (about 17:18 ET on session s) in 34 of 34 owned files, and the owned collector retrieved 25 of 34 before the 09:30 ET open of s+1; the other 9 were late back-fills, up to 118 hours.",
+     "the_lag_the_director_freezes": "SIGNAL_LAG_SESSIONS = 1.",
+     "why_1_and_not_0": "The file for session s does not exist at the close of s, so a decision timestamped at the close of s may not read it. The signal set for a decision made after the close of session s+1 may use files up to and including session s. Entry is at the open of s+2. A zero-lag rule would read a file published after the decision instant, which is leakage, and a same-session intraday rule would need an intraday mark this campaign does not own.",
+     "why_not_a_tighter_rule_using_the_17_18_ET_posting": "Because that posting time is MEASURED FOR 2026 ONLY. The certification states plainly: 'NOT ESTABLISHED for any year before 2026: no owned observation of FINRA's historical posting time exists, and the Last-Modified header of a back-fetched old file is not evidence of its original posting instant.' A lag justified by a posting time nobody observed in the sample years is an assumption wearing a measurement's clothes.",
+     "pass_if": "no row in the materialised feature table has an availability instant later than the decision timestamp that reads it, verified by alpha_agent.agents_v2.leakage.",
+     "on_fail": "HALT BEFORE MEASUREMENT."
+    },
+    {
+     "id": "K4_TRADABLE_IMPLEMENTATION_AND_CAPACITY",
+     "pass_if": "the book is expressible at the NEXT OPEN after the decision session on the panel's own tradable members, and the per-name dollar allocation at a declared book size is <= 1% of that name's median dollar volume over the trailing 21 sessions, for >= 95% of selected name-sessions.",
+     "on_fail": "HALT BEFORE MEASUREMENT as INEXPRESSIBLE.",
+     "note": "A five-session reversal book reselects most of its names every week. R60 measured an equity H5 cell at 0.870 one-way turnover, which at 25bp/side cost 21.9%/yr and was recorded genuinely inexpressible. Capacity, not signal, is the binding constraint on this shape."
+    },
+    {
+     "id": "K5_NET_COST_BUDGET_INCLUDING_BORROW",
+     "the_budget": "turnover_one_way x cost_per_side x 2 x rebalances_per_year <= 0.030 (3.00%/yr), with equity_cost_bps_per_side = 25 and rebalances_per_year = 252/5 = 50.4.",
+     "why_a_net_cost_budget_and_not_the_0_40_turnover_ceiling": "The R60 census records that the scalar 0.40 one-way turnover ceiling is TWO different economic constraints misspecified as one, and that it destroyed two of four non-equity cells before any return was scored. The replacement is a per-cell NET COST budget, pinned BEFORE any turnover is seen, which is the condition R60 attached to using it at all. It is pinned here, in a frozen document, before any executor exists.",
+     "borrow": "The census records this cell long_short=false, so the book is LONG-ONLY and needs NO borrow and pays no borrow cost. If any future re-specification makes it long-short, that is a NEW experiment with a NEW id charged to the burden, and it must add a measured borrow cost for the short leg on the actual names - hard-to-borrow names are exactly the high-short-volume names this signal conditions on, so an assumed flat borrow would be the cheapest possible way to manufacture an edge.",
+     "on_fail": "HALT BEFORE MEASUREMENT. The budget is not relaxed."
+    },
+    {
+     "id": "K6_POWER",
+     "pass_if": ">= 400 in-universe decision-sessions with a non-null short-volume share in EACH of the discovery, validation and lockbox layers.",
+     "on_fail": "HALT BEFORE MEASUREMENT as UNDERPOWERED, annotated NOT DEAD, following the R60 precedent that an underpowered null must never be reported as evidence of absence."
+    },
+    {
+     "id": "K7_STATISTIC",
+     "pass_if": "|Newey-West t| >= 3.00 on the mean net excess return at the LOCKBOX stage, sign equal to the frozen expected sign, AFTER the Benjamini-Hochberg correction the gate applies at the binding burden denominator.",
+     "on_fail": "NO_ALPHA_EVIDENCE. Borderline is a fail; 2.99 is a fail. A wrong sign is a kill and never a re-specification.",
+     "owner": "alpha_agent.r59.engines.gate over alpha_agent.r57.engine. ONE statistic. No IC, no Sharpe, no hit rate is promoted to a decision role."
+    }
+   ],
+   "burden_denominator_declared_before_measurement": {
+    "value": 21,
+    "how_it_is_built": "1 (this cell) + 18 (the SHORT_HORIZON_REVERSAL rows returned by probe C1_P5) + 2 (the SHORT_TERM_REVERSAL rows returned by probe C1_P4). Declared as a reopen of a settled family, which per the R68 correction inherits its parent's denominator and may never be charged to a fresh burden-0 key.",
+    "authoritative_owner": "alpha_agent.r59.handlers.search_denominator computes the binding number at registration time. A LARGER number governs. A SMALLER one does not: a director may raise his own burden and may not lower it."
+   }
+  },
+  "MECHANISM_CHECK_OUTPUT_VERBATIM": {
+   "owner": "alpha_agent.r59.memory.mechanism_state, via scripts/alpha_agents_v2.py check-mechanism",
+   "read_only_attestation": "every response carries read_only true, experiments_run 0, evaluation_samples_read 0",
+   "how_to_read_the_full_four_part_NO_ROW": "NO_ROW_IN_MEMORY on the full key is believable ONLY about the LABEL. R74 established the two-stage standard: a STAGE-1 NO_ROW is exactly what a rename returns and is never believed on its own. The STAGE-2 source-bound probes below are what kill this cell.",
+   "probes": [
+    {
+     "probe_id": "C1_P1_full_four_part",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P1_full_four_part.json",
+     "payload_verbatim": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_TERM_REVERSAL",
+      "information_family": "SHORT_VOLUME",
+      "model_family": "LONG_ONLY"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "US_EQUITY",
+       "economic_family": "SHORT_TERM_REVERSAL",
+       "information_family": "SHORT_VOLUME",
+       "model_family": "LONG_ONLY"
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_TERM_REVERSAL",
+      "information_family": "SHORT_VOLUME",
+      "model_family": "LONG_ONLY",
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family",
+       "information_family",
+       "model_family"
+      ],
+      "n_bound_components": 4,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P2_source_wide_short_volume",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P2_source_wide_short_volume.json",
+     "payload_verbatim": {
+      "information_family": "SHORT_VOLUME"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": null,
+       "economic_family": null,
+       "information_family": "SHORT_VOLUME",
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "SHORT_VOLUME",
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "information_family"
+      ],
+      "n_bound_components": 1,
+      "n_matching": 1,
+      "n_settled": 1,
+      "n_unsettled": 0,
+      "outcomes": {
+       "FORWARD_FROZEN": 1
+      },
+      "best_lockbox_t": null,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_53942dbe_9b1d3530461a"
+      ],
+      "reopen_conditions": [],
+      "family_keys": [
+       "R58_SHORT_VOLUME_PRESSURE_V1|SHORT_VOLUME|US_EQUITY|RANK_TOPN"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P3_eq_short_volume",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P3_eq_short_volume.json",
+     "payload_verbatim": {
+      "asset_class": "US_EQUITY",
+      "information_family": "SHORT_VOLUME"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "US_EQUITY",
+       "economic_family": null,
+       "information_family": "SHORT_VOLUME",
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": "US_EQUITY",
+      "economic_family": null,
+      "information_family": "SHORT_VOLUME",
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "information_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 1,
+      "n_settled": 1,
+      "n_unsettled": 0,
+      "outcomes": {
+       "FORWARD_FROZEN": 1
+      },
+      "best_lockbox_t": null,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_53942dbe_9b1d3530461a"
+      ],
+      "reopen_conditions": [],
+      "family_keys": [
+       "R58_SHORT_VOLUME_PRESSURE_V1|SHORT_VOLUME|US_EQUITY|RANK_TOPN"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P4_eq_short_term_reversal_family",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P4_eq_short_term_reversal_family.json",
+     "payload_verbatim": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_TERM_REVERSAL"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "US_EQUITY",
+       "economic_family": "SHORT_TERM_REVERSAL",
+       "information_family": null,
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_TERM_REVERSAL",
+      "information_family": null,
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 2,
+      "n_settled": 2,
+      "n_unsettled": 0,
+      "outcomes": {
+       "NO_ALPHA_EVIDENCE": 1,
+       "REJECTED": 1
+      },
+      "best_lockbox_t": -2.543276470674163,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_33091e17_f54d875405f5",
+       "H_2da223a3_b3a63be33bcc"
+      ],
+      "reopen_conditions": [
+       "NEW_ORTHOGONAL_INFORMATION",
+       "NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new experiment id, charged to the burden. This cell is NOT re-run under a changed ceiling; a ceiling chosen after a measurement is outcome-directed tuning however it is documented"
+      ],
+      "family_keys": [
+       "SHORT_TERM_REVERSAL|PRICE_AND_TURNOVER|US_EQUITY|LONG_ONLY",
+       "SHORT_TERM_REVERSAL|PRICE_STATE|US_EQUITY|LONG_ONLY"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P5_eq_short_horizon_reversal",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P5_eq_short_horizon_reversal.json",
+     "payload_verbatim": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_HORIZON_REVERSAL"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "US_EQUITY",
+       "economic_family": "SHORT_HORIZON_REVERSAL",
+       "information_family": null,
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_HORIZON_REVERSAL",
+      "information_family": null,
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 18,
+      "n_settled": 18,
+      "n_unsettled": 0,
+      "outcomes": {
+       "NO_ALPHA_EVIDENCE": 18
+      },
+      "best_lockbox_t": 0.7822460721685885,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_c6069e01_eafb6cbe5da0",
+       "H_c6069e01_3cb6e0756a53",
+       "H_c6069e01_020b11d6cfd5",
+       "H_c6069e01_e7c3547cba81",
+       "H_c6069e01_11c9219d0ad4",
+       "H_c6069e01_d5cb22d8809b",
+       "H_c6069e01_6335e0ab87bf",
+       "H_c6069e01_d6b64623605a",
+       "H_c6069e01_ab3007e96b91",
+       "H_c6069e01_7ab9e96aaccc",
+       "H_c6069e01_8dd7583fb8d6",
+       "H_c6069e01_eccc142b4904",
+       "H_c6069e01_122ff6be1880",
+       "H_c6069e01_f4ddd3b2264e",
+       "H_c6069e01_937805d2c14f",
+       "H_c6069e01_9651d52c6b8e",
+       "H_c6069e01_9d79db25b679",
+       "H_c6069e01_0b9afad9251c"
+      ],
+      "reopen_conditions": [
+       "NEW_ORTHOGONAL_INFORMATION"
+      ],
+      "family_keys": [
+       "SHORT_HORIZON_REVERSAL|PRICE_STATE|US_EQUITY|RANK_TOPN"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P6_finra_source",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P6_finra_source.json",
+     "payload_verbatim": {
+      "information_family": "FINRA"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": null,
+       "economic_family": null,
+       "information_family": "FINRA",
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "FINRA",
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "information_family"
+      ],
+      "n_bound_components": 1,
+      "n_matching": 1,
+      "n_settled": 1,
+      "n_unsettled": 0,
+      "outcomes": {
+       "NO_ALPHA_EVIDENCE": 1
+      },
+      "best_lockbox_t": null,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "HM_CLOSED_FAILS_TO_DELIVER_AND_SHORT_INTEREST"
+      ],
+      "reopen_conditions": [
+       "NEW_ORTHOGONAL_INFORMATION"
+      ],
+      "family_keys": [
+       "FAILS_TO_DELIVER_AND_SHORT_INTEREST|FINRA|US_EQUITY|CLOSED_MECHANISM_LEDGER"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P7_synonym_finra_short_volume",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P7_synonym_finra_short_volume.json",
+     "payload_verbatim": {
+      "information_family": "FINRA_SHORT_VOLUME"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": null,
+       "economic_family": null,
+       "information_family": "FINRA_SHORT_VOLUME",
+       "model_family": null
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "FINRA_SHORT_VOLUME",
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "information_family"
+      ],
+      "n_bound_components": 1,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P8_synonym_short_volume_share",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P8_synonym_short_volume_share.json",
+     "payload_verbatim": {
+      "information_family": "SHORT_VOLUME_SHARE"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": null,
+       "economic_family": null,
+       "information_family": "SHORT_VOLUME_SHARE",
+       "model_family": null
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "SHORT_VOLUME_SHARE",
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "information_family"
+      ],
+      "n_bound_components": 1,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P9_eq_mean_reversion_relabel",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P9_eq_mean_reversion_relabel.json",
+     "payload_verbatim": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "MEAN_REVERSION"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "US_EQUITY",
+       "economic_family": "MEAN_REVERSION",
+       "information_family": null,
+       "model_family": null
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": "US_EQUITY",
+      "economic_family": "MEAN_REVERSION",
+      "information_family": null,
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C1_P10_full_key_long_short_variant",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C1_P10_full_key_long_short_variant.json",
+     "payload_verbatim": {
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_TERM_REVERSAL",
+      "information_family": "SHORT_VOLUME",
+      "model_family": "XS_LONG_SHORT"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "US_EQUITY",
+       "economic_family": "SHORT_TERM_REVERSAL",
+       "information_family": "SHORT_VOLUME",
+       "model_family": "XS_LONG_SHORT"
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": "US_EQUITY",
+      "economic_family": "SHORT_TERM_REVERSAL",
+      "information_family": "SHORT_VOLUME",
+      "model_family": "XS_LONG_SHORT",
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family",
+       "information_family",
+       "model_family"
+      ],
+      "n_bound_components": 4,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    }
+   ]
+  },
+  "DATASET_AND_EXECUTOR_THAT_WOULD_HAVE_BEEN_NEEDED": {
+   "new_dataset_to_be_certified": "FINRA_SHORT_VOLUME_PIT_V2",
+   "supersedes": "finra_short_volume_v1 (NOT_PIT_SAFE, 34 sessions)",
+   "provider": "FINRA daily short-sale volume (Reg SHO), consolidated NMS (CNMS) file",
+   "cost_usd": 0,
+   "executor_module_path": "research/agents/campaign_r77_short_volume_and_lead_lag/executors.py",
+   "executor_registry_name": "eq_h5_reversal_given_short_volume",
+   "NOT_COMMISSIONED": "No D1 is commissioned and this module is NOT to be written. Recorded so the refusal is auditable, not as work."
+  },
+  "owning_signal_agent_if_it_had_been_admissible": "reversal-signal-agent",
+  "owning_agent_routing_verified": "SHORT_TERM_REVERSAL is in contracts.families_for('reversal-signal-agent'), so FAMILY_NOT_ROUTED_TO_AGENT would not have been the blocker."
+ },
+ "CELL_2": {
+  "cell_id": "R77_C2",
+  "label": "XA_LEAD_LAG_SINGLE_CHANNEL",
+  "census_rank": 10,
+  "asset_class": "CROSS_ASSET",
+  "operator_premise": "Census rank 10 is 'the only non-equity queued proposal whose novelty claim the R68 mechanism check did NOT falsify'.",
+  "the_premise_is_TRUE_as_stated_and_still_does_not_help": "R68 checked five proposals (ranks 1, 2, 3, 4, 5). It never checked rank 10 at all. So it is literally true that R68 did not falsify rank 10 - and that is an absence of evidence, not evidence of novelty. The director was told to verify it, did, and it fails.",
+  "director_verdict": "REFUSED",
+  "four_part_mechanism_key": {
+   "asset_class": "CROSS_ASSET",
+   "economic_family": "CROSS_ASSET_LEAD_LAG",
+   "information_family": "PRICE_STATE",
+   "expression_model_family": "XS_LONG_SHORT",
+   "canonical_family_key_string": "CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT",
+   "why_information_family_is_PRICE_STATE_and_not_something_newer": "The queued hypothesis is 'a large industrial-metals move leads commodity-currency futures over the next three sessions', on futures_panel_v1. A metals price move IS price state. alpha_agent/agents_v2/pipeline.py:392 defaults information_family to PRICE_STATE precisely because that is what a price feature is. Declaring a fresher information_family for a feature built from returns is the R67 TERMS_OF_TRADE offence: relabelling already-prosecuted bytes into an unused slot to reach a burden-0 key."
+  },
+  "BINDING_REFUSAL_1_THE_CANONICAL_GATE_ITSELF": {
+   "kind": "GOVERNED_REFUSAL_ON_THE_FULL_FOUR_PART_KEY",
+   "probe": "C2_P1_full_four_part",
+   "verdict": "SETTLED_DO_NOT_REPEAT",
+   "n_matching": 1,
+   "n_settled": 1,
+   "outcomes": {
+    "NO_ALPHA_EVIDENCE": 1
+   },
+   "is_governed_refusal": true,
+   "novelty_claim_is_believable": false,
+   "the_settled_row": "H_e490a5b8_5c87b7dbcae0, CROSS_ASSET|CROSS_ASSET_LEAD_LAG|PRICE_STATE|XS_LONG_SHORT, horizon 21, NO_ALPHA_EVIDENCE, reopen_condition NEW_ORTHOGONAL_INFORMATION. Title: 'A market's realised exposure to the dollar move that JUST HAPPENED keeps pricing after the move: the 252-session OLS beta of a market's return...'",
+   "this_is_not_the_directors_opinion": "This is the canonical tool's own governed refusal, is_governed_refusal true, on the exact four-part key the burden ledger counts. The census's rank-10 claim 'CROSS_ASSET_LEAD_LAG is R59-open with a single prior test' is self-refuting: on the full key, that single prior test IS the settled row. R59's frontier calls the FAMILY research-ready; the MECHANISM is prosecuted.",
+   "horizon_is_not_an_escape": "The settled row is H21 and rank 10 proposes H3. research/agents/governance_contract.json's validation gate states 'horizon variants of one idea are ONE family'. A horizon change is a variant inside the same family, not a new mechanism."
+  },
+  "BINDING_REFUSAL_2_A_DURABLE_RULING_THAT_NAMES_THIS_CELL": {
+   "kind": "DURABLE_DIRECTOR_RULING_IN_R59_MEMORY",
+   "row_verbatim": {
+    "asset_class": "CROSS_ASSET",
+    "economic_family": "CROSS_ASSET_LEAD_LAG",
+    "information_family": "*",
+    "model_family": "*",
+    "verdict": "CONSIDERED_AND_NOT_PROPOSED",
+    "blocker_reason": "WAITING_FOR_EXTERNAL_ENTITLEMENT",
+    "reopen_condition": "OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG",
+    "campaign_id": "R71_FORWARD_AND_NEW_INFORMATION",
+    "decision_date": "2026-09-25",
+    "source_artifact": "research/agents/campaign_r71_forward_and_new_information/research_director_decision.json",
+    "rationale": "CROSS_ASSET_LEAD_LAG (census rank 10) was considered and NOT proposed: one pre-declared channel between industrial metals and commodity currencies is still price state on both legs, which the campaign's own constraint forbids.",
+    "detail_note": "every candidate channel is price state on both legs, and the estate owns no non-price cross-asset information that would give either leg a different substrate. Identified, not owned, terminal until an entitlement or a free certified source changes it."
+   },
+   "clears": "TERMINAL, not on INFORMATION",
+   "the_ruling_names_the_exact_channel": "'one pre-declared channel between industrial metals and commodity currencies' is rank 10's hypothesis word for word. This cell was already considered and refused by name, and the refusal is in the durable store."
+  },
+  "THE_RENAME_THE_DIRECTOR_RAN_AGAINST_HIMSELF_AND_REFUSED_TO_TAKE": {
+   "probe": "C2_P6_relabel_metals_fx",
+   "payload": {
+    "asset_class": "CROSS_ASSET",
+    "economic_family": "CROSS_ASSET_LEAD_LAG",
+    "information_family": "INDUSTRIAL_METALS_PRICE_MOVE",
+    "model_family": "XS_LONG_SHORT"
+   },
+   "verdict": "NO_ROW_IN_MEMORY",
+   "n_matching": 0,
+   "novelty_claim_is_believable": true,
+   "what_this_demonstrates": "Changing ONE key component from PRICE_STATE to INDUSTRIAL_METALS_PRICE_MOVE converts a governed refusal into a clean novelty pass, and alpha_agent/agents_v2/pipeline.py:396 would then mint an experiment id, because is_novel is a (family, spec-hash) identity check and cannot see a settled sibling. R74 recorded this as 'machine_cannot_refuse_a_rename'. The probe is reported here precisely so the record shows the director found the loophole and declined it. The bytes are the same futures returns; only the label changed.",
+   "R67_test_applied": "R67 refused XA_TERMS_OF_TRADE because its feature was 'built entirely from returns' and the fresh information_family was a relabel. The identical test convicts this rename."
+  },
+  "KILL_CONDITIONS_FROZEN_BEFORE_ANY_NUMBER_IS_SEEN": {
+   "status": "FROZEN AND MOOT. Recorded for auditability only; the cell is refused at mechanism identity, upstream of any substrate question.",
+   "conditions": [
+    {
+     "id": "X1_MECHANISM_NOVELTY",
+     "pass_if": "the full four-part key returns NO_ROW_IN_MEMORY under check-mechanism AND no source-bound STAGE-2 probe returns SETTLED_DO_NOT_REPEAT AND no durable director ruling covers the family.",
+     "state": "MEASURED_FAILED on all three limbs (C2_P1, C2_P2/C2_P3/C2_P4/C2_P5, and the R71 ruling).",
+     "on_fail": "The cell is never pre-registered."
+    },
+    {
+     "id": "X2_OBSERVABILITY_ON_A_MIXED_CALENDAR",
+     "pass_if": "for every (metals leg, currency leg) pair, the metals session close used by a decision is strictly earlier in wall-clock UTC than the currency leg's entry instant, measured per pair rather than assumed from a shared date index.",
+     "why_it_would_have_mattered": "A metals-to-FX lead-lag on a back-adjusted panel indexed by DATE silently assumes the two legs' sessions align. They do not. This is the single most likely place such a cell manufactures an edge from a calendar artifact.",
+     "on_fail": "HALT BEFORE MEASUREMENT."
+    },
+    {
+     "id": "X3_NET_COST_BUDGET",
+     "the_budget": "turnover_one_way x cost_per_side x 2 x (252/3) <= 0.030 (3.00%/yr), at the R38 per-market cost_bps_per_side (2-15bp), never a single blended scalar.",
+     "why_per_market": "R60 measured that a 0.40 turnover ceiling calibrated for 25bp equities destroyed two futures cells whose real cost was 0.72%/yr at 5bp/side. An H3 book rebalances 84 times a year, so the cost model is the whole result.",
+     "on_fail": "HALT BEFORE MEASUREMENT."
+    },
+    {
+     "id": "X4_POWER",
+     "pass_if": ">= 400 paired decision-sessions per layer with both legs live and eligible.",
+     "on_fail": "HALT as UNDERPOWERED, annotated NOT DEAD."
+    },
+    {
+     "id": "X5_STATISTIC",
+     "pass_if": "|Newey-West t| >= 3.00 at lockbox with the frozen sign, after BH at the binding denominator.",
+     "on_fail": "NO_ALPHA_EVIDENCE."
+    }
+   ],
+   "burden_denominator_declared_before_measurement": {
+    "value": 3,
+    "how_it_is_built": "1 (this cell) + 2 (the CROSS_ASSET_LEAD_LAG rows returned by probe C2_P2, one NO_ALPHA_EVIDENCE and one FORWARD_FROZEN).",
+    "authoritative_owner": "alpha_agent.r59.handlers.search_denominator; a larger number governs."
+   }
+  },
+  "MECHANISM_CHECK_OUTPUT_VERBATIM": {
+   "owner": "alpha_agent.r59.memory.mechanism_state, via scripts/alpha_agents_v2.py check-mechanism",
+   "probes": [
+    {
+     "probe_id": "C2_P1_full_four_part",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P1_full_four_part.json",
+     "payload_verbatim": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": "PRICE_STATE",
+      "model_family": "XS_LONG_SHORT"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "CROSS_ASSET",
+       "economic_family": "CROSS_ASSET_LEAD_LAG",
+       "information_family": "PRICE_STATE",
+       "model_family": "XS_LONG_SHORT"
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": "PRICE_STATE",
+      "model_family": "XS_LONG_SHORT",
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family",
+       "information_family",
+       "model_family"
+      ],
+      "n_bound_components": 4,
+      "n_matching": 1,
+      "n_settled": 1,
+      "n_unsettled": 0,
+      "outcomes": {
+       "NO_ALPHA_EVIDENCE": 1
+      },
+      "best_lockbox_t": null,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_e490a5b8_5c87b7dbcae0"
+      ],
+      "reopen_conditions": [
+       "NEW_ORTHOGONAL_INFORMATION"
+      ],
+      "family_keys": [
+       "CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P2_family_wide",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P2_family_wide.json",
+     "payload_verbatim": {
+      "economic_family": "CROSS_ASSET_LEAD_LAG"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": null,
+       "economic_family": "CROSS_ASSET_LEAD_LAG",
+       "information_family": null,
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": null,
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": null,
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "economic_family"
+      ],
+      "n_bound_components": 1,
+      "n_matching": 2,
+      "n_settled": 2,
+      "n_unsettled": 0,
+      "outcomes": {
+       "FORWARD_FROZEN": 1,
+       "NO_ALPHA_EVIDENCE": 1
+      },
+      "best_lockbox_t": null,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_06816d6f_f09c738cd8b7",
+       "H_e490a5b8_5c87b7dbcae0"
+      ],
+      "reopen_conditions": [
+       "NEW_ORTHOGONAL_INFORMATION"
+      ],
+      "family_keys": [
+       "CROSS_ASSET_LEAD_LAG|CROSS_ASSET_LEAD_LAG|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT",
+       "CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P3_xa_family",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P3_xa_family.json",
+     "payload_verbatim": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "CROSS_ASSET",
+       "economic_family": "CROSS_ASSET_LEAD_LAG",
+       "information_family": null,
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": null,
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 1,
+      "n_settled": 1,
+      "n_unsettled": 0,
+      "outcomes": {
+       "NO_ALPHA_EVIDENCE": 1
+      },
+      "best_lockbox_t": null,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_e490a5b8_5c87b7dbcae0"
+      ],
+      "reopen_conditions": [
+       "NEW_ORTHOGONAL_INFORMATION"
+      ],
+      "family_keys": [
+       "CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P4_info_lead_lag",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P4_info_lead_lag.json",
+     "payload_verbatim": {
+      "information_family": "CROSS_ASSET_LEAD_LAG"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": null,
+       "economic_family": null,
+       "information_family": "CROSS_ASSET_LEAD_LAG",
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "CROSS_ASSET_LEAD_LAG",
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "information_family"
+      ],
+      "n_bound_components": 1,
+      "n_matching": 1,
+      "n_settled": 1,
+      "n_unsettled": 0,
+      "outcomes": {
+       "FORWARD_FROZEN": 1
+      },
+      "best_lockbox_t": null,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_06816d6f_f09c738cd8b7"
+      ],
+      "reopen_conditions": [],
+      "family_keys": [
+       "CROSS_ASSET_LEAD_LAG|CROSS_ASSET_LEAD_LAG|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P5_xa_price_state",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P5_xa_price_state.json",
+     "payload_verbatim": {
+      "asset_class": "CROSS_ASSET",
+      "information_family": "PRICE_STATE"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "CROSS_ASSET",
+       "economic_family": null,
+       "information_family": "PRICE_STATE",
+       "model_family": null
+      },
+      "verdict": "SETTLED_DO_NOT_REPEAT",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": false,
+      "is_governed_refusal": true,
+      "asset_class": "CROSS_ASSET",
+      "economic_family": null,
+      "information_family": "PRICE_STATE",
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "information_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 2414,
+      "n_settled": 2414,
+      "n_unsettled": 0,
+      "outcomes": {
+       "NO_ALPHA_EVIDENCE": 2411,
+       "FORWARD_FROZEN": 3
+      },
+      "best_lockbox_t": 2.5527903129354588,
+      "mechanism_is_settled": true,
+      "hypothesis_ids": [
+       "H_8d399c81_1b0651fcccde",
+       "H_f5663e99_17ecccc03c5d",
+       "H_0ba2e9cc_54b8771c5dca",
+       "H_0b34c9a8_f4279a10ee4d",
+       "H_3c3f6b38_6c6f795f126f",
+       "H_0b34c9a8_dc012573a8e5",
+       "H_3c3f6b38_a9e441aaa77f",
+       "H_0b34c9a8_5fe6dc571fd7",
+       "H_3c3f6b38_f5d3105cff0c",
+       "H_0b34c9a8_7d4225c7ac54",
+       "H_3c3f6b38_d24701a102fb",
+       "H_80eca186_6f1f04c69cef",
+       "H_3c8b708c_e45952e8eaad",
+       "H_80eca186_352d3cf9b00d",
+       "H_3c8b708c_920655df67a3",
+       "H_80eca186_82b45ce27f6a",
+       "H_3c8b708c_3713f40fc651",
+       "H_80eca186_dcbd643779fb",
+       "H_3c8b708c_c41c30670024",
+       "H_609bd930_e55ebc870379",
+       "H_4205b73c_7a982121b48d",
+       "H_609bd930_6369acfe844f",
+       "H_4205b73c_9935822dab90",
+       "H_609bd930_0f53dfe46a0d",
+       "H_4205b73c_d50c91e7f5f0",
+       "H_609bd930_39bed008598e",
+       "H_4205b73c_3f901f677072",
+       "H_609bd930_f8725615cde3",
+       "H_4205b73c_4a8c295fa5d6",
+       "H_609bd930_e30f4617a54c",
+       "H_4205b73c_142482741915",
+       "H_609bd930_ed7a383aef7e",
+       "H_4205b73c_ed435b9e9b01",
+       "H_609bd930_45edf71108c6",
+       "H_4205b73c_10ee02e92bd3",
+       "H_609bd930_cd893df7cea0",
+       "H_4205b73c_ad33d3c98f39",
+       "H_609bd930_03f58f7e4a5f",
+       "H_4205b73c_1d1a1b9f5c00",
+       "H_609bd930_1b177843c99a",
+       "H_4205b73c_8c6b2c428a43",
+       "H_609bd930_19bd0e946e47",
+       "H_4205b73c_9fd3f83c4ad5",
+       "H_84f91f53_5c449ddf7e5a",
+       "H_a88132c7_46244846762c",
+       "H_84f91f53_533fe3e031bf",
+       "H_a88132c7_bb7e80471329",
+       "H_84f91f53_1c61d3064e06",
+       "H_a88132c7_eb6f6680beca",
+       "H_84f91f53_5e36d1091aca"
+      ],
+      "reopen_conditions": [
+       "NEW_ORTHOGONAL_INFORMATION"
+      ],
+      "family_keys": [
+       "CARRY_SLOPE|PRICE_STATE|CROSS_ASSET|XS_RANK_BOOK",
+       "CHANNEL_BREAKOUT|PRICE_STATE|CROSS_ASSET|RANK_TOPN",
+       "CHANNEL_BREAKOUT|PRICE_STATE|CROSS_ASSET|XS_RANK_BOOK",
+       "CROSS_ASSET_LEAD_LAG|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT",
+       "CROSS_ASSET_MOMENTUM|PRICE_STATE|CROSS_ASSET|XS_LONG_SHORT",
+       "CROSS_SECTIONAL_MOMENTUM|PRICE_STATE|CROSS_ASSET|CROSS_SECTIONAL_LONG_SHORT",
+       "CROSS_SECTIONAL_MOMENTUM|PRICE_STATE|CROSS_ASSET|RANK_TOPN",
+       "CROSS_SECTIONAL_MOMENTUM|PRICE_STATE|CROSS_ASSET|XS_RANK_BOOK",
+       "CROSS_SECTIONAL_VALUE|PRICE_STATE|CROSS_ASSET|CROSS_SECTIONAL_LONG_SHORT",
+       "MACHINE_REPRESENTATION:AUTO|PRICE_STATE|CROSS_ASSET|LIGHTGBM",
+       "MACHINE_REPRESENTATION:AUTO|PRICE_STATE|CROSS_ASSET|RIDGE",
+       "MACHINE_REPRESENTATION:AUTO|PRICE_STATE|CROSS_ASSET|XS_RANK_BOOK",
+       "MACHINE_REPRESENTATION:CLASSICAL|PRICE_STATE|CROSS_ASSET|LIGHTGBM",
+       "MACHINE_REPRESENTATION:CLASSICAL|PRICE_STATE|CROSS_ASSET|RIDGE",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|CALIBRATED_SIGN",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|GRU_SEQ",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|LIGHTGBM",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|MLP",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|QUANTILE_BLEND",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|RIDGE",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|RULE:CARRY_SLOPE_ANN",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|RULE:GRAPH2_LEADLAG",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|RULE:GRAPH_LEADLAG",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|RULE:INSIDER_NET_BREADTH_Z",
+       "MACHINE_REPRESENTATION:CONTINUATION|PRICE_STATE|CROSS_ASSET|RULE:MOM_12_1"
+      ],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P6_relabel_metals_fx",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P6_relabel_metals_fx.json",
+     "payload_verbatim": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": "INDUSTRIAL_METALS_PRICE_MOVE",
+      "model_family": "XS_LONG_SHORT"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "CROSS_ASSET",
+       "economic_family": "CROSS_ASSET_LEAD_LAG",
+       "information_family": "INDUSTRIAL_METALS_PRICE_MOVE",
+       "model_family": "XS_LONG_SHORT"
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": "INDUSTRIAL_METALS_PRICE_MOVE",
+      "model_family": "XS_LONG_SHORT",
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family",
+       "information_family",
+       "model_family"
+      ],
+      "n_bound_components": 4,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P7_xa_relative_value",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P7_xa_relative_value.json",
+     "payload_verbatim": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_RELATIVE_VALUE"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "CROSS_ASSET",
+       "economic_family": "CROSS_ASSET_RELATIVE_VALUE",
+       "information_family": null,
+       "model_family": null
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_RELATIVE_VALUE",
+      "information_family": null,
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P8_xa_regime_conditioning",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P8_xa_regime_conditioning.json",
+     "payload_verbatim": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_REGIME_CONDITIONING"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "CROSS_ASSET",
+       "economic_family": "CROSS_ASSET_REGIME_CONDITIONING",
+       "information_family": null,
+       "model_family": null
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_REGIME_CONDITIONING",
+      "information_family": null,
+      "model_family": null,
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family"
+      ],
+      "n_bound_components": 2,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    },
+    {
+     "probe_id": "C2_P9_ts_directional_variant",
+     "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input C2_P9_ts_directional_variant.json",
+     "payload_verbatim": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": "PRICE_STATE",
+      "model_family": "DIRECTIONAL_SINGLE_INSTRUMENT"
+     },
+     "stdout_body_verbatim": {
+      "kind": "MECHANISM_CHECK",
+      "read_only": true,
+      "experiments_run": 0,
+      "evaluation_samples_read": 0,
+      "asked": {
+       "asset_class": "CROSS_ASSET",
+       "economic_family": "CROSS_ASSET_LEAD_LAG",
+       "information_family": "PRICE_STATE",
+       "model_family": "DIRECTIONAL_SINGLE_INSTRUMENT"
+      },
+      "verdict": "NO_ROW_IN_MEMORY",
+      "verdict_vocabulary": [
+       "NO_ROW_IN_MEMORY",
+       "UNSETTLED_ROWS_EXIST",
+       "SETTLED_DO_NOT_REPEAT",
+       "INVALID_QUERY"
+      ],
+      "novelty_claim_is_believable": true,
+      "is_governed_refusal": false,
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "CROSS_ASSET_LEAD_LAG",
+      "information_family": "PRICE_STATE",
+      "model_family": "DIRECTIONAL_SINGLE_INSTRUMENT",
+      "query_valid": true,
+      "invalid_query_reason": null,
+      "bound_components": [
+       "asset_class",
+       "economic_family",
+       "information_family",
+       "model_family"
+      ],
+      "n_bound_components": 4,
+      "n_matching": 0,
+      "n_settled": 0,
+      "n_unsettled": 0,
+      "outcomes": {},
+      "best_lockbox_t": null,
+      "mechanism_is_settled": false,
+      "hypothesis_ids": [],
+      "reopen_conditions": [],
+      "family_keys": [],
+      "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+     },
+     "terminal_token_verbatim": null,
+     "exit_code": 0
+    }
+   ]
+  },
+  "DATASET_AND_EXECUTOR_THAT_WOULD_HAVE_BEEN_NEEDED": {
+   "futures_substrate_candidate_2_needs": "r38_native_contract_layer_with_deferred_leg_v1",
+   "substrate_state": "ALREADY CERTIFIED PIT_SAFE. Universe r65_xa_metals_currency_leadlag is already DEFINED on it and feature set fs_r65_02_metals_currency_leadlag_h3 (feature 'metals_fx_leadlag_h3_sparse_decile_trigger') is already PUBLISHED on that universe.",
+   "THE_MOST_IMPORTANT_SUBSTRATE_FACT": "R65 already built this exact cell's universe and feature set, and NO hypothesis in research memory carries that feature set as its input_data_identity - the cell was built and never registered. So the substrate is NOT the blocker and never was; a director who pre-registered rank 10 today would sail past every pipeline check (data PIT_SAFE, features published, asset class CROSS_ASSET, family routed to trend-breadth-signal-agent) and mint an id for a mechanism the gate refuses. The ONLY thing standing between the estate and that re-run is this ruling.",
+   "executor_module_path": "research/agents/campaign_r77_short_volume_and_lead_lag/executors.py",
+   "executor_registry_name": "xa_lead_lag_single_channel",
+   "NOT_COMMISSIONED": "Not to be written."
+  },
+  "owning_signal_agent_if_it_had_been_admissible": "trend-breadth-signal-agent",
+  "owning_agent_routing_verified": "CROSS_ASSET_LEAD_LAG is in contracts.families_for('trend-breadth-signal-agent')."
+ },
+ "REPLACEMENT_NON_EQUITY_SEARCH": {
+  "the_operators_instruction": "If rank 10 is refused, name a replacement non-equity cell from the R59-open CROSS_ASSET frontier (CROSS_ASSET_RELATIVE_VALUE, CROSS_ASSET_LEAD_LAG, CROSS_ASSET_REGIME_CONDITIONING) or from owned R38 native futures, and justify it. Returning zero non-equity cells is NOT acceptable; if genuinely impossible, say exactly which binding refusal forbids every option.",
+  "the_directors_answer": "It is genuinely impossible on owned and free data, and every option is forbidden by a NAMED binding refusal, listed one by one below. This is not a judgement that the options are unpromising; each is a recorded refusal or a governed gate refusal.",
+  "OPTION_BY_OPTION_WITH_THE_BINDING_REFUSAL_NAMED": [
+   {
+    "option": "CROSS_ASSET_RELATIVE_VALUE (R59-open family #1)",
+    "binding_refusal": "DURABLE DIRECTOR RULING, CROSS_ASSET|CROSS_ASSET_RELATIVE_VALUE, verdict REFUSED, blocker WAITING_FOR_EXTERNAL_ENTITLEMENT, campaign R71_FORWARD_AND_NEW_INFORMATION, clears TERMINAL.",
+    "reopen_condition": "OWNED_PIT_NON_PRICE_TERMS_OF_TRADE_VINTAGES",
+    "why_unsatisfiable_today": "The reopen condition demands national export/import price indices with as-published vintages. They are NOT OWNED and NOT FREE. The ruling's own text: 'What would reopen it: NOTHING from futures prices... Do not re-propose.' Acquiring them is a purchase, which this campaign is forbidden to request.",
+    "additionally": "The price-leg version was already measured and KILLED (H_ce6bca38_61377eec0fdf, feature set FS_XA_TOT_RV_V1)."
+   },
+   {
+    "option": "CROSS_ASSET_LEAD_LAG (R59-open family #2)",
+    "binding_refusal": "Probe C2_P1, SETTLED_DO_NOT_REPEAT, is_governed_refusal true, on the full four-part key; plus DURABLE RULING CONSIDERED_AND_NOT_PROPOSED / WAITING_FOR_EXTERNAL_ENTITLEMENT, clears TERMINAL.",
+    "reopen_condition": "OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG",
+    "why_unsatisfiable_today": "Every non-price information family in the estate is settled - see THE_EXHAUSTIVE_INFORMATION_CENSUS below. R74 tested the single most defensible reopen attempt (credit spreads on the non-price leg, its C7) and it was refused: the credit leg is settled three times, all FORWARD_FROZEN. The condition asks for information the estate does not own."
+   },
+   {
+    "option": "CROSS_ASSET_REGIME_CONDITIONING (R59-open family #3)",
+    "binding_refusal": "DURABLE DIRECTOR RULING, verdict REFUSED_AS_A_REPLICATION, blocker SUPERSEDED, campaign R71, clears TERMINAL; AND NEXT_CAMPAIGN_CENSUS.json#must_not_repeat.structural[2] 'TIMING a premium with a conditioning variable', dead on three independent sightings.",
+    "reopen_condition": "A_MECHANISM_THAT_IS_NOT_THE_TIMING_A_PREMIUM_SHAPE",
+    "why_unsatisfiable_today": "Regime conditioning IS the timing-a-premium shape; the ruling says so verbatim. A regime-conditioning cell that is not premium timing is not a regime-conditioning cell."
+   },
+   {
+    "option": "Owned R38 native futures: CARRY / basis momentum / deferred leg",
+    "binding_refusal": "TWO durable rulings - COMMODITY_FUTURES|CARRY and CROSS_ASSET|CARRY, both REFUSED_AS_ALREADY_MEASURED, blocker FAMILY_EXHAUSTED, campaign R73 - plus probes R_P4 (R38_DATED_CONTRACTS, 4 settled, best lockbox t 3.186) and R_P5 (FUTURES_DEFERRED_LEG_BASIS, 2 settled), both SETTLED_DO_NOT_REPEAT.",
+    "reopen_condition": "NEW_ORTHOGONAL_INFORMATION_NOT_DERIVABLE_FROM_THE_DATED_CONTRACT_PRICES",
+    "why_unsatisfiable_today": "The R38 layer's contents are dated-contract prices, open interest and volume. Prices are excluded by the condition's own words; OI and volume are separately settled below."
+   },
+   {
+    "option": "Owned R38 native futures: POSITIONING / exchange open interest",
+    "binding_refusal": "DURABLE RULING COMMODITY_FUTURES|POSITIONING, REFUSED_AS_ALREADY_MEASURED, FAMILY_EXHAUSTED, campaign R73; plus probe R_P3, EXCHANGE_OPEN_INTEREST, SETTLED_DO_NOT_REPEAT, 6 settled, outcomes {NO_ALPHA_EVIDENCE: 4, REJECTED: 2}, best lockbox t 1.080.",
+    "reopen_condition": "NEW_ORTHOGONAL_POSITIONING_INFORMATION_THAT_IS_NEITHER_EXCHANGE_OPEN_INTEREST_NOR_CFTC_COT",
+    "why_unsatisfiable_today": "The condition excludes both positioning objects the estate owns. R74 already tested the two remaining asset-class permutations (its C11 RATES_FUTURES and C12 FX_FUTURES) and refused them: 'a new asset class inside a settled information family is a UNIVERSE change, not new information'."
+   },
+   {
+    "option": "Owned R38 native futures: exchange VOLUME as a fresh information family",
+    "probe": "R_P1_exchange_volume returned NO_ROW_IN_MEMORY, n_matching 0",
+    "binding_refusal": "REFUSED BY THE DIRECTOR AS A RELABEL, on the R67 test. This is the one option in this list that the gate does NOT refuse, and the director reports that plainly rather than hiding behind the tool.",
+    "why_refused_anyway": "The label EXCHANGE_VOLUME is empty, but the BYTES are prosecuted: EXCHANGE_VOLUME_AND_OPEN_INTEREST carries 2 settled rows (probe R_P2) and PRICE_AND_EXCHANGE_VOLUME carries 1, and the published feature sets fs_w2_02_risk_transfer_churn_commodity, fs_w2_04_risk_transfer_churn_all and fs_w2_05_flow_driven_reversal are all built from the same R38 volume column and all settled NO_ALPHA_EVIDENCE. Declaring EXCHANGE_VOLUME to reach a burden-0 key is exactly the offence R67 refused in XA_TERMS_OF_TRADE and R74 named 'machine_cannot_refuse_a_rename'. Registering it would be the director doing deliberately what R68 corrected the census for doing accidentally."
+   },
+   {
+    "option": "Owned R38 native futures: a fresh economic family such as CROSS_ASSET|BREADTH over OI",
+    "probes": "R_P7_xa_breadth_family and R_P8_xa_breadth_full_oi both returned NO_ROW_IN_MEMORY",
+    "binding_refusal": "REFUSED BY THE DIRECTOR. The empty slot is the ECONOMIC-FAMILY label; the INFORMATION is EXCHANGE_OPEN_INTEREST, which probe R_P3 refuses as SETTLED_DO_NOT_REPEAT at 0-for-6 with two outright REJECTED, and which the R73 durable ruling's reopen condition excludes by name. Renaming the economic family over settled information is the mirror image of the EXCHANGE_VOLUME relabel and falls to the same test."
+   },
+   {
+    "option": "Any cell on a free source not yet certified (FRED/ALFRED, CFTC COT, Cboe, TreasuryDirect, credit spreads, NY Fed)",
+    "binding_refusal": "research_director_protocol.json families_forbidden includes 'anything requiring an unpurchased dataset'; and every one of these is settled at SOURCE level - MACRO_OBSERVATION 32 settled, CFTC_POSITIONING 32 settled, CBOE_INDEX 7 settled, TREASURYDIRECT 2 settled, CREDIT_SPREADS 3 settled (all FORWARD_FROZEN), NYFED 1 settled. R74 ran 40 probes across exactly these twelve cells and refused 12 of 12.",
+    "why_certification_would_not_help": "R74 verified in api/source_capability.py that the only three free unprosecuted sources (us_treasury, bls, bea) are each machine-declared REDUNDANT with a recorded reason. There is no fourth."
+   }
+  ],
+  "THE_EXHAUSTIVE_INFORMATION_CENSUS_THE_DIRECTOR_MEASURED": {
+   "method": "ResearchMemory(read_only=True).list_hypotheses(limit=1000000) grouped by information_family. A pure read.",
+   "finding": "8,231 of 8,445 rows (97.5%) are PRICE_STATE. EVERY other information family in the estate is settled - there is not one information family with an unsettled row. The largest non-price families are MACRO_OBSERVATION (32), CFTC_POSITIONING (32), CBOE_INDEX (7), EXCHANGE_OPEN_INTEREST (6). SHORT_VOLUME has exactly 1, and it is FORWARD_FROZEN.",
+   "non_equity_non_price_four_part_keys_enumerated": 88,
+   "unsettled_among_them": 0,
+   "the_honest_conclusion": "There is no admissible non-equity cell in this estate today, and the obstruction is an ABSENCE OF INFORMATION, not a rule. Widening the diversity gate would unblock nothing, which is why the director does not ask for it. This independently reproduces R74's BLOCKED_ON_DATA finding by a different route, one campaign later, and should now be treated as a settled property of the estate rather than a question each new campaign re-opens."
+  },
+  "what_the_director_will_NOT_do_to_produce_a_non_equity_cell": [
+   "Relabel prosecuted futures returns into an empty information_family to reach a burden-0 key (refused: R67 precedent, and probe C2_P6 shows the director found the loophole and declined it).",
+   "Re-run a settled mechanism in a new asset class and call the universe change new information (refused: R73 durable ruling REFUSED_A_UNIVERSE_IS_NOT_NEW_INFORMATION, R74 C11/C12).",
+   "Re-test a FORWARD_FROZEN mechanism backward to fill a diversity line (refused: it destroys the only clean evidence the estate is still accruing).",
+   "Request a data purchase (forbidden to this campaign, and the operator's instruction 1 forbids even a WRDS approval request).",
+   "Pad the campaign with known-dead cells so a diversity line reads better. The contract forbids re-prosecuting settled families more strongly than it requires diversity, and the budget is a ceiling, not a target."
+  ]
+ },
+ "REPLACEMENT_SEARCH_PROBES_VERBATIM": {
+  "probes": [
+   {
+    "probe_id": "R_P1_exchange_volume",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P1_exchange_volume.json",
+    "payload_verbatim": {
+     "information_family": "EXCHANGE_VOLUME"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "EXCHANGE_VOLUME",
+      "model_family": null
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": true,
+     "is_governed_refusal": false,
+     "asset_class": null,
+     "economic_family": null,
+     "information_family": "EXCHANGE_VOLUME",
+     "model_family": null,
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "information_family"
+     ],
+     "n_bound_components": 1,
+     "n_matching": 0,
+     "n_settled": 0,
+     "n_unsettled": 0,
+     "outcomes": {},
+     "best_lockbox_t": null,
+     "mechanism_is_settled": false,
+     "hypothesis_ids": [],
+     "reopen_conditions": [],
+     "family_keys": [],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   },
+   {
+    "probe_id": "R_P2_exchange_volume_and_oi",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P2_exchange_volume_and_oi.json",
+    "payload_verbatim": {
+     "information_family": "EXCHANGE_VOLUME_AND_OPEN_INTEREST"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "EXCHANGE_VOLUME_AND_OPEN_INTEREST",
+      "model_family": null
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": false,
+     "is_governed_refusal": true,
+     "asset_class": null,
+     "economic_family": null,
+     "information_family": "EXCHANGE_VOLUME_AND_OPEN_INTEREST",
+     "model_family": null,
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "information_family"
+     ],
+     "n_bound_components": 1,
+     "n_matching": 2,
+     "n_settled": 2,
+     "n_unsettled": 0,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 2
+     },
+     "best_lockbox_t": null,
+     "mechanism_is_settled": true,
+     "hypothesis_ids": [
+      "H_eacf4f2e_dd4787adc546",
+      "H_ffb4e5ba_7ddd7a91c31b"
+     ],
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "family_keys": [
+      "LIQUIDITY|EXCHANGE_VOLUME_AND_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "LIQUIDITY|EXCHANGE_VOLUME_AND_OPEN_INTEREST|CROSS_ASSET|XS_LONG_SHORT"
+     ],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   },
+   {
+    "probe_id": "R_P3_exchange_open_interest",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P3_exchange_open_interest.json",
+    "payload_verbatim": {
+     "information_family": "EXCHANGE_OPEN_INTEREST"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "EXCHANGE_OPEN_INTEREST",
+      "model_family": null
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": false,
+     "is_governed_refusal": true,
+     "asset_class": null,
+     "economic_family": null,
+     "information_family": "EXCHANGE_OPEN_INTEREST",
+     "model_family": null,
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "information_family"
+     ],
+     "n_bound_components": 1,
+     "n_matching": 6,
+     "n_settled": 6,
+     "n_unsettled": 0,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 4,
+      "REJECTED": 2
+     },
+     "best_lockbox_t": 1.080405627466133,
+     "mechanism_is_settled": true,
+     "hypothesis_ids": [
+      "H_b5e5e7c0_483c5c1043eb",
+      "H_b5e5e7c0_7f7cdc392f88",
+      "H_b5e5e7c0_f3e92699f95c",
+      "H_47e2cf84_49076c9d82f0",
+      "H_47e2cf84_1c2df9d04b43",
+      "H_b5e5e7c0_dc7ca69afa30"
+     ],
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION",
+      "NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new experiment id, charged to the burden. This cell is NOT re-run under a changed ceiling; a ceiling chosen after a measurement is outcome-directed tuning however it is documented"
+     ],
+     "family_keys": [
+      "POSITIONING|EXCHANGE_OPEN_INTEREST|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "POSITIONING|EXCHANGE_OPEN_INTEREST|EQUITY_INDEX_FUTURES|XS_LONG_SHORT"
+     ],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   },
+   {
+    "probe_id": "R_P4_r38_dated_contracts",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P4_r38_dated_contracts.json",
+    "payload_verbatim": {
+     "information_family": "R38_DATED_CONTRACTS"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "R38_DATED_CONTRACTS",
+      "model_family": null
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": false,
+     "is_governed_refusal": true,
+     "asset_class": null,
+     "economic_family": null,
+     "information_family": "R38_DATED_CONTRACTS",
+     "model_family": null,
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "information_family"
+     ],
+     "n_bound_components": 1,
+     "n_matching": 4,
+     "n_settled": 4,
+     "n_unsettled": 0,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 4
+     },
+     "best_lockbox_t": 3.1857973830655553,
+     "mechanism_is_settled": true,
+     "hypothesis_ids": [
+      "HM_CLOSED_CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59",
+      "HM_COMMODITY_INDEX_ROLL_WINDOW_PRESSURE_V1",
+      "H_23b80e40_d75c4d6df130",
+      "H_99709bd2_34f1437f9100"
+     ],
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "family_keys": [
+      "CALENDAR_TERM_STRUCTURE_ROLL_STATE_R59|R38_DATED_CONTRACTS|CROSS_ASSET|CLOSED_MECHANISM_LEDGER",
+      "CARRY|R38_DATED_CONTRACTS|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "CARRY|R38_DATED_CONTRACTS|CROSS_ASSET|XS_LONG_SHORT",
+      "MECHANISM:COMMODITY_INDEX_ROLL_WINDOW_PRESSURE_V1|R38_DATED_CONTRACTS|COMMODITY_FUTURES|CALENDAR_SPREAD_WINDOW"
+     ],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   },
+   {
+    "probe_id": "R_P5_futures_deferred_leg_basis",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P5_futures_deferred_leg_basis.json",
+    "payload_verbatim": {
+     "information_family": "FUTURES_DEFERRED_LEG_BASIS"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": null,
+      "economic_family": null,
+      "information_family": "FUTURES_DEFERRED_LEG_BASIS",
+      "model_family": null
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": false,
+     "is_governed_refusal": true,
+     "asset_class": null,
+     "economic_family": null,
+     "information_family": "FUTURES_DEFERRED_LEG_BASIS",
+     "model_family": null,
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "information_family"
+     ],
+     "n_bound_components": 1,
+     "n_matching": 2,
+     "n_settled": 2,
+     "n_unsettled": 0,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 2
+     },
+     "best_lockbox_t": null,
+     "mechanism_is_settled": true,
+     "hypothesis_ids": [
+      "H_7994380d_cf2e4efaaa5a",
+      "H_58d49e5c_079c8b4dbce5"
+     ],
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "family_keys": [
+      "CARRY|FUTURES_DEFERRED_LEG_BASIS|COMMODITY_FUTURES|XS_LONG_SHORT",
+      "CARRY|FUTURES_DEFERRED_LEG_BASIS|CROSS_ASSET|XS_LONG_SHORT"
+     ],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   },
+   {
+    "probe_id": "R_P6_xa_liquidity_family",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P6_xa_liquidity_family.json",
+    "payload_verbatim": {
+     "asset_class": "CROSS_ASSET",
+     "economic_family": "LIQUIDITY"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "LIQUIDITY",
+      "information_family": null,
+      "model_family": null
+     },
+     "verdict": "SETTLED_DO_NOT_REPEAT",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": false,
+     "is_governed_refusal": true,
+     "asset_class": "CROSS_ASSET",
+     "economic_family": "LIQUIDITY",
+     "information_family": null,
+     "model_family": null,
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "asset_class",
+      "economic_family"
+     ],
+     "n_bound_components": 2,
+     "n_matching": 1,
+     "n_settled": 1,
+     "n_unsettled": 0,
+     "outcomes": {
+      "NO_ALPHA_EVIDENCE": 1
+     },
+     "best_lockbox_t": null,
+     "mechanism_is_settled": true,
+     "hypothesis_ids": [
+      "H_ffb4e5ba_7ddd7a91c31b"
+     ],
+     "reopen_conditions": [
+      "NEW_ORTHOGONAL_INFORMATION"
+     ],
+     "family_keys": [
+      "LIQUIDITY|EXCHANGE_VOLUME_AND_OPEN_INTEREST|CROSS_ASSET|XS_LONG_SHORT"
+     ],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   },
+   {
+    "probe_id": "R_P7_xa_breadth_family",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P7_xa_breadth_family.json",
+    "payload_verbatim": {
+     "asset_class": "CROSS_ASSET",
+     "economic_family": "BREADTH"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "BREADTH",
+      "information_family": null,
+      "model_family": null
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": true,
+     "is_governed_refusal": false,
+     "asset_class": "CROSS_ASSET",
+     "economic_family": "BREADTH",
+     "information_family": null,
+     "model_family": null,
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "asset_class",
+      "economic_family"
+     ],
+     "n_bound_components": 2,
+     "n_matching": 0,
+     "n_settled": 0,
+     "n_unsettled": 0,
+     "outcomes": {},
+     "best_lockbox_t": null,
+     "mechanism_is_settled": false,
+     "hypothesis_ids": [],
+     "reopen_conditions": [],
+     "family_keys": [],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   },
+   {
+    "probe_id": "R_P8_xa_breadth_full_oi",
+    "command_verbatim": "& C:\\Users\\binis\\paper_trader\\.venv-win\\Scripts\\python.exe C:\\Users\\binis\\paper_trader\\scripts\\alpha_agents_v2.py check-mechanism --agent quant-research-director --input R_P8_xa_breadth_full_oi.json",
+    "payload_verbatim": {
+     "asset_class": "CROSS_ASSET",
+     "economic_family": "BREADTH",
+     "information_family": "EXCHANGE_OPEN_INTEREST",
+     "model_family": "XS_LONG_SHORT"
+    },
+    "stdout_body_verbatim": {
+     "kind": "MECHANISM_CHECK",
+     "read_only": true,
+     "experiments_run": 0,
+     "evaluation_samples_read": 0,
+     "asked": {
+      "asset_class": "CROSS_ASSET",
+      "economic_family": "BREADTH",
+      "information_family": "EXCHANGE_OPEN_INTEREST",
+      "model_family": "XS_LONG_SHORT"
+     },
+     "verdict": "NO_ROW_IN_MEMORY",
+     "verdict_vocabulary": [
+      "NO_ROW_IN_MEMORY",
+      "UNSETTLED_ROWS_EXIST",
+      "SETTLED_DO_NOT_REPEAT",
+      "INVALID_QUERY"
+     ],
+     "novelty_claim_is_believable": true,
+     "is_governed_refusal": false,
+     "asset_class": "CROSS_ASSET",
+     "economic_family": "BREADTH",
+     "information_family": "EXCHANGE_OPEN_INTEREST",
+     "model_family": "XS_LONG_SHORT",
+     "query_valid": true,
+     "invalid_query_reason": null,
+     "bound_components": [
+      "asset_class",
+      "economic_family",
+      "information_family",
+      "model_family"
+     ],
+     "n_bound_components": 4,
+     "n_matching": 0,
+     "n_settled": 0,
+     "n_unsettled": 0,
+     "outcomes": {},
+     "best_lockbox_t": null,
+     "mechanism_is_settled": false,
+     "hypothesis_ids": [],
+     "reopen_conditions": [],
+     "family_keys": [],
+     "note": "a mechanism reopens ONLY on its recorded reopen condition. Renaming either key component is refused by the director and by the duplicate-identity check."
+    },
+    "terminal_token_verbatim": null,
+    "exit_code": 0
+   }
+  ]
+ },
+ "DIVERSITY_GATE_POSITION_STATED_HONESTLY": {
+  "gate": ">= 3 asset classes per campaign, no class above 50%, >= 40% non-equity, at least one H1-H5, one non-equity and one cross-asset experiment.",
+  "position": "NOT MET, with ZERO denominator. This campaign pre-registers zero experiments, so the gate has nothing to bind. The operator's instruction that an equity-only agenda is a failure is satisfied in the only honest way available: the campaign is not equity-only, it is empty, and it says so.",
+  "escalated": "This is the fourth consecutive campaign (R73, R74, R76, R77) in which the diversity gate could only be satisfied by re-prosecuting a settled family. The director does NOT widen governance_contract.json or research_director_protocol.json on his own authority and, following R74, does not ask for a widening either - because widening would unblock nothing. The escalation is the ROOT-CAUSE DEFECT below, which is actionable."
+ },
+ "ROOT_CAUSE_DEFECT_R77_DEFECT_1": {
+  "name": "THE_DIRECTOR_BRIEF_DOES_NOT_JOIN_THE_DURABLE_RULING_STORE",
+  "severity": "GOVERNANCE_HIGH - it caused this entire campaign to be commissioned on two cells that were already durably refused.",
+  "previously_reported_as": "R73_DEFECT_1, 'the director brief's queued_hypotheses projection still does not join the director_rulings store'. Reported by R73, restated as unchanged by R74, and still unfixed. This is its fourth sighting and the first time it has caused a full campaign to be mis-commissioned.",
+  "proof_in_code": {
+   "file": "alpha_agent/agents_v2/briefs.py",
+   "lines": "353-358",
+   "what_it_does": "_director_brief copies census['queued_hypotheses'] into the brief, keeping only rank, proposal, agent, asset_class, family and horizon_sessions.",
+   "what_it_never_calls": "pipe.mem.director_rulings(). The durable refusal store is never read when the agenda queue is projected.",
+   "second_order_loss": "The projection also DROPS the census's own R68_MECHANISM_CHECK block, which does exist on ranks 1-5. So the brief is strictly LESS informative about novelty than the census file it is built from, and a director who obeys the context contract and reads only the brief cannot see that rank 10 or rank 12 was ever ruled on."
+  },
+  "observed_consequence": "BRIEF_director_r77.json lists rank 10 and rank 12 in queued_hypotheses with no ruling, no reopen condition and no settled-sibling count, while R59 memory holds a REFUSED_AS_ALREADY_MEASURED ruling naming rank 12 and a CONSIDERED_AND_NOT_PROPOSED ruling naming rank 10.",
+  "the_fix_the_director_recommends_and_does_not_apply": "Join director_rulings into the brief's queued_hypotheses projection and drop, or clearly flag, any queued proposal whose (asset_class, economic_family) carries a ruling, carrying the verdict, blocker_reason and reopen_condition beside it. This is a code change in alpha_agent/agents_v2/briefs.py and is not this campaign's scope; the director reports it and does not edit it.",
+  "why_the_durable_ruling_the_director_wrote_is_not_a_complete_fix": "Recording R77's rulings mechanism-scoped makes them readable, but the BRIEF still will not read them. Without the briefs.py join, a fifth campaign will be handed rank 10 and rank 12 again."
+ },
+ "SECONDARY_DEFECT_R77_DEFECT_2": {
+  "name": "R76_RECORDED_UNEXAMINED_AGAINST_THE_TRANSCRIPT_NOT_THE_RULING_STORE",
+  "statement": "CAMPAIGN_R76_OUTCOME.json#UNEXAMINED_NOT_REFUSED asserts of rank 12: 'It is not settled and is available to the next campaign.' The first clause is defensible (there is no settled HYPOTHESIS row on the four-part key). The second is false: a durable director RULING made it unavailable three campaigns earlier.",
+  "the_general_lesson": "'No campaign in my transcript ruled on X' and 'the estate has not ruled on X' are different claims, and only the second one licenses acting. An UNEXAMINED note should be required to cite a director_rulings() read before it may say 'available to the next campaign'.",
+  "not_a_criticism_of_R76s_honesty": "R76's director explicitly declined to assert a verdict he had not measured, which was the right instinct. The defect is that the available/unavailable claim was made anyway, from the wrong source."
+ },
+ "assignment_manifest_explained": {
+  "assignment_manifest": {},
+  "why_empty": "An assignment manifest maps experiment ids to owning signal agents. Zero experiments were pre-registered because both cells are refused, so there is nothing to assign. The owning agent each cell WOULD have had is recorded on the cell itself (reversal-signal-agent for R77_C1, trend-breadth-signal-agent for R77_C2) and both routings were verified against contracts.families_for, so that a future human who vacates a refusal does not have to re-derive them."
+ },
+ "ROLES": {
+  "spawn": [],
+  "skip": [
+   {
+    "role": "data-foundation-agent",
+    "reason_code": "NO_ADMISSIBLE_CELL_TO_CERTIFY_SUBSTRATE_FOR",
+    "detail": "Deliberately NOT commissioned. Both cells are refused at MECHANISM identity, upstream of substrate. R76's lesson is that substrate work must follow mechanism admissibility, and R73_D1/R75_D1 are the proof that a certification commissioned against a cell that cannot be registered returns NOT_CERTIFIABLE and nothing else."
+   },
+   {
+    "role": "universe-construction-agent",
+    "reason_code": "NO_CERTIFIED_NEW_DATASET"
+   },
+   {
+    "role": "feature-library-agent",
+    "reason_code": "NO_UNIVERSE_DEFINED_THIS_CAMPAIGN"
+   },
+   {
+    "role": "momentum-signal-agent",
+    "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"
+   },
+   {
+    "role": "reversal-signal-agent",
+    "reason_code": "CELL_REFUSED_R77_C1",
+    "detail": "would have owned R77_C1; refused on the R73 durable ruling"
+   },
+   {
+    "role": "trend-breadth-signal-agent",
+    "reason_code": "CELL_REFUSED_R77_C2",
+    "detail": "would have owned R77_C2; refused on the canonical gate's governed refusal"
+   },
+   {
+    "role": "volatility-liquidity-agent",
+    "reason_code": "NO_ASSIGNED_EXPERIMENTS_ZERO_PREREGISTERED"
+   },
+   {
+    "role": "skeptic-agent",
+    "reason_code": "NOTHING_MEASURED_NOTHING_TO_FALSIFY"
+   },
+   {
+    "role": "risk-agent",
+    "reason_code": "NO_SKEPTIC_SURVIVOR"
+   },
+   {
+    "role": "meta-agent",
+    "reason_code": "NO_VALIDATED_SURVIVOR"
+   },
+   {
+    "role": "signal-publishing-agent",
+    "reason_code": "NO_DIRECTOR_CLEAR_RULING_ISSUED"
+   }
+  ]
+ },
+ "SPAWN_GATE_CONFLICT_R77_DEFECT_3": {
+  "name": "THE_SPAWN_GATE_CANNOT_READ_A_DIRECTOR_REFUSAL_EITHER",
+  "severity": "OPERATIONAL - it would dispatch a role this spec explicitly refuses to commission.",
+  "measured_by": "scripts/agents_v2_brief.py --spawn-plan against this frozen spec, run by the director after freezing it.",
+  "what_the_gate_returns": "spawn = [quant-research-director, data-foundation-agent]; data-foundation-agent decision SPAWN, reason FOUNDATION_STAGE_NOT_YET_SATISFIED, facts {data_certified: false}, because requires.datasets names FINRA_SHORT_VOLUME_PIT_V2 and it is not certified, so substrate_missing.datasets = [FINRA_SHORT_VOLUME_PIT_V2].",
+  "the_conflict": "This spec's ROLES.skip records data-foundation-agent as NOT to be spawned, reason NO_ADMISSIBLE_CELL_TO_CERTIFY_SUBSTRATE_FOR. The spawn gate derives its answer mechanically from substrate_missing and never reads the spec's ROLES block or the director-ruling store, so it reaches the opposite conclusion.",
+  "why_the_director_did_not_dodge_it_by_editing_requires": "Emptying requires.datasets would make the gate silent and compliant, but the operator explicitly required the FINRA short-volume dataset id to be NAMED there, and removing it to manage a gate's output would be tuning a declaration to produce a desired dispatch. The declaration is correct: the cell genuinely would need that dataset. The gate's reading of it is what is wrong.",
+  "THE_BINDING_INSTRUCTION_FOR_THE_SESSION_ORCHESTRATOR": "DO NOT DISPATCH data-foundation-agent for this campaign. The director's ROLES.skip governs. There is no D1 in COMMISSIONED_WORK (it is an empty object), so a data-foundation-agent spawned here would receive no commissioned work and would be certifying a dataset for a mechanism that is durably refused - which is exactly the wasted certification R73_D1 and R75_D1 already demonstrate.",
+  "the_pattern_this_shares_with_R77_DEFECT_1": "Both are mechanical projections over research memory that cannot see a director's ruling. briefs.py:353-358 re-queues refused cells; routing.spawn_plan re-commissions refused substrate. A ruling that its own tooling cannot read is a ruling that only holds while a human is watching.",
+  "recommended_fix_not_applied": "spawn_plan should treat a dataset named in requires as NOT-to-be-certified when the campaign spec pre-registers zero experiments and COMMISSIONED_WORK is empty, or should consult director_rulings for the consuming mechanism. A code change; not this campaign's scope."
+ },
+ "requires": {
+  "declared_by": "quant-research-director, R77",
+  "why": "alpha_agent.agents_v2.briefs._foundation_done falls back to the ESTATE-WIDE answer when a spec declares nothing, which is how R76's spawn gate skipped the very role that spec commissioned. This block is declared so the gate reads THIS campaign's substrate need rather than the estate's. Because both cells are refused, the two dataset ids below are declared as REQUIRED-AND-ABSENT: they are what the cells would need, and naming them makes the spawn gate report the substrate as missing rather than silently satisfied. Nothing here commissions a certification, mints an id, charges burden or relaxes a kill condition.",
+  "datasets": [
+   "FINRA_SHORT_VOLUME_PIT_V2",
+   "r38_native_contract_layer_with_deferred_leg_v1"
+  ],
+  "universes": [
+   "r65_xa_metals_currency_leadlag"
+  ],
+  "feature_sets": [
+   "fs_r65_02_metals_currency_leadlag_h3"
+  ],
+  "dataset_certification_status_measured_not_assumed": {
+   "FINRA_SHORT_VOLUME_PIT_V2": "DOES NOT EXIST. Its predecessor finra_short_volume_v1 is certified NOT_PIT_SAFE with 34 sessions. This is the FINRA short-volume dataset id the operator asked to be named for certification; it is named here, and NO certification is commissioned, because the mechanism that would consume it is refused.",
+   "r38_native_contract_layer_with_deferred_leg_v1": "ALREADY CERTIFIED PIT_SAFE. This is the futures substrate candidate 2 needs and it is already present, which is why substrate was never candidate 2's blocker.",
+   "r65_xa_metals_currency_leadlag": "ALREADY DEFINED.",
+   "fs_r65_02_metals_currency_leadlag_h3": "ALREADY PUBLISHED, and carried by ZERO hypotheses in research memory."
+  }
+ },
+ "SAFETY": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "backfills_forward_evidence": false,
+  "forward_book_touched": false,
+  "automation_enabled": false,
+  "manual_review_required": true,
+  "purchases_nothing": true,
+  "requests_no_purchase_approval": true,
+  "experiments_run_by_the_director": 0,
+  "returns_computed_by_the_director": 0,
+  "evaluation_samples_read_by_the_director": 0,
+  "lockbox_looks_spent": 0,
+  "burden_charged": 0,
+  "census_regenerated_or_overwritten": false,
+  "governance_contract_widened": false,
+  "gates_relaxed": 0,
+  "wrds_purchase_approval_requested": false,
+  "r76_delisted_bridge_gate_touched": false,
+  "r76_comment_letter_cell_rerun": false,
+  "network_calls_made_by_the_director": 0,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}
