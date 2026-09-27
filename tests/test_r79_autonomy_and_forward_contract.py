@@ -279,6 +279,46 @@ def _nor():
     return NOR
 
 
+#: The clearance mix as ``plan_sleep`` computes it for the live estate's own
+#: blocked set: fourteen FAMILY_EXHAUSTED jobs, none terminal, none time-cleared.
+LIVE_MIX = {"time_will_clear": 0, "needs_new_information": 14,
+            "terminal_without_a_decision": 0}
+
+
+def test_17b_the_clearance_mix_reaches_the_status_read_model(monkeypatch):
+    """A derived count that never reaches the artifact is not a measurement.
+
+    ``plan_sleep`` computed the mix and neither the artifact body nor the status
+    read model carried it, so the one surface that has to answer "is a human
+    needed" read three zeros while fourteen jobs waited on information. Asserted
+    through the read model's own projection of a persisted body - the store is
+    monkeypatched, so no live runtime artifact is read or written.
+    """
+    monkeypatch.setattr(RT, "read_status",
+                        lambda: {"worker_state": RT.W_FRONTIER_EXHAUSTED,
+                                 "blocker_reasons": {B.FAMILY_EXHAUSTED: 14},
+                                 "blocker_clearance_mix": dict(LIVE_MIX),
+                                 "stop_or_sleep_reason":
+                                     RT.SLEEP_WAITING_INFORMATION})
+    body = RT.read_status()
+    assert body["blocker_clearance_mix"] == LIVE_MIX
+
+
+def test_17c_the_status_surface_counts_the_live_mix_not_three_zeros():
+    """What the projection makes of it, which is the half that was wrong."""
+    doc = _status(worker_status={
+        "worker_state": RT.W_FRONTIER_EXHAUSTED,
+        "blocker_reasons": {B.FAMILY_EXHAUSTED: 14},
+        "blocker_clearance_mix": dict(LIVE_MIX),
+        "stop_or_sleep_reason": RT.SLEEP_WAITING_INFORMATION})
+    blk = doc["CURRENT_BLOCKERS"]
+    assert blk["research_information_blockers"] == 14
+    assert blk["research_terminal_blockers"] == 0
+    assert blk["research_time_blockers"] == 0
+    assert blk["research_sleep_reason"] == RT.SLEEP_WAITING_INFORMATION
+    assert doc["autonomy"]["state"] == AOS.A_NEEDS_INFORMATION
+
+
 def test_18_the_cadence_contract_is_read_from_the_frozen_specification():
     """The signal identity owns the calendar. Cadence 5, non-overlapping."""
     c = _nor().cadence_contract()

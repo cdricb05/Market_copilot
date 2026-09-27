@@ -455,6 +455,10 @@ def status(mem: Optional[M.ResearchMemory] = None,
             "wake_condition": persisted.get("wake_condition"),
             "blocker_reason": persisted.get("blocker_reason"),
             "blocker_reasons": dict(persisted.get("blocker_reasons") or {}),
+            # R79 - carried through the read model too, or the status surface
+            # reads the artifact's zeros instead of the artifact's answer.
+            "blocker_clearance_mix": dict(
+                persisted.get("blocker_clearance_mix") or {}),
             "wait_detail": persisted.get("wait_detail"),
             # R64 - the cadence actually in force, and the pacing state behind
             # it. An operator who can see only "SLEEPING" cannot tell a worker
@@ -1013,6 +1017,13 @@ def run_forever(*, mem: Optional[M.ResearchMemory] = None,
             "wake_condition": sleep_plan.get("wake_condition"),
             "blocker_reason": sleep_plan.get("blocker_reason"),
             "blocker_reasons": dict(sleep_plan.get("blocker_reasons") or {}),
+            # R79 - the CLEARANCE mix, persisted beside the reason counts. The
+            # reason alone does not say whether a human is needed, and the one
+            # surface that has to answer that was reading three zeros while
+            # fourteen jobs waited on information: a derived count that never
+            # reaches the artifact is not a measurement.
+            "blocker_clearance_mix": dict(
+                sleep_plan.get("blocker_clearance_mix") or {}),
             "wait_detail": sleep_plan.get("detail"),
             "latest_error": latest_error,
             "cycles_completed": n_cycles_total,
