@@ -1,4 +1,104 @@
 # PROJECT_STATE
+- **Last updated:** 2026-09-27
+- **Updated by phase:** **R79_AUTONOMOUS_LOOP_AND_FORWARD_CONTRACT_INTEGRITY -
+  THE LOOP LOOKED ALIVE FOR NINETEEN DAYS, AND TWO CALENDARS DISAGREED (single
+  agent, Windows PowerShell only, live checkout on `stage19-controlled-rebalance`
+  over `97ca932`; landed as `d948f12`, `af07f2f`, `03843e6`, `5a9e167`,
+  `5e98c80`, NOT PUSHED).**
+
+  **What was wrong.** Every surface reported health on 2026-09-27 and the
+  conjunction was false. The research program had measured ZERO hypotheses since
+  2026-09-08 while the scheduled task ran, the lease was live and the heartbeat
+  was ninety seconds old. `frontier.measure`'s `remaining_families` listed two
+  CROSS_ASSET families the research director had ruled TERMINAL
+  (WAITING_FOR_EXTERNAL_ENTITLEMENT, SUPERSEDED); the governor builds its
+  mandates from that list alone, so it re-issued both on every pass; they were
+  the estate's ONLY generatable work, so `stop_reason` answered "can still
+  generate 2 independently executable mandates", STOP_A was unreachable, and the
+  loop settled on STOP_B calling a settled governance refusal an external
+  blocker. R72 had built the durable ruling store AND the classifier that maps a
+  ruling onto the blocker taxonomy, and wired them into REPORTING only - no
+  dispatcher ever read a ruling.
+
+  Separately, the SPY next-open challenger had TWO decision calendars: its
+  producer hard-coded `cadence_sessions: 1` and gridded every eligible session
+  while its frozen specification declares `cadence 5, overlapping False` and the
+  canonical accrual strides by that 5. And it declared entry at the next eligible
+  session's OPEN (09:30 ET) while naming `api.price_panel` - a panel whose only
+  per-session price is `adjusted_close` - as its mark owner, with nothing
+  comparing the two declarations.
+
+  **What landed.** ONE seam: a family carrying a TERMINAL director ruling is not
+  remaining work, partitioned through the EXISTING `blockers.ruling_for` lookup
+  and the EXISTING CLEARANCE taxonomy, with `withheld_by_director_ruling`
+  published beside the answer carrying each ruling's authority and reopen
+  condition. Everything downstream derived the truth for free: CROSS_ASSET
+  EXHAUSTED, `ready: []`, governor 0 mandates,
+  NO_INDEPENDENT_EXECUTABLE_RESEARCH_REMAINS, `stop_reason` condition A. The
+  queue's symmetric reconciliation (`retire_terminally_ruled`, beside
+  `requeue_stale`) settled the 3 terminally-ruled zombie jobs through the queue's
+  own `fail_permanent` - 17 blocked became 14, and the 14 FAMILY_EXHAUSTED stayed
+  outstanding because they clear on INFORMATION. `plan_sleep` now derives its
+  reason from the blocked set's clearance mix instead of asserting
+  WAITING_ON_A_BLOCKED_EXTERNAL_SOURCE.
+
+  The SPY grid became a non-overlapping stride on the SAME eligibility rule the
+  module already owned (no competing calendar, and the signal is NOT changed to
+  daily overlapping decisions), and `advance_daily` gained the acting-side gate
+  `NEXT_OPEN_NOT_A_DECISION_BOUNDARY` BELOW the probe and append, because R76's
+  "acquiring and deciding are different acts" still holds. The accrual refuses an
+  unpriceable strategy with
+  DECLARED_ENTRY_MARK_IS_NOT_SERVED_BY_THE_DECLARED_VALUATION_PATH, beside the
+  existing horizon-coherence refusal, liftable by a release declaring
+  `valuation_marks.mark_instant` rather than by a code change. The R78 duplicate
+  closed: each queued census proposal is also asked of the canonical
+  mechanism-state owner (R68 built it for exactly this and it was never wired
+  in), and `settled_state` separates RULED from SETTLED_BY_MEASUREMENT from
+  NOT_SETTLED. `api.autonomous_operating_status`
+  (`GET /v1/operations/autonomous-status`) answers the eight questions in one
+  read and derives ONE verdict that ignores process liveness by construction.
+
+  **Honest result.** The estate is TERMINALLY EXHAUSTED on owned information: six
+  of eight asset classes EXHAUSTED, CREDIT_PROXY BLOCKED with zero instruments,
+  and CROSS_ASSET's entire remaining family list governance-refused. That is a
+  human/purchase decision, not a wait, and it is now the state the system
+  reports. Measured live: miss ledger 11 -> 4 estate-wide (SPY 9 -> 2) with no
+  immutable record touched; next SPY boundary 2026-09-28 -> **2026-09-29**; 4 of
+  13 queued proposals were presenting as novel while settled by measurement,
+  including rank 8 US_EQUITY|FUNDAMENTAL_MOMENTUM carrying DATA_HOLD=2 (the R78
+  duplicate), leaving 2 genuinely open; exactly 1 of 8 registrations refused as
+  unpriceable. Two real worker cycles completed on the landed code, the
+  retirement survived three worker restarts, and the truthful sleep reason
+  WAITING_ON_INFORMATION_THE_ESTATE_DOES_NOT_OWN is live.
+
+  Three defects in this release were found by reading the LIVE endpoint rather
+  than the function that builds it (R79.2-R79.4): a refusal persisted as a code
+  with no reason; `current_accrual_state` vs `state`; the computed clearance mix
+  reaching no artifact; and `canonical_portfolio_decision` vs
+  `portfolio_decision`. In each case a surface reported a correct conclusion from
+  wrong evidence, which is not a working measurement.
+
+  `runtime_llm_dependency = NONE`. No order, no fill, no approval, no promotion,
+  no backfill, no purchase, $0 spent. The estate's hypothesis count is unchanged
+  at 8,473: no experiment was run, because none was admissible.
+  Tests: `tests/test_r79_autonomy_and_forward_contract.py` (68). Architecture
+  audit exit 0.
+
+  **One pre-existing governance item referred to the operator, deliberately NOT
+  changed:** the UI's `WORKFLOW_STEPS` declares an ENABLED `create-orders` step
+  ("Create Paper Orders" -> `POST /v1/review/create-orders`, Order rows
+  status=PENDING, no broker, no fills, behind an explicit write confirmation),
+  which contradicts the CLAUDE.md hard-failure condition "Create Orders is
+  implemented or enabled". Either paper tickets are inside paper-trading scope and
+  the rule needs rewording, or the step and its routes should go. R79 implemented
+  no order path and removed none.
+
+## R63_GOVERNED_TARGET_SELECTION_AND_MANDATORY_REPAIR_ALIGNMENT (superseded as the current phase; result unchanged)
+
+Note: R74.2, R76 and R77 landed in the code after this entry was written and were
+never added here; their narratives live in their commits and in
+`docs/architecture/system_inventory.json`. R79 did not backfill them, because
+inventing a summary of work it did not do is worse than a gap that is named.
 
 - **Last updated:** 2026-09-21
 - **Updated by phase:** **R63_GOVERNED_TARGET_SELECTION_AND_MANDATORY_REPAIR_ALIGNMENT
