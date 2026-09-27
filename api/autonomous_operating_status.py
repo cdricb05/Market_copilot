@@ -98,6 +98,20 @@ AUTONOMY_STATES = (A_ADVANCING, A_WAITING_ON_TIME, A_NEEDS_INFORMATION,
 SAFETY_BADGES = ("PREVIEW ONLY", "NO ORDERS", "ORDERS DISABLED",
                  "AUTOMATION OFF", "MANUAL REVIEW")
 
+#: The accrual owner's refusal code for a strategy whose declared entry mark its
+#: declared valuation path cannot serve. Named here, not re-derived: the string is
+#: :data:`api.canonical_forward_accrual.INTEGRITY_ENTRY_MARK_UNPRICEABLE` and is
+#: imported rather than retyped so a rename cannot silently stop matching.
+def _unpriceable_blocker() -> str:
+    try:
+        from . import canonical_forward_accrual as _ACC
+        return _ACC.INTEGRITY_ENTRY_MARK_UNPRICEABLE
+    except Exception:                                       # noqa: BLE001
+        return "DECLARED_ENTRY_MARK_IS_NOT_SERVED_BY_THE_DECLARED_VALUATION_PATH"
+
+
+UNPRICEABLE_BLOCKER = _unpriceable_blocker()
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -252,11 +266,23 @@ def _forward_ledger(accrual: dict) -> dict:
             "last_emission_session": r.get("last_emission_session"),
             "latest_blocker": r.get("latest_blocker"),
             "entry_mark_feasible": _g(r, "entry_mark_feasibility", "feasible"),
-            "entry_mark_refusal": _g(r, "entry_mark_feasibility", "reason"),
+            "entry_mark_refusal": (
+                _g(r, "entry_mark_feasibility", "reason")
+                # The refusal CODE is published as the accrual's own
+                # ``latest_blocker`` and the feasibility block beside it. The
+                # accrual stage is legitimately skipped while its inputs are
+                # unchanged, so a projection persisted before that block existed
+                # carries the code and not the block; reading both means the
+                # refusal is visible from the moment it is made rather than from
+                # the next advance.
+                or (r.get("latest_blocker")
+                    if r.get("latest_blocker")
+                    == UNPRICEABLE_BLOCKER else None)),
         })
     rows.sort(key=lambda x: str(x.get("challenger_id")))
     unpriceable = [r["challenger_id"] for r in rows
-                   if r.get("entry_mark_feasible") is False]
+                   if r.get("entry_mark_feasible") is False
+                   or r.get("entry_mark_refusal") == UNPRICEABLE_BLOCKER]
     return {"registrations": rows, "n_registrations": len(rows),
             "totals": totals,
             "unpriceable_registrations": unpriceable,
@@ -264,26 +290,63 @@ def _forward_ledger(accrual: dict) -> dict:
 
 
 def _portfolio_proposal_state(workflow: dict) -> dict:
-    """The governed proposal, verbatim from the decision owner's projection."""
+    """The governed proposal, verbatim from the decision owner's projection.
+
+    The workflow read model publishes the decision block under TWO names with
+    two field vocabularies: ``canonical_portfolio_decision`` (the canonical
+    owner's own projection, which is what the snapshot serves) and
+    ``portfolio_decision`` (the operator-facing block). Reading only the second
+    left every field null on a live read while an injected test document passed -
+    the third instance in this release of one fact travelling under two spellings.
+    Both are read, canonical first, and ``projected_under`` says which answered so
+    a reader is never guessing which vocabulary they are looking at.
+    """
+    canon = _g(workflow, "canonical_portfolio_decision", default={}) or {}
     pd = _g(workflow, "portfolio_decision", default={}) or {}
+    src = canon or pd
+
+    def _pick(*names):
+        for n in names:
+            if src.get(n) is not None:
+                return src[n]
+        for n in names:
+            if pd.get(n) is not None:
+                return pd[n]
+        return None
+
     return {
-        "portfolio_decision_state": pd.get("portfolio_decision_state"),
-        "proposal_id": pd.get("proposal_id"),
-        "proposal_hash": pd.get("proposal_hash"),
-        "proposal_state": pd.get("proposal_state"),
-        "one_way_turnover": pd.get("one_way_turnover"),
-        "estimated_transaction_cost": pd.get("estimated_transaction_cost"),
-        "score_improvement_net_of_cost": pd.get("score_improvement_net_of_cost"),
-        "switching_hurdle": pd.get("switching_hurdle"),
-        "clears_switching_hurdle": pd.get("clears_switching_hurdle"),
-        "approvable": pd.get("approvable"),
-        "requires_manual_review": pd.get("requires_manual_review"),
-        "mandatory_repair_code": pd.get("mandatory_repair_code"),
-        "change_withheld": pd.get("change_withheld"),
-        "decision": pd.get("decision"),
-        "decision_is_current": pd.get("decision_is_current"),
-        "reassessment_state": _g(workflow, "portfolio_reassessment_state"),
-        "reallocation_state": _g(workflow, "reallocation_operator_state"),
+        "projected_under": ("canonical_portfolio_decision" if canon
+                           else "portfolio_decision" if pd else None),
+        "portfolio_decision_state": _pick("decision_state",
+                                          "portfolio_decision_state", "state"),
+        "proposal_id": _pick("proposal_id"),
+        "proposal_hash": _pick("proposal_hash"),
+        "proposal_state": _pick("proposal_state"),
+        "one_way_turnover": _pick("expected_one_way_turnover",
+                                  "one_way_turnover"),
+        "estimated_transaction_cost": _pick("expected_transaction_cost_usd",
+                                           "estimated_transaction_cost"),
+        "score_improvement_net_of_cost": _pick(
+            "expected_net_improvement", "score_improvement_net_of_cost"),
+        "switching_hurdle": _pick("switching_hurdle", "net_improvement_hurdle"),
+        "clears_switching_hurdle": _pick("clears_switching_hurdle"),
+        "approvable": _pick("approvable"),
+        "requires_manual_review": _pick("manual_review_only",
+                                        "requires_manual_review"),
+        "mandatory_repair_code": _pick("mandatory_repair_code",
+                                       "mandatory_exit_obligation"),
+        "change_withheld": _pick("change_withheld"),
+        "withheld_reasons": _pick("withheld_reasons"),
+        "hold_current_book": _pick("hold_current_book"),
+        "feasible_target_exists": _pick("feasible_target_exists"),
+        "decision": _pick("decision"),
+        "decision_is_current": _pick("decision_is_current"),
+        "creates_orders": _pick("creates_orders"),
+        "automation_off": _pick("automation_off"),
+        "reassessment_state": (_pick("reassessment_state")
+                              or _g(workflow, "portfolio_reassessment_state")),
+        "reallocation_state": (_pick("reallocation_outcome")
+                              or _g(workflow, "reallocation_operator_state")),
     }
 
 

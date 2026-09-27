@@ -856,6 +856,75 @@ def test_47_an_unpriceable_registration_is_named_in_the_ledger():
     assert led["n_unpriceable"] == 1
 
 
+def test_47b_the_refusal_code_alone_is_enough_to_name_it_unpriceable():
+    """The accrual stage is legitimately skipped while its inputs are unchanged.
+
+    A projection persisted before the feasibility block existed carries only the
+    refusal CODE, and the surface must still name the registration - otherwise the
+    finding is invisible until the next advance.
+    """
+    doc = _status(accrual={"h1": {
+        "challenger_id": NEXT_OPEN_ID,
+        "latest_blocker": ACC.INTEGRITY_ENTRY_MARK_UNPRICEABLE}})
+    led = doc["FORWARD_EMITTED_PENDING_MATURED"]
+    assert led["unpriceable_registrations"] == [NEXT_OPEN_ID]
+    assert led["registrations"][0]["entry_mark_refusal"] == \
+        ACC.INTEGRITY_ENTRY_MARK_UNPRICEABLE
+
+
+def test_47c_an_unrelated_blocker_is_not_read_as_unpriceable():
+    """The code is matched exactly; a DATA_BLOCKED row is not a valuation gap."""
+    doc = _status(accrual={"h1": {"challenger_id": "A",
+                                  "latest_blocker": ACC.BLOCK_NO_PANEL}})
+    assert doc["FORWARD_EMITTED_PENDING_MATURED"]["n_unpriceable"] == 0
+
+
+def test_47d_the_surface_imports_the_refusal_code_rather_than_retyping_it():
+    assert AOS.UNPRICEABLE_BLOCKER == ACC.INTEGRITY_ENTRY_MARK_UNPRICEABLE
+
+
+# --------------------------------------------------------------------------- #
+# 7b. THE PORTFOLIO BLOCK - one fact, two spellings, again
+# --------------------------------------------------------------------------- #
+def test_47e_the_canonical_decision_vocabulary_is_read():
+    """What the live snapshot actually serves is canonical_portfolio_decision."""
+    doc = _status(workflow_state={"canonical_portfolio_decision": {
+        "decision_state": "PROPOSAL_REVIEW_REQUIRED",
+        "proposal_id": "reap_2026-09-25_alpha_paper_book_1_eaee484fa4a0",
+        "expected_one_way_turnover": 0.35,
+        "expected_transaction_cost_usd": 86.44,
+        "expected_net_improvement": 0.067329,
+        "switching_hurdle": 0.05, "approvable": True,
+        "creates_orders": False, "automation_off": True}})
+    p = doc["PORTFOLIO_PROPOSAL_STATE"]
+    assert p["projected_under"] == "canonical_portfolio_decision"
+    assert p["portfolio_decision_state"] == "PROPOSAL_REVIEW_REQUIRED"
+    assert p["one_way_turnover"] == 0.35
+    assert p["estimated_transaction_cost"] == 86.44
+    assert p["score_improvement_net_of_cost"] == 0.067329
+    assert p["approvable"] is True
+    assert p["creates_orders"] is False
+
+
+def test_47f_the_operator_facing_vocabulary_still_works():
+    """The other spelling must keep working; both are live shapes."""
+    doc = _status(workflow_state={"portfolio_decision": {
+        "portfolio_decision_state": "PROPOSAL_REVIEW_REQUIRED",
+        "one_way_turnover": 0.35, "estimated_transaction_cost": 86.44,
+        "score_improvement_net_of_cost": 0.067329, "approvable": True}})
+    p = doc["PORTFOLIO_PROPOSAL_STATE"]
+    assert p["projected_under"] == "portfolio_decision"
+    assert p["portfolio_decision_state"] == "PROPOSAL_REVIEW_REQUIRED"
+    assert p["one_way_turnover"] == 0.35
+    assert p["score_improvement_net_of_cost"] == 0.067329
+
+
+def test_47g_neither_block_present_reports_null_rather_than_guessing():
+    p = _status()["PORTFOLIO_PROPOSAL_STATE"]
+    assert p["projected_under"] is None
+    assert p["portfolio_decision_state"] is None
+
+
 def test_48_the_status_declares_every_safety_boundary_and_writes_nothing():
     doc = _status(worker_status={"worker_state": "SLEEPING"})
     assert doc["read_only"] is True
