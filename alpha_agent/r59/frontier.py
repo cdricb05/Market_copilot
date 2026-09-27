@@ -25,9 +25,60 @@ from pathlib import Path
 from typing import Optional
 
 from .. import r59
+from . import blockers as BLK
 from . import memory as M
 
 CALCULATION_OWNER = "alpha_agent.r59.frontier"
+
+
+def _partition_ruled(mem, asset_class: str, families: list) -> tuple:
+    """Split remaining families into DISPATCHABLE and DIRECTOR-WITHHELD (R79).
+
+    The ruling is asked of the canonical store through the SAME lookup the
+    blocker classifier already uses (:func:`alpha_agent.r59.blockers.ruling_for`),
+    and its clearance is read from the SAME taxonomy
+    (:data:`alpha_agent.r59.blockers.CLEARANCE`). No second novelty database, no
+    second vocabulary and no new terminal condition: a family is withheld here
+    exactly when the taxonomy already says its ruled blocker is TERMINAL - that
+    is, when nothing but a human decision or new code could ever reopen it.
+
+    INFORMATION and TIME blockers are deliberately left dispatchable. A family
+    waiting for a provider field or for more sessions is real remaining work, and
+    excluding it would convert a temporary wait into a permanent closure - the
+    mirror image of the bug this function fixes.
+
+    Never raises: a store that cannot be read leaves every family dispatchable,
+    because failing to read a ruling must not silently retire research.
+    """
+    keep, withheld = [], []
+    for family in families:
+        ruling = None
+        try:
+            ruling = BLK.ruling_for({"asset_class": asset_class,
+                                     "family": family}, mem=mem)
+        except Exception:                                   # noqa: BLE001
+            ruling = None
+        code = str((ruling or {}).get("blocker_reason") or "")
+        if not code or BLK.CLEARANCE.get(code) != BLK.CLEARS_TERMINAL:
+            keep.append(family)
+            continue
+        withheld.append({
+            "economic_family": family,
+            "asset_class": asset_class,
+            "blocker_reason": code,
+            "clears_on": BLK.CLEARANCE.get(code),
+            "description": BLK.DESCRIPTION.get(code),
+            "verdict": (ruling or {}).get("verdict"),
+            "decided_by": (ruling or {}).get("decided_by"),
+            "decision_date": (ruling or {}).get("decision_date"),
+            "campaign_id": (ruling or {}).get("campaign_id"),
+            "rationale": (ruling or {}).get("rationale"),
+            "reopen_condition": (ruling or {}).get("reopen_condition"),
+            "source_artifact": (ruling or {}).get("source_artifact"),
+            "ruling_scope": (ruling or {}).get("ruling_scope"),
+            "withheld_by": CALCULATION_OWNER,
+        })
+    return keep, withheld
 
 # Families R59 knows how to execute, per class. Two properties decide how a
 # family behaves on the frontier, and getting either wrong produces a false
@@ -326,6 +377,37 @@ def measure(mem: Optional[M.ResearchMemory] = None) -> dict:
             gen_state[s["family"]] = g
             if not g["exhausted"]:
                 remaining.append(s["family"])
+        # R79 - A FAMILY THE DIRECTOR HAS PERMANENTLY CLOSED IS NOT REMAINING
+        # WORK. ``remaining_families`` is the estate's one answer to "what is
+        # left to test", and every dispatch decision derives from it: the
+        # governor builds its mandates from this list, ``stop_reason`` counts
+        # them to decide whether research may legitimately stop, and the loop
+        # reports STOP_A only when the governor produces none. R72 gave the
+        # estate a durable director ruling store and a classifier that maps a
+        # ruling onto the canonical blocker taxonomy - but only the REPORTING
+        # path ever read it. The dispatcher never did.
+        #
+        # The measured consequence: CROSS_ASSET was the one READY scope in the
+        # estate, its two remaining families were CROSS_ASSET_RELATIVE_VALUE
+        # (ruled WAITING_FOR_EXTERNAL_ENTITLEMENT) and
+        # CROSS_ASSET_REGIME_CONDITIONING (ruled SUPERSEDED) - both TERMINAL -
+        # and the governor re-issued a mandate for each on every pass. Those
+        # mandates were the only work it could generate, so ``stop_reason``
+        # answered "the research director can still generate 2 independently
+        # executable mandates", the loop never reached STOP_A, and the runtime
+        # slept every forty minutes for nineteen days reporting
+        # WAITING_ON_A_BLOCKED_EXTERNAL_SOURCE - which is precisely the failure
+        # mode ``blockers`` says it exists to make visible.
+        #
+        # A ruling is a GOVERNANCE removal and is kept distinct from the
+        # measured generative exhaustion above: nothing is deleted from memory,
+        # the family stays in ``executable_families``, and the ruling's own
+        # reopen condition travels with it, so the exclusion is auditable and
+        # liftable by the authority that imposed it.
+        withheld = []
+        if remaining:
+            still, withheld = _partition_ruled(mem, ac, remaining)
+            remaining = still
         n_hyp = len(mem.list_hypotheses(asset_class=ac))
         n_frozen = len(mem.list_hypotheses(asset_class=ac,
                                            outcome=r59.HO_FORWARD_FROZEN))
@@ -363,6 +445,12 @@ def measure(mem: Optional[M.ResearchMemory] = None) -> dict:
                 [f for f in declared if f not in executable],
             "prosecuted_families": sorted(prosecuted),
             "remaining_families": remaining,
+            # R79 - what a director ruling removed from the line above, with the
+            # authority and the condition that reopens it. Published beside the
+            # answer rather than instead of it: a reader who cannot see that a
+            # ruling closed a family cannot audit whether it should have.
+            "withheld_by_director_ruling": withheld,
+            "n_withheld_by_director_ruling": len(withheld),
             "generative_families": [s["family"] for s in specs
                                     if s["generative"]],
             "generative_state": gen_state,

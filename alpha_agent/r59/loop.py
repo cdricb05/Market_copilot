@@ -163,6 +163,10 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
         # Dead-worker recovery before claiming: an interrupted previous run
         # left its job RUNNING, and it must come back rather than be lost.
         requeued = queue.requeue_stale()
+        # R79 - and the symmetric reconciliation: a job whose economic family the
+        # director has since closed TERMINALLY can never be claimed again, so it
+        # is settled here rather than counted as outstanding work for ever.
+        retired = H.retire_terminally_ruled(queue, mem)
 
         report = AR.drain_jobs(
             queue, handlers, max_jobs=max_jobs_per_iteration,
@@ -187,6 +191,7 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
             "mandates_enqueued": seeded["enqueued"],
             "already_live": seeded["already_live"],
             "requeued_stale": requeued,
+            "terminally_ruled_jobs_retired": retired["n_retired"],
             "jobs_claimed": report.get("jobs_claimed"),
             "jobs_completed": report.get("jobs_completed"),
             "jobs_blocked": report.get("jobs_blocked"),
@@ -228,11 +233,33 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
             # (every live job is blocked or backing off). That is condition B,
             # not a reason to spin.
             if queue.runnable_depth() == 0:
+                # R79 - name WHAT is holding each job, not just that something
+                # is. "blocked on a named external condition" was printed for
+                # jobs the director had ruled TERMINALLY closed, and a runtime
+                # that sleeps on those is not waiting for the world, it is
+                # waiting for nothing. The canonical taxonomy already answers
+                # this, so the classification travels with the stop detail and
+                # the clearance mix is summarised beside it.
+                rows = [H.BLK.classify_job(j, mem=mem)
+                        for j in queue.blocked_jobs(limit=50)]
+                mix: dict = {}
+                for r in rows:
+                    key = str(r.get("clears_on"))
+                    mix[key] = mix.get(key, 0) + 1
                 stop, stop_detail = STOP_B, {
                     "reason": "no job is claimable: every outstanding job is "
-                              "blocked on a named external condition",
+                              "blocked on a named condition",
                     "blocked": [{"lane": j.lane, "reason": j.blocked_reason}
                                 for j in queue.blocked_jobs(limit=20)],
+                    "blocked_by_clearance": mix,
+                    "blocked_classified": [
+                        {"lane": r.get("lane"),
+                         "reason_code": r.get("reason_code"),
+                         "clears_on": r.get("clears_on"),
+                         "asset_class": r.get("asset_class"),
+                         "economic_family": r.get("family")} for r in rows],
+                    "terminal_blockers_present": bool(
+                        mix.get(H.BLK.CLEARS_TERMINAL)),
                     "governor": decision}
                 break
 

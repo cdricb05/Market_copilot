@@ -68,6 +68,18 @@ MAX_HANDOFF_PROSE_WORDS = 500
 #: it never copies the file into a prompt.
 CENSUS_FILE = "NEXT_CAMPAIGN_CENSUS.json"
 
+#: R79 - HOW a queued proposal is already settled, if it is. Three states,
+#: because they need three different director actions: a RULED mechanism must be
+#: overturned on the record, a mechanism settled BY MEASUREMENT must clear its
+#: own reopen condition, and only the third is genuinely open work. The estate
+#: previously published one boolean about the first and nothing about the second,
+#: so a proposal settled by measurement was indistinguishable from a new one -
+#: which is how R78 re-commissioned a mechanism that already carried a verdict.
+SETTLED_RULED = "RULED_BY_THE_DIRECTOR"
+SETTLED_BY_MEASUREMENT = "SETTLED_BY_MEASUREMENT_WITHOUT_A_RULING"
+SETTLED_NOT = "NOT_SETTLED_IN_CANONICAL_MEMORY"
+SETTLED_STATES = (SETTLED_RULED, SETTLED_BY_MEASUREMENT, SETTLED_NOT)
+
 
 # --------------------------------------------------------------------------- #
 # Envelope
@@ -326,6 +338,33 @@ def _queued_with_rulings(pipe, census: dict) -> list:
     too. Nothing is filtered OUT: a refused proposal stays visible, carrying its
     refusal and its reopen condition, because the director alone rules and needs
     to see what he is being asked to overturn.
+
+    R79 - THE SECOND HALF OF THE SAME DEFECT: A RULING IS NOT THE ONLY WAY A
+    MECHANISM GETS SETTLED. R78 re-commissioned a mechanism this estate had
+    already prosecuted, and every check passed while it did. The reason is a
+    seam, not an oversight:
+
+    * the census is a FROZEN artifact (2026-09-19) and the mechanism was settled
+      on 2026-09-21, so the census still lists it as queued;
+    * its rows carry ``asset_class`` and ``family`` but no ``information_family``,
+      so the canonical four-part mechanism key cannot be reconstructed from them;
+    * it was settled by MEASUREMENT - a recorded DATA_HOLD - and not by a
+      director ruling, so the ruling join above found nothing;
+    * therefore ``already_ruled`` came back False, which a director reasonably
+      read as "never tested".
+
+    ``already_ruled: false`` never meant "novel" and now cannot be mistaken for
+    it. Each proposal is additionally asked of the CANONICAL mechanism-state
+    owner (:meth:`alpha_agent.r59.memory.ResearchMemory.mechanism_state`, built by
+    R68 for exactly this question and never wired into this brief), bound on the
+    two components the census rows actually carry - a partial bind that owner
+    documents as a valid question with a real answer. The derived
+    ``settled_state`` is the one field a director should read, and it separates
+    RULED from SETTLED_BY_MEASUREMENT from NOT_SETTLED, so a stale census can no
+    longer present a prosecuted mechanism as an open one.
+
+    No second novelty database: the ruling store and research memory are both
+    existing canonical owners, read live, and neither is written here.
     """
     rulings: list = []
     try:
@@ -343,6 +382,30 @@ def _queued_with_rulings(pipe, census: dict) -> list:
                "agent": q.get("agent"), "asset_class": ac,
                "family": fam,
                "horizon_sessions": q.get("horizon_sessions")}
+        # The LIVE canonical mechanism state, not the frozen census's claim.
+        mech: dict = {}
+        try:
+            mech = pipe.mem.mechanism_state(asset_class=ac,
+                                            economic_family=fam) or {}
+        except Exception:                                    # noqa: BLE001
+            mech = {}
+        settled_by_measurement = bool(mech.get("mechanism_is_settled"))
+        row["mechanism_settled"] = settled_by_measurement
+        row["mechanism_settled_rows"] = int(mech.get("n_settled") or 0)
+        if settled_by_measurement:
+            # ONE unspaced pipe token, for the same handoff-budget reason
+            # ``refused_by`` below is one: ``prose_words`` counts string values by
+            # whitespace, so the outcome mix costs one word instead of several.
+            row["settled_by"] = "|".join(
+                "%s=%s" % (k, v) for k, v in
+                sorted((mech.get("outcomes") or {}).items()))
+        # The ONE field a director should read. ``already_ruled`` is retained
+        # because established callers and tests read it, but it answers a
+        # narrower question than the one that matters.
+        row["settled_state"] = (
+            SETTLED_RULED if covering
+            else SETTLED_BY_MEASUREMENT if settled_by_measurement
+            else SETTLED_NOT)
         # The census's R68_MECHANISM_CHECK block is deliberately NOT copied. It is
         # a static snapshot of a check the director must run live anyway, its
         # verdict is prose where the ruling store's is a code, and the census file

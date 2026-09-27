@@ -206,6 +206,7 @@ from paper_trader.api import portfolio_cycle as _pcycle
 from paper_trader.api import operator_presentation as _opres
 # Release 50 - the multi-asset operational capital manager owners (all read-only).
 from paper_trader.api import decision_snapshot as _snap
+from paper_trader.api import autonomous_operating_status as _autonomy_status
 # R54 - the ONE Active Manager Operating State (read-only composition).
 from paper_trader.api import active_manager_state as _ams
 from paper_trader.api import investability_registry as _invreg
@@ -20018,6 +20019,42 @@ def get_research_runtime_health() -> dict:
     audit.
     """
     return _r52_runtime.load_runtime_health()
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/operations/autonomous-status — R79 THE ONE autonomy status
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/operations/autonomous-status",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_autonomous_status() -> dict:
+    """R79 - THE ONE authoritative answer to "is this still running, and on what?"
+
+    Eight blocks in one read: LAST_COMPLETED_CYCLE, CURRENT_ACTIVE_WORK,
+    NEXT_SCHEDULED_WORK, CURRENT_BLOCKERS, RESEARCH_CANDIDATE_AND_STAGE,
+    FORWARD_EMITTED_PENDING_MATURED, PORTFOLIO_PROPOSAL_STATE and
+    RUNTIME_SOURCE_IDENTITY - plus ONE derived verdict, ``autonomy``, which says
+    whether the loop advances WITHOUT a human and, when it does not, exactly
+    what would release it.
+
+    A PROJECTION, not a second interpretation. Every value is copied from the
+    owner that computes it and that owner is named in ``projected_from``; the
+    workflow block is read through the Release-50 decision snapshot rather than
+    recomposed. An owner that cannot be read is reported in ``degraded_owners``
+    with its error rather than omitted, because a status surface that silently
+    drops what it could not read is how an outage stays invisible.
+
+    The verdict deliberately IGNORES process liveness. A live lease and a fresh
+    heartbeat proved only that a process existed while the research program had
+    executed nothing for nineteen days; the verdict is derived from the canonical
+    blocker taxonomy's clearance vocabulary instead.
+
+    STRICTLY READ-ONLY: no write, no order, no approval, no promotion, no
+    provider call and no prediction-service call.
+    """
+    return _autonomy_status.build_autonomous_operating_status()
 
 
 # --------------------------------------------------------------------------- #

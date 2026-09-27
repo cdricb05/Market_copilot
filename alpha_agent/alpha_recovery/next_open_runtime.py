@@ -401,33 +401,134 @@ def _eligible_range(start: str, end: str) -> list:
     return out
 
 
+#: R79 - the blocker a producer reports when it cannot read its own signal's
+#: cadence contract. A grid guessed from the calendar alone is how this producer
+#: came to declare nine daily boundaries against a frozen cadence of five.
+GRID_NO_CADENCE = "FROZEN_CADENCE_CONTRACT_NOT_DECLARED"
+#: The frozen specification declares an OVERLAPPING construction, which this
+#: producer's non-overlapping stride cannot express. Reported, never approximated.
+GRID_OVERLAPPING = "FROZEN_CONSTRUCTION_IS_OVERLAPPING_AND_THIS_GRID_IS_NOT"
+#: The two owners of the cadence integer disagree. Fail closed rather than pick.
+GRID_CADENCE_DISAGREES = "CADENCE_DECLARATIONS_DISAGREE"
+
+
+def cadence_contract() -> dict:
+    """The ONE cadence contract this producer's grid derives from (R79).
+
+    The signal identity is owned by the FROZEN SPECIFICATION, and it declares
+    both halves of the decision calendar: ``cadence`` (5) and ``overlapping``
+    (False). :func:`next_open_challenger.policy_declaration` republishes the
+    same integer as ``rebalance_cadence_sessions``, and the canonical accrual
+    owner reads THAT one. Both are asked here and a disagreement fails closed,
+    because a producer that picks a winner between two declarations is exactly
+    how a second calendar gets created.
+
+    Pure. Reads the challenger's own declarations and nothing else - no clock,
+    no panel, no queue, no store.
+    """
+    spec = NOC.frozen_specification() or {}
+    pol = NOC.policy_declaration() or {}
+    spec_cadence = spec.get("cadence")
+    pol_cadence = pol.get("rebalance_cadence_sessions")
+    overlapping = spec.get("overlapping")
+    out = {"declared_by": "%s.frozen_specification" % NOC.CALCULATION_OWNER,
+           "spec_cadence_sessions": spec_cadence,
+           "policy_cadence_sessions": pol_cadence,
+           "overlapping": overlapping,
+           "cadence_sessions": None, "refusal": None}
+    if spec_cadence is None and pol_cadence is None:
+        return {**out, "refusal": GRID_NO_CADENCE}
+    if (spec_cadence is not None and pol_cadence is not None
+            and int(spec_cadence) != int(pol_cadence)):
+        return {**out, "refusal": GRID_CADENCE_DISAGREES}
+    if overlapping:
+        return {**out, "refusal": GRID_OVERLAPPING}
+    cadence = int(spec_cadence if spec_cadence is not None else pol_cadence)
+    if cadence < 1:
+        return {**out, "refusal": GRID_NO_CADENCE}
+    return {**out, "cadence_sessions": cadence}
+
+
+def cadence_grid(first: str, *, cadence_sessions: int, through: str,
+                 boundaries_ahead: int = 4) -> dict:
+    """The NON-OVERLAPPING decision grid, anchored on the first legal entry.
+
+    A stride of ``cadence_sessions`` eligible sessions taken on the ONE calendar
+    owner (:func:`next_open_challenger.next_eligible_session`). No second
+    calendar is built: the stride walks the same eligibility rule the entry and
+    maturity sessions already walk, which is what makes the producer's grid and
+    the canonical accrual's ``[::cadence]`` grid the same set of dates.
+
+    Returns the boundaries up to and including ``through`` and, separately, the
+    next few strictly after it, so a caller never has to re-derive the stride to
+    learn what is due.
+    """
+    past, ahead, cur, guard = [], [], str(first)[:10], 0
+    end = str(through)[:10]
+    while cur and guard < 4000:
+        guard += 1
+        if cur <= end:
+            past.append(cur)
+        else:
+            ahead.append(cur)
+            if len(ahead) >= int(boundaries_ahead):
+                break
+        nxt = cur
+        for _ in range(int(cadence_sessions)):
+            nxt = NOC.next_eligible_session(nxt)
+            if not nxt:
+                break
+        if not nxt:
+            break
+        cur = nxt
+    return {"boundaries_through": past, "boundaries_ahead": ahead}
+
+
 def declared_boundaries(*, now: Optional[str] = None) -> dict:
     """WHAT IS DUE NEXT, and WHAT WAS PERMANENTLY MISSED - this producer's answer.
 
     The same R68 journal contract the R58 cadence producer already satisfies,
-    and the one this producer needed most: it decides EVERY eligible session, so
-    every session it does not freeze is a boundary permanently lost, and the
-    accrual owner reports each of them as ``AWAITING_NEW_GOVERNED_FREEZE`` -
-    indistinguishable from a challenger healthily waiting for its next turn.
-    Thirty-two of those losses were named in this module's own ``advance_daily``
-    result and reached no durable reader.
+    and the one this producer needed most: a session that IS a decision boundary
+    and is not frozen is a boundary permanently lost, and the accrual owner
+    reports it as ``AWAITING_NEW_GOVERNED_FREEZE`` - indistinguishable from a
+    challenger healthily waiting for its next turn. Thirty-two of those losses
+    were named in this module's own ``advance_daily`` result and reached no
+    durable reader.
 
-    The grid is not a cadence stride but the eligibility rule itself, read from
-    the ONE calendar owner (:mod:`next_open_challenger`) between this
-    challenger's own first legal entry session and today. Pure; writes nothing,
-    judges no window, and reports a boundary as missed only once its entry
-    session is STRICTLY in the past, so today's still-open entry is never
-    counted as lost.
+    R79 - THE GRID IS THE FROZEN CADENCE, NOT THE ELIGIBILITY RULE. This
+    function used to declare ``cadence_sessions = 1`` and grid EVERY eligible
+    session, while the frozen specification it exists to serve declares
+    ``cadence = 5, overlapping = False`` and the canonical accrual owner strides
+    by that 5. Two owners therefore published two different answers to "which
+    sessions were this registration's decision boundaries", and the miss ledger
+    was computed from the daily one: nine boundaries were declared permanently
+    lost over 2026-09-15..2026-09-25 where the frozen contract has two, and the
+    next boundary was published as 2026-09-28 where the contract puts it on
+    2026-09-29. The signal is NOT changed to daily overlapping decisions and no
+    competing calendar is introduced - the stride is taken on the same
+    eligibility rule this module already owned, so the producer and the accrual
+    now derive their dates from ONE contract.
+
+    Pure; writes nothing, judges no window, and reports a boundary as missed
+    only once its entry session is STRICTLY in the past, so today's still-open
+    entry is never counted as lost. A cadence that cannot be read fails closed
+    with a named refusal rather than falling back to a daily grid.
     """
     today = str(now or now_iso())[:10]
+    contract = cadence_contract()
     out = {"calculation_owner": CALCULATION_OWNER,
            "challenger_id": NOC.CHALLENGER_ID,
-           "grid_owner": "%s._eligible_range" % CALCULATION_OWNER,
-           "cadence_sessions": 1,
+           "grid_owner": "%s.cadence_grid" % CALCULATION_OWNER,
+           "cadence_contract": contract,
+           "cadence_sessions": contract.get("cadence_sessions"),
+           "overlapping": contract.get("overlapping"),
            "as_of": today,
            "next_boundaries": [], "missed_boundaries": [],
            "frozen_boundaries": [], "forward_panel_last_session": None,
            "blocked_on": None}
+    if contract.get("refusal"):
+        out["blocked_on"] = contract["refusal"]
+        return out
     try:
         first = first_legal_entry_session()
         if not first:
@@ -439,23 +540,29 @@ def declared_boundaries(*, now: Optional[str] = None) -> dict:
                          for r in (PD.list_decisions(NOC.CHALLENGER_ID) or [])
                          if r.get("eligible_session")})
         out["frozen_boundaries"] = frozen
-        grid = _eligible_range(first, today)
+        grid_doc = cadence_grid(first, through=today,
+                               cadence_sessions=int(contract["cadence_sessions"]))
+        grid = list(grid_doc["boundaries_through"])
         out["declared_grid_entry_sessions"] = list(grid)
         out["missed_boundaries"] = sorted(s for s in grid
                                           if s < today and s not in frozen)
-        # STRICTLY after today. The CURRENT entry session's live state is a
-        # window judgement, and this function deliberately makes none: the
-        # runtime journal already carries it separately as ``entry_session`` /
-        # ``entry_state``, so listing today here could only contradict it.
-        nxt, ahead = today, []
-        for _ in range(8):
-            nxt = NOC.next_eligible_session(nxt)
-            if not nxt:
-                break
-            ahead.append(nxt)
-            if len(ahead) >= 4:
-                break
-        out["next_boundaries"] = ahead[:4]
+        # STRICTLY after today, and ON THE SAME STRIDE. Taking the next ELIGIBLE
+        # session here instead was the other half of the contradiction: it put
+        # the next boundary one session after today regardless of the cadence,
+        # so a reader comparing it with the accrual's grid saw two calendars.
+        # The CURRENT entry session's live state remains a window judgement this
+        # function deliberately does not make; the runtime journal carries it
+        # separately as ``entry_session`` / ``entry_state``.
+        out["next_boundaries"] = list(grid_doc["boundaries_ahead"])[:4]
+        # The eligibility rule is still published, because the reclassification
+        # it caused has to stay auditable: these are the sessions the pre-R79
+        # daily grid called boundaries. They are NOT losses under the frozen
+        # contract, and no immutable emission or forfeiture record is touched by
+        # saying so.
+        eligible = _eligible_range(first, today)
+        out["eligible_sessions_in_range"] = list(eligible)
+        out["sessions_eligible_but_not_boundaries"] = sorted(
+            s for s in eligible if s not in set(grid))
     except Exception as exc:                                  # noqa: BLE001
         out["blocked_on"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
     return out

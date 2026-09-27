@@ -187,8 +187,33 @@ INTEGRITY_NO_IDENTITY = "REGISTRATION_DOES_NOT_NAME_A_COMPLETE_IDENTITY"
 #: decision's P&L path or count overlapping windows as independent evidence;
 #: neither may become forward evidence, so the registration is refused whole.
 INTEGRITY_HORIZON_INCOHERENT = "DECLARED_EVALUATION_HORIZON_DISAGREES_WITH_DECLARED_HOLDING_PERIOD"
+#: R79 - the strategy declares that it ENTERS at a session's OPEN, and the marks
+#: it is valued on are taken at that session's CLOSE. The difference is not a
+#: rounding error: it is the whole of the first session's return, handed to the
+#: strategy for free. ``REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1`` declares
+#: ``execution_boundary = NEXT_ELIGIBLE_SESSION_OPEN`` and
+#: ``entry_mark_et_on_the_entry_session = 09:30``, names ``api.price_panel`` as
+#: its ``price_mark_owner``, and that panel serves exactly one price per session
+#: - ``adjusted_close``. No open mark exists anywhere in the declared valuation
+#: path, so the strategy is UNPRICEABLE under its own frozen valuation contract.
+#: It is refused rather than valued close-to-close, because close-to-close P&L
+#: reported as next-open P&L is not a weaker measurement of this strategy, it is
+#: a measurement of a DIFFERENT one.
+INTEGRITY_ENTRY_MARK_UNPRICEABLE = "DECLARED_ENTRY_MARK_IS_NOT_SERVED_BY_THE_DECLARED_VALUATION_PATH"
 INTEGRITY_REASONS = (INTEGRITY_LIFECYCLE_CLOSED, INTEGRITY_HASH_MISMATCH,
-                     INTEGRITY_NO_IDENTITY, INTEGRITY_HORIZON_INCOHERENT)
+                     INTEGRITY_NO_IDENTITY, INTEGRITY_HORIZON_INCOHERENT,
+                     INTEGRITY_ENTRY_MARK_UNPRICEABLE)
+
+#: The instant a declared valuation mark is taken. A release that values on its
+#: OWN marks declares which instant they represent; the default panel has no
+#: declaration and is close-only by construction, which is why the absence of a
+#: declaration is read as :data:`MARK_INSTANT_CLOSE` rather than as "unknown, so
+#: allow it". One key, declared by the release, is what makes the check openable
+#: without a second valuation owner: a mark store that genuinely serves opens
+#: says so and the refusal lifts.
+MARK_INSTANT_CLOSE = "SESSION_CLOSE"
+MARK_INSTANT_OPEN = "SESSION_OPEN"
+MARK_INSTANTS = (MARK_INSTANT_CLOSE, MARK_INSTANT_OPEN)
 
 #: The two ROLES a "horizon" number can play on a registration. The registrar
 #: copies the frozen record's ``horizon_sessions`` verbatim; for a release whose
@@ -1224,6 +1249,78 @@ def _declared_execution_contract(registration: dict) -> dict:
     return dict(_declared_policy(registration).get("execution_contract") or {})
 
 
+def entry_mark_feasibility(registration: dict) -> dict:
+    """Can the DECLARED entry mark actually be served by the valuation path? (R79)
+
+    A forward observation is only evidence about the strategy that was frozen.
+    This registration class declares two things that must agree and never were
+    checked against each other:
+
+    * the EXECUTION boundary - where the position is taken on, read from the
+      release's own ``execution_contract``; and
+    * the VALUATION marks - the series the accrual prices that position on.
+
+    ``NEXT_ELIGIBLE_SESSION_OPEN`` means the entry is the entry session's OPEN.
+    The default valuation path is :mod:`api.price_panel`, whose only per-session
+    price is ``adjusted_close``; a release that values on its own marks declares
+    a ``mark_instant`` and is taken at its word. When the boundary needs an open
+    and the marks are closes, the first session's entire return is credited to a
+    strategy that never earned it, and the resulting series is a measurement of a
+    close-to-close strategy wearing a next-open strategy's identity.
+
+    So the answer is a REFUSAL, not a degraded number. Pure: reads declarations
+    only - no panel, no clock, no store - and returns ``feasible`` True for every
+    registration that declares no open boundary, so nothing that priced correctly
+    before is re-judged.
+    """
+    declared = _declared_execution_contract(registration)
+    marks = declared.get("valuation_marks") or {}
+    boundary = str(declared.get("execution_boundary") or "")
+    needs_open = boundary == NEXT_OPEN_BOUNDARY
+    declared_instant = marks.get("mark_instant")
+    mark_instant = str(declared_instant or MARK_INSTANT_CLOSE)
+    # Whether the release's declaration could be READ at all. ``_declared_policy``
+    # returns {} both for "this release declares no policy" and for "its decision
+    # owner could not be resolved", and those are different facts: the first is a
+    # release that never made a claim, the second is a claim nobody could check.
+    # Published rather than collapsed, so a reader is never told a strategy is
+    # priceable on the strength of a declaration that was never loaded. Inside
+    # ``assess_registration`` the distinction cannot bite, because
+    # ``resolve_frozen_decision`` has already refused an unresolvable owner with
+    # FROZEN_SPEC_OWNER_NOT_RESOLVABLE before this check is reached.
+    owner, _root = _decision_owner(_release_of(registration))
+    out = {
+        "calculation_owner": COMPOSITION_OWNER,
+        "declaration_readable": owner is not None,
+        "declared_a_contract": bool(declared),
+        "execution_boundary": boundary or None,
+        "declared_entry_mark_et": declared.get(
+            "entry_mark_et_on_the_entry_session"),
+        "entry_mark_required": (MARK_INSTANT_OPEN if needs_open
+                               else MARK_INSTANT_CLOSE),
+        "valuation_mark_instant": mark_instant,
+        "valuation_mark_instant_declared": declared_instant is not None,
+        "price_mark_owner": (registration.get("price_mark_owner")
+                            or (registration.get("identity") or {})
+                            .get("price_mark_owner")),
+        "mark_instant_vocabulary": list(MARK_INSTANTS),
+        "feasible": True, "reason": None, "detail": None,
+    }
+    if not needs_open or mark_instant == MARK_INSTANT_OPEN:
+        return out
+    return {**out, "feasible": False,
+            "reason": INTEGRITY_ENTRY_MARK_UNPRICEABLE,
+            "detail": ("the release declares entry at %s (mark %s) and is valued "
+                       "on %s marks served by %s, which publishes one price per "
+                       "session; no open mark exists in the declared valuation "
+                       "path, so this strategy is UNPRICEABLE and is refused "
+                       "rather than valued close-to-close"
+                       % (boundary,
+                          out["declared_entry_mark_et"],
+                          mark_instant,
+                          out["price_mark_owner"] or "the default price panel"))}
+
+
 def valuation_series_for(registration: dict, series: dict) -> dict:
     """The price series ONE registration is valued on.
 
@@ -1554,6 +1651,19 @@ def assess_registration(*, registration: dict, series: dict,
                            "%s-session evaluation horizon; no observation is emitted or "
                            "matured until the declarations agree"
                            % (declared_hold, horizon))}
+    # R79 - the SECOND declaration pair, checked in the same place and for the
+    # same reason: an observation may only be scored on the mark its own
+    # execution boundary names. Sits beside the horizon check deliberately -
+    # both are refusals about the registration's own declarations, decided
+    # before a single session is read, so an unpriceable strategy never reaches
+    # emission and no close-to-close observation is ever written under a
+    # next-open identity.
+    feasibility = entry_mark_feasibility(reg)
+    out["entry_mark_feasibility"] = feasibility
+    if not feasibility["feasible"]:
+        return {**out, "state": ACC_INTEGRITY_BLOCKED,
+                "latest_blocker": feasibility["reason"],
+                "detail": feasibility["detail"]}
     # The observation calendar needs the instrument SCOPE, not a weight book. A
     # per-session release has no standing book at this point, so the scope comes
     # from the resolver's declaration or from the registrar's own immutable

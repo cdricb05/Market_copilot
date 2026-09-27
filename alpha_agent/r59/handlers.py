@@ -32,6 +32,7 @@ from typing import Optional
 
 from .. import autonomous_research as AR
 from .. import r59
+from . import blockers as BLK
 from . import engines as E
 from . import governor as GOV
 from . import memory as M
@@ -87,6 +88,65 @@ def seed_mandates(queue: AR.ResearchQueue, mandates: list) -> dict:
         (added if queue.depth() > before else existing).append(job_id)
     return {"enqueued": len(added), "already_live": len(existing),
             "depth": queue.depth()}
+
+
+def retire_terminally_ruled(queue, mem: Optional[M.ResearchMemory] = None, *,
+                            limit: int = 200) -> dict:
+    """Settle blocked jobs whose family the director has PERMANENTLY closed (R79).
+
+    The symmetric operation to :meth:`requeue_stale`, and it belongs beside it
+    for the same reason: both reconcile the durable queue with a fact that
+    arrived after the job was enqueued. ``requeue_stale`` recovers a job whose
+    worker died; this one settles a job whose QUESTION died.
+
+    A job blocked on a TERMINAL ruling can never be claimed again - not after a
+    session elapses, not after a provider delivers, not after more compute. Left
+    in a blocked non-terminal state it is counted as outstanding work by every
+    depth reader, which is how seventeen jobs came to be reported as a queue
+    "waiting on a blocked external source" when three of them were waiting on a
+    governance decision that had already been made against them.
+
+    Only TERMINAL rulings retire a job. A FAMILY_EXHAUSTED or
+    WAITING_FOR_PROVIDER_DATA blocker clears on INFORMATION and stays exactly
+    where it is, because those are real outstanding questions.
+
+    Settlement goes through the queue's OWN terminal verb
+    (:meth:`fail_permanent`), so the job keeps its history, its reason is durable
+    and readable, and the live-dedupe index releases the mandate id. Nothing is
+    deleted, and research memory is not written: the ruling is already the
+    durable record.
+    """
+    mem = mem or M.open_memory()
+    retired, inspected = [], 0
+    for job in queue.blocked_jobs(limit=limit):
+        inspected += 1
+        cls = BLK.classify_job(job, mem=mem)
+        if cls.get("clears_on") != BLK.CLEARS_TERMINAL:
+            continue
+        ruling = (cls.get("director_ruling") or {})
+        reason = ("%s: %s (ruled %s by %s; reopens only on %s)" % (
+            cls.get("reason_code"), BLK.DESCRIPTION.get(cls.get("reason_code")),
+            ruling.get("verdict") or "a director ruling",
+            ruling.get("ruled_by") or "the research director",
+            ruling.get("reopen_condition") or "a new human decision"))
+        try:
+            queue.fail_permanent(job.job_id, reason)
+        except Exception as exc:                            # noqa: BLE001
+            continue
+        retired.append({"job_id": job.job_id, "lane": job.lane,
+                        "asset_class": cls.get("asset_class"),
+                        "economic_family": cls.get("family"),
+                        "reason_code": cls.get("reason_code"),
+                        "verdict": ruling.get("verdict"),
+                        "reopen_condition": ruling.get("reopen_condition")})
+    if retired:
+        mem.event("TERMINALLY_RULED_JOBS_RETIRED", subject=CALCULATION_OWNER,
+                  detail={"n_retired": len(retired), "jobs": retired})
+    return {"calculation_owner": CALCULATION_OWNER,
+            "blocked_inspected": inspected, "retired": retired,
+            "n_retired": len(retired),
+            "policy": ("only a TERMINAL ruled blocker retires a job; TIME and "
+                       "INFORMATION blockers remain outstanding work")}
 
 
 # --------------------------------------------------------------------------- #

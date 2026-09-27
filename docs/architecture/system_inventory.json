@@ -4827,6 +4827,34 @@
    "migration_priority": 1,
    "risk": "low",
    "notes": "Release 68. Read-only: it emits no prediction, freezes no decision, writes no registration, promotes no model, allocates no capital and creates no order. scripts/audit_architecture.py check_release68_forward_producer_health asserts every stage it declares still exists in alpha_agent.r52.runtime.research_runtime_cycle and runs BEFORE the accrual stage, so a renamed or reordered stage fails the build instead of silently turning a live producer into a phantom one."
+  },
+  {
+   "path": "api/autonomous_operating_status.py",
+   "system": "research_os",
+   "classification": "KEEP",
+   "target_owner": "api/autonomous_operating_status.py",
+   "duplicate_with": [],
+   "responsibility": "R79 THE ONE AUTHORITATIVE AUTONOMY STATUS - the single read that answers 'is this still running, and what is it waiting for?'. Six surfaces each reported a true fact on 2026-09-27 and their conjunction was false: the scheduled task was Running, the worker lease was live, its heartbeat was 90 seconds old, the frontier reported CROSS_ASSET READY and the governor reported it could still generate two independently executable mandates - while BOTH of those mandates named economic families the research director had already ruled TERMINALLY closed, no third could ever be generated, and the research program had measured zero hypotheses since 2026-09-08. This module composes eight blocks (LAST_COMPLETED_CYCLE, CURRENT_ACTIVE_WORK, NEXT_SCHEDULED_WORK, CURRENT_BLOCKERS, RESEARCH_CANDIDATE_AND_STAGE, FORWARD_EMITTED_PENDING_MATURED, PORTFOLIO_PROPOSAL_STATE, RUNTIME_SOURCE_IDENTITY) and ONE derived verdict that says whether the loop advances WITHOUT a human and, when it does not, exactly what would release it. It is a PROJECTION and owns no threshold, calendar, clock arithmetic or business rule: every value is copied from the owner that computes it and that owner is named in projected_from, so it cannot disagree with its sources. The verdict deliberately IGNORES process liveness, because a live lease and a fresh heartbeat were precisely the evidence that made a dead research program look healthy; it derives instead from the clearance vocabulary alpha_agent/r59/blockers.py already owns.",
+   "direct_reads": [
+    "api/decision_snapshot.py section('workflow') - the Release-50 composed operator read, so the workflow block is never recomposed here",
+    "alpha_agent/r59/runtime.py read_status - the worker's own persisted status artifact, which is its attestation rather than a probe of it",
+    "api/canonical_forward_accrual.py load_accrual_projection - the persisted forward ledger",
+    "api/forward_producer_health.py producer_coverage - the next declared boundary per registration",
+    "alpha_agent/r59/frontier.py measure - the frontier, including R79's withheld_by_director_ruling block",
+    "alpha_agent/r59/governor.py generate_mandates - what remains generatable, and its terminal reason",
+    "api/runtime_identity.py loaded_identity - the serving process's own loaded commit"
+   ],
+   "direct_writes": [],
+   "endpoints": [
+    "GET /v1/operations/autonomous-status"
+   ],
+   "ui_consumers": [],
+   "tests": [
+    "tests/test_r79_autonomy_and_forward_contract.py"
+   ],
+   "migration_priority": 1,
+   "risk": "low",
+   "notes": "R79. Strictly read-only: no write of any kind, no order, no fill, no approval, no promotion, no provider call and no prediction-service call. An owner that cannot be read is reported in degraded_owners with its error rather than omitted, because a status surface that silently drops what it could not read is how a nineteen-day outage stays invisible."
   }
  ]
 }

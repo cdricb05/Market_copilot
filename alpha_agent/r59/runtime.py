@@ -159,6 +159,38 @@ def waiting_state_for(blocker_reason: Optional[str]) -> str:
     return _WAIT_STATE_BY_BLOCKER.get(str(blocker_reason or ""),
                                       W_FRONTIER_EXHAUSTED)
 
+
+#: R79 - WHY the worker is asleep, derived from the CLEARANCE of what is actually
+#: blocked rather than asserted. ``plan_sleep`` published the single token
+#: ``WAITING_ON_A_BLOCKED_EXTERNAL_SOURCE`` whenever anything was blocked, and
+#: that sentence is what the operator status surface printed for nineteen days
+#: while the three jobs that mattered were blocked on a governance decision the
+#: research director had already made against them - nothing external, and
+#: nothing that would ever arrive. The three reasons below need three different
+#: operator actions, which is the whole reason they are three words.
+SLEEP_WAITING_SESSION = "WAITING_ON_AN_ELAPSED_MARKET_SESSION"
+SLEEP_WAITING_INFORMATION = "WAITING_ON_INFORMATION_THE_ESTATE_DOES_NOT_OWN"
+SLEEP_TERMINAL_DECISION = "BLOCKED_ON_A_SETTLED_GOVERNANCE_DECISION"
+SLEEP_REASONS = (SLEEP_WAITING_SESSION, SLEEP_WAITING_INFORMATION,
+                 SLEEP_TERMINAL_DECISION)
+
+
+def sleep_reason_for(blocked_summary: Optional[dict]) -> str:
+    """Why the worker is idle, from the blocked set's own clearance mix (R79).
+
+    Ordered by which one an operator must act on FIRST, not by how many jobs
+    carry it: one job that can only be freed by a human decision outranks ten
+    that a market session will free by themselves, because the elapsed session
+    needs nobody and the decision needs somebody. A purely time-cleared set is
+    the only one that reports waiting on a session.
+    """
+    s = blocked_summary or {}
+    if int(s.get("terminal_without_a_decision") or 0) > 0:
+        return SLEEP_TERMINAL_DECISION
+    if int(s.get("needs_new_information") or 0) > 0:
+        return SLEEP_WAITING_INFORMATION
+    return SLEEP_WAITING_SESSION
+
 #: The ONE signal a forward-confirmed challenger may raise. It is addressed to
 #: a human governance review and is not an instruction to anything.
 CHALLENGER_REVIEW = "CHALLENGER_WARRANTS_GOVERNED_REVIEW"
@@ -778,9 +810,20 @@ def plan_sleep(*, ready_work: int, conditions: list,
                    else float(max(MIN_SLEEP_SECONDS, max_sleep)))
         return {"sleep_seconds": seconds,
                 "state": waiting_state_for(dominant),
-                "reason": "WAITING_ON_A_BLOCKED_EXTERNAL_SOURCE",
+                "reason": sleep_reason_for(summary),
+                # R79 - retained because it is the token nine releases of
+                # operator tooling printed, and a reader comparing two runs
+                # across this change has to be able to see WHICH one it is
+                # looking at. It is no longer the headline.
+                "legacy_reason": "WAITING_ON_A_BLOCKED_EXTERNAL_SOURCE",
                 "blocker_reason": dominant,
                 "blocker_reasons": by_reason,
+                "blocker_clearance_mix": {
+                    "time_will_clear": int(summary.get("time_will_clear") or 0),
+                    "needs_new_information": int(
+                        summary.get("needs_new_information") or 0),
+                    "terminal_without_a_decision": int(
+                        summary.get("terminal_without_a_decision") or 0)},
                 "wake_condition": (
                     "AN_ELAPSED_MARKET_SESSION" if time_clears else
                     "A_RE_CHECK_OF_AN_UNCLASSIFIED_BLOCKER" if not classified
@@ -1310,6 +1353,10 @@ __all__ = ["CALCULATION_OWNER", "WORKER_LEASE_NAME", "STATUS_ARTIFACT",
            "WAITING_STATES", "W_WAITING_MARKET", "W_WAITING_FORWARD",
            "W_WAITING_SAMPLE", "W_FRONTIER_EXHAUSTED", "RESEARCH_IN_PROGRESS",
            "waiting_state_for",
+           # R79 - the truthful sleep REASON, derived from the clearance mix.
+           "SLEEP_REASONS", "SLEEP_WAITING_SESSION",
+           "SLEEP_WAITING_INFORMATION", "SLEEP_TERMINAL_DECISION",
+           "sleep_reason_for",
            "W_STARTING", "W_RESEARCHING", "W_MATURING", "W_SLEEPING",
            "W_STOPPED", "W_REFUSED", "W_LEASE_LOST", "CHALLENGER_REVIEW",
            "runtime_dir", "lease_path", "status_path", "source_identity",
