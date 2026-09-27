@@ -268,8 +268,18 @@ KEY = os.environ.get("PAPER_TRADER_SERVICE_API_KEY", "")
 # Reproduce the historical defect: a backend that serves nothing the workflow probes.
 ALL_404 = os.environ.get("RESTART_STUB_404_ALL", "") == "1"
 
+# R79 - the stub must serve a LOADED RELEASE IDENTITY, because the canonical
+# restart owner requires one and fails closed without it ("the restarted backend
+# does not serve its loaded release identity"). That guard arrived with
+# MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 and this hermetic stub was never taught
+# about it, so every assertion past the readiness gate in the successful-restart
+# test became unreachable. The commit is INJECTED by the test rather than invented
+# here: the owner compares what the backend SERVES against the source commit it
+# resolves independently, and a stub that made up its own value would turn that
+# comparison into a tautology.
+LOADED_COMMIT = os.environ.get("RESTART_STUB_LOADED_COMMIT", "")
 OPEN_ROUTES = {"/v1/health": {"status": "ok", "service": "stub"},
-               "/v1/ready": {"ready": True}}
+               "/v1/ready": {"ready": True, "loaded_commit": LOADED_COMMIT}}
 AUTHED_ROUTES = {
     "/v1/operations/portfolio-state": {
         "positions": [{"ticker": "MNST", "shares": 100}],
@@ -344,8 +354,24 @@ def _child_env(**extra) -> dict:
     for var in tuple(mod.CANONICAL_STORE_ENV_VARS) + (mod.ACCEPTANCE_MODE_ENV,):
         env.pop(var, None)
     env["PAPER_TRADER_SERVICE_API_KEY"] = STUB_KEY
+    # R79 - the identity the stub will serve on /v1/ready. Resolved HERE from the
+    # real repository, so the owner's alignment check compares two independently
+    # obtained answers: the one the backend served and the one the owner resolves
+    # for itself. A stub that derived its own commit would make that check pass by
+    # construction and prove nothing.
+    env["RESTART_STUB_LOADED_COMMIT"] = _source_commit()
     env.update(extra)
     return env
+
+
+def _source_commit() -> str:
+    """The repository's HEAD, read the way the restart owner reads it."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(REPO),
+                             capture_output=True, text=True, timeout=30)
+        return (out.stdout or "").strip()
+    except Exception:                                       # noqa: BLE001
+        return ""
 
 
 # Release 29 UX2: the runtime tests exercise the workflow exactly the way an operator now
