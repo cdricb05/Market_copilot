@@ -2109,6 +2109,13 @@ def accrual_projection(advance: Optional[dict] = None, **kwargs) -> dict:
             "next_eligible_observation_session": r.get(
                 "next_eligible_observation_session"),
             "latest_blocker": r.get("latest_blocker"),
+            # R79 - the refusal's own sentence, and the declaration comparison
+            # behind it. Publishing the blocker CODE without them left a reader
+            # of the persisted projection able to see that a registration was
+            # refused and unable to see why, which for an UNPRICEABLE strategy is
+            # the whole of the finding.
+            "detail": r.get("detail"),
+            "entry_mark_feasibility": r.get("entry_mark_feasibility"),
             "horizon_sessions": r.get("horizon_sessions"),
             "cadence_sessions": r.get("cadence_sessions"),
             "horizon_roles": r.get("horizon_roles"),

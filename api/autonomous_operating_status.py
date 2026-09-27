@@ -237,7 +237,11 @@ def _forward_ledger(accrual: dict) -> dict:
         rows.append({
             "challenger_id": r.get("challenger_id"),
             "asset_class": r.get("asset_class"),
-            "state": r.get("state"),
+            # The persisted projection names it ``current_accrual_state``; a live
+            # ``assess_registration`` document names it ``state``. Both are read,
+            # because reading only the second made every persisted row report a
+            # null accrual state.
+            "state": (r.get("current_accrual_state") or r.get("state")),
             "cadence_sessions": r.get("cadence_sessions"),
             "horizon_sessions": r.get("horizon_sessions"),
             "predictions_emitted": r.get("predictions_emitted"),

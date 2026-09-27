@@ -795,6 +795,16 @@ def test_46_the_forward_ledger_totals_what_the_accrual_published():
     assert doc["FORWARD_EMITTED_PENDING_MATURED"]["n_registrations"] == 2
 
 
+def test_46b_the_persisted_projections_state_key_is_read():
+    """The persisted store says current_accrual_state; a live doc says state."""
+    doc = _status(accrual={
+        "h1": {"challenger_id": "A", "current_accrual_state": "INTEGRITY_BLOCKED"},
+        "h2": {"challenger_id": "B", "state": "NOT_DUE"}})
+    states = {r["challenger_id"]: r["state"]
+              for r in doc["FORWARD_EMITTED_PENDING_MATURED"]["registrations"]}
+    assert states == {"A": "INTEGRITY_BLOCKED", "B": "NOT_DUE"}
+
+
 def test_47_an_unpriceable_registration_is_named_in_the_ledger():
     doc = _status(accrual={"h1": {
         "challenger_id": NEXT_OPEN_ID,
