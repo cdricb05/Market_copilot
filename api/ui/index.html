@@ -33827,6 +33827,8 @@ function renderPortfolioReassessment(d) {
 
   // KPI row — the economics that decide whether a change is worthwhile.
   var attn = (d.attention || {}).count || 0;
+  // R77 - the withholding ledger, taken verbatim from the reassessment owner.
+  var _rsWithheld = d.withholding_reconciliation || null;
   var strongest = dec.strongest_evidence || pres.strongest_opportunity || null;
   var kpis = [
     { label: 'Decision', value: escapeHtml(state),
@@ -33843,6 +33845,22 @@ function renderPortfolioReassessment(d) {
     { label: 'Holdings under signal-level review', value: String(attn),
       sub: (dec.actionable_holding_count === undefined ? 'signal level, before the portfolio gate'
             : (dec.actionable_holding_count + ' actionable after the portfolio gate')) },
+    // RELEASE 77 - what CHURN CONTROL withheld, rendered verbatim from the
+    // backend's own reconciliation block. The card showed the signal-level
+    // attention count and the economics, and never that the opportunity-cost
+    // owner had ruled holdings outside the retention rules whose action the
+    // churn cooldown then withheld. An operator reading this card beside the
+    // opportunity-cost card saw 1 and 11 and had nothing that joined them.
+    // The browser decides nothing: it reads the owner's counts and its state,
+    // and draws nothing at all when the owner says NOT_EVALUATED.
+    { label: 'Actions withheld by churn control',
+      value: (_rsWithheld && _rsWithheld.state === 'CHURN_CONTROL_WITHHELD_ACTIONS'
+              ? String(_rsWithheld.withheld_action_count)
+              : (_rsWithheld && _rsWithheld.state === 'NO_ACTION_WITHHELD' ? '0' : '—')),
+      sub: (_rsWithheld && _rsWithheld.retention_exits_withheld
+            ? (_rsWithheld.retention_exits_withheld
+               + ' retention EXIT verdict(s) withheld — still owed, not resolved')
+            : 'no retention exit withheld') },
     { label: 'Strongest opportunity',
       value: escapeHtml(strongest && strongest.ticker ? strongest.ticker : '—'),
       sub: (strongest && strongest.replacement
