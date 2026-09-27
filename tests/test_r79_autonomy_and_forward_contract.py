@@ -323,23 +323,33 @@ def test_22_a_missed_boundary_is_only_counted_once_it_is_strictly_past():
     assert doc["missed_boundaries"] == ["2026-09-15"]
 
 
-def _with_fake_spec(spec, policy):
-    """Swap the challenger's DECLARATION owner, keeping its identity intact.
+class _SpecProxy:
+    """The real challenger module with ONLY its two declaration readers swapped.
 
-    Only the two declaration readers are replaced; ``CHALLENGER_ID`` and the
-    calendar remain the real ones, so a refusal is exercised on the real code
-    path rather than on a stub of it.
+    A stub with a hand-listed attribute surface would exercise a stub rather than
+    the module: every other name - the calendar, the identity, the entry-state
+    machine, the private time helpers - delegates to the real object, so a
+    refusal is proved on the real code path.
     """
-    import types
+
+    def __init__(self, real, spec, policy):
+        self._real, self._spec, self._policy = real, spec, policy
+
+    def frozen_specification(self):
+        return self._spec
+
+    def policy_declaration(self):
+        return self._policy
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _with_fake_spec(spec, policy):
+    """Swap the challenger's DECLARATION owner, keeping everything else real."""
     NOR = _nor()
     real = NOR.NOC
-    return NOR, real, types.SimpleNamespace(
-        frozen_specification=lambda: spec,
-        policy_declaration=lambda: policy,
-        CHALLENGER_ID=real.CHALLENGER_ID,
-        CALCULATION_OWNER=real.CALCULATION_OWNER,
-        is_eligible_session=real.is_eligible_session,
-        next_eligible_session=real.next_eligible_session)
+    return NOR, real, _SpecProxy(real, spec, policy)
 
 
 def test_23_an_undeclared_cadence_fails_closed_instead_of_gridding_daily():
@@ -378,6 +388,95 @@ def test_25_an_overlapping_construction_is_refused_not_approximated():
     try:
         NOR.NOC = fake
         assert NOR.cadence_contract()["refusal"] == NOR.GRID_OVERLAPPING
+    finally:
+        NOR.NOC = real
+
+
+# --------------------------------------------------------------------------- #
+# 4b. THE ACTING SIDE OF THE SAME CONTRACT
+#
+# Fixing only the REPORT would have left the producer freezing decisions the
+# accrual's own ``[::cadence]`` grid does not contain - orphans nothing could
+# score. ``entry_session_for`` answers "which session would this be acted on",
+# which is the next ELIGIBLE one, so the freeze has to be gated on the boundary.
+# --------------------------------------------------------------------------- #
+def test_25b_the_anchor_and_every_fifth_session_are_boundaries():
+    NOR = _nor()
+    for session in ("2026-09-15", "2026-09-22", "2026-09-29", "2026-10-06"):
+        b = NOR.boundary_state_for(session, cadence_sessions=5,
+                                   now="2026-09-27")
+        assert b["is_boundary"] is True, session
+        assert b["anchor"] == "2026-09-15"
+
+
+def test_25c_the_sessions_between_boundaries_are_not_boundaries():
+    NOR = _nor()
+    for session in ("2026-09-16", "2026-09-17", "2026-09-18", "2026-09-21",
+                    "2026-09-23", "2026-09-24", "2026-09-25", "2026-09-28"):
+        b = NOR.boundary_state_for(session, cadence_sessions=5,
+                                   now="2026-09-27")
+        assert b["is_boundary"] is False, session
+
+
+def test_25d_a_non_boundary_names_the_boundary_that_follows_it():
+    """So a reader is never told 'no' without being told when 'yes' is."""
+    NOR = _nor()
+    b = NOR.boundary_state_for("2026-09-28", cadence_sessions=5,
+                               now="2026-09-27")
+    assert b["next_boundary"] == "2026-09-29"
+    assert b["previous_boundary"] == "2026-09-22"
+
+
+def test_25e_a_session_before_inception_points_at_the_anchor():
+    NOR = _nor()
+    b = NOR.boundary_state_for("2026-09-01", cadence_sessions=5,
+                               now="2026-09-27")
+    assert b["is_boundary"] is False
+    assert b["next_boundary"] == "2026-09-15"
+
+
+def test_25f_the_producer_refuses_to_decide_on_a_non_boundary_session():
+    """THE DEFECT ON THE ACTING SIDE.
+
+    ``probe``/``append`` are off so no vendor is called, nothing is downloaded
+    and nothing is spent; the gate sits above the entry-state logic, so the
+    verdict is still produced. Asserted on the live 2026-09-28 entry, which the
+    daily grid would have treated as a decision boundary.
+    """
+    NOR = _nor()
+    res = NOR.advance_daily(probe=False, append=False, execute_append=False,
+                            budget_usd=0.0, now="2026-09-27T15:30:00+00:00")
+    assert res["state"] == NOR.ADV_NOT_A_BOUNDARY
+    assert res["entry_session"] == "2026-09-28"
+    assert res["boundary"]["next_boundary"] == "2026-09-29"
+    assert res["paid_dollars"] == 0.0
+    assert res["creates_orders"] is False
+    assert res["creates_fills"] is False
+    assert res["allocates_capital"] is False
+    assert "freeze" not in res
+
+
+def test_25g_a_non_boundary_is_neither_a_freeze_nor_a_miss():
+    """The reclassification, stated as a vocabulary property."""
+    NOR = _nor()
+    assert NOR.ADV_NOT_A_BOUNDARY in NOR.ADVANCE_STATES
+    assert NOR.ADV_NOT_A_BOUNDARY != NOR.ADV_MISSED
+    assert NOR.ADV_NOT_A_BOUNDARY != NOR.ADV_NOTHING_DUE
+    # Only a freeze is progress: a non-boundary must never look like one.
+    assert NOR.ADV_NOT_A_BOUNDARY not in NOR.PROGRESS_STATES
+
+
+def test_25h_an_unreadable_cadence_refuses_to_freeze_rather_than_defaulting():
+    """Fail closed: no cadence means no decision, never a daily one."""
+    NOR, real, fake = _with_fake_spec({"overlapping": False}, {})
+    try:
+        NOR.NOC = fake
+        res = NOR.advance_daily(probe=False, append=False,
+                                execute_append=False, budget_usd=0.0,
+                                now="2026-09-27T15:30:00+00:00")
+        assert res["state"] == NOR.ADV_BLOCKED
+        assert res["blocked_on"] == NOR.GRID_NO_CADENCE
+        assert "freeze" not in res
     finally:
         NOR.NOC = real
 

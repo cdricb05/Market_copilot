@@ -96,9 +96,14 @@ ADV_MISSED = "NEXT_OPEN_MISSED"
 ADV_NOTHING_DUE = "NEXT_OPEN_NOTHING_DUE"
 ADV_BEFORE_INCEPTION = "NEXT_OPEN_BEFORE_FIRST_LEGAL_ENTRY"
 ADV_BLOCKED = "NEXT_OPEN_BLOCKED"
+#: R79 - the entry session is eligible but is NOT a decision boundary at the
+#: frozen cadence. Neither a freeze nor a miss: nothing was due. Distinct from
+#: ADV_NOTHING_DUE, which means no session has reached its information cutoff.
+ADV_NOT_A_BOUNDARY = "NEXT_OPEN_NOT_A_DECISION_BOUNDARY"
 ADVANCE_STATES = (ADV_FROZEN, ADV_ALREADY_FROZEN, ADV_AWAITING_INFORMATION,
                   ADV_AWAITING_SOURCE, ADV_AWAITING_WINDOW, ADV_MISSED,
-                  ADV_NOTHING_DUE, ADV_BEFORE_INCEPTION, ADV_BLOCKED)
+                  ADV_NOTHING_DUE, ADV_BEFORE_INCEPTION, ADV_BLOCKED,
+                  ADV_NOT_A_BOUNDARY)
 
 #: The states on which a scheduler has genuinely changed something.
 PROGRESS_STATES = (ADV_FROZEN,)
@@ -484,6 +489,42 @@ def cadence_grid(first: str, *, cadence_sessions: int, through: str,
     return {"boundaries_through": past, "boundaries_ahead": ahead}
 
 
+def boundary_state_for(entry_session: str, *, cadence_sessions: int,
+                       now: Optional[str] = None) -> dict:
+    """Is ``entry_session`` a decision boundary on the frozen cadence grid? (R79)
+
+    Derived from the SAME anchored stride :func:`cadence_grid` builds, so the
+    producer's acting decision and its declared grid can never disagree - which
+    is the whole defect. Pure; reads the challenger's calendar and nothing else.
+
+    The grid is walked to ``entry_session`` inclusive, so a session strictly
+    after the last computed boundary is answered with the boundary that follows
+    it rather than with a bare False.
+    """
+    today = str(now or now_iso())[:10]
+    entry = str(entry_session)[:10]
+    out = {"entry_session": entry, "cadence_sessions": int(cadence_sessions),
+           "is_boundary": False, "anchor": None, "next_boundary": None,
+           "previous_boundary": None}
+    first = first_legal_entry_session()
+    if not first:
+        return {**out, "blocked_on": "NO_FIRST_LEGAL_ENTRY_SESSION"}
+    out["anchor"] = first
+    if entry < first:
+        return {**out, "next_boundary": first}
+    horizon = max(entry, today)
+    doc = cadence_grid(first, through=horizon,
+                       cadence_sessions=int(cadence_sessions),
+                       boundaries_ahead=2)
+    grid = list(doc["boundaries_through"])
+    ahead = list(doc["boundaries_ahead"])
+    out["is_boundary"] = entry in set(grid)
+    out["previous_boundary"] = next((s for s in reversed(grid) if s <= entry),
+                                    None)
+    out["next_boundary"] = next((s for s in grid + ahead if s > entry), None)
+    return out
+
+
 def declared_boundaries(*, now: Optional[str] = None) -> dict:
     """WHAT IS DUE NEXT, and WHAT WAS PERMANENTLY MISSED - this producer's answer.
 
@@ -784,6 +825,44 @@ def advance_daily(*, now: Optional[str] = None,
                              "detail": str(exc)[:220]}
     out["acquisition_precedes_decision_state"] = True
 
+    # ----------------------------------------------------------------- #
+    # R79 - IS THIS ENTRY SESSION A DECISION BOUNDARY AT ALL?
+    #
+    # ``entry_session_for`` answers "which session would this information be
+    # acted on", which is the NEXT ELIGIBLE one - so without this gate the
+    # producer froze, or recorded a miss for, EVERY eligible session while the
+    # frozen specification it serves declares cadence 5, non-overlapping. That
+    # is the same contradiction ``declared_boundaries`` carried, on the acting
+    # side rather than the reporting side, and fixing only the report would have
+    # left the producer creating decisions the accrual's own ``[::cadence]`` grid
+    # does not contain - orphans nothing could ever score.
+    #
+    # It sits HERE, below the probe and the append, because R76's lesson holds:
+    # ACQUIRING DATA AND DECIDING ARE DIFFERENT ACTS. A non-boundary session is
+    # still collected, so the panel stays current and the next real boundary is
+    # reachable; only the FREEZE is gated. A cadence that cannot be read refuses
+    # to freeze rather than falling back to daily.
+    # ----------------------------------------------------------------- #
+    contract = cadence_contract()
+    out["cadence_contract"] = contract
+    if contract.get("refusal"):
+        return {**out, "state": ADV_BLOCKED,
+                "blocked_on": contract["refusal"],
+                "detail": ("the frozen cadence contract could not be read (%s), "
+                           "so no decision may be frozen; the session was still "
+                           "collected" % contract["refusal"])}
+    boundary = boundary_state_for(entry, now=ts,
+                                  cadence_sessions=contract["cadence_sessions"])
+    out["boundary"] = boundary
+    if not boundary.get("is_boundary"):
+        return {**out, "state": ADV_NOT_A_BOUNDARY,
+                "detail": ("%s is an eligible session but not a decision "
+                           "boundary at cadence %s; the next boundary is %s. "
+                           "The session was collected, and no opportunity is "
+                           "lost because none was due"
+                           % (entry, contract["cadence_sessions"],
+                              boundary.get("next_boundary")))}
+
     st = NOC.entry_state(entry, now=ts, surface=surface)
     out["entry_state"] = st.get("entry_state")
     out["source"] = st.get("source")
@@ -836,7 +915,10 @@ __all__ = [
     "CALCULATION_OWNER", "BUDGET_USD", "ADVANCE_STATES", "PROGRESS_STATES",
     "ADV_FROZEN", "ADV_ALREADY_FROZEN", "ADV_AWAITING_INFORMATION",
     "ADV_AWAITING_SOURCE", "ADV_AWAITING_WINDOW", "ADV_MISSED",
-    "ADV_NOTHING_DUE", "ADV_BLOCKED",
+    "ADV_NOTHING_DUE", "ADV_BLOCKED", "ADV_NOT_A_BOUNDARY",
+    # R79 - the ONE cadence contract and the grid derived from it.
+    "cadence_contract", "cadence_grid", "boundary_state_for",
+    "GRID_NO_CADENCE", "GRID_OVERLAPPING", "GRID_CADENCE_DISAGREES",
     "APPEND_ALREADY_OWNED", "APPEND_NOT_PUBLISHED", "APPEND_APPENDED",
     "APPEND_PRICED_NOT_EXECUTED", "APPEND_REFUSED_BUDGET",
     "APPEND_BLOCKED_CREDENTIAL", "APPEND_NO_ROWS",
