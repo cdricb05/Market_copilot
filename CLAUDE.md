@@ -297,3 +297,9 @@ $SmokePaths = @(
   the parameter binding with the real PowerShell binder.
 
 <!-- END CANONICAL BACKEND RESTART / SMOKE OWNER -->
+
+<!-- BEGIN PAPER TRADER BINDING A-TO-Z OPERATING CONTRACT -->
+## Binding A-to-Z operating contract — 2026-09-27
+
+Before EVERY Paper Trader task, read `docs/PAPER_TRADER_OPERATING_CONTRACT.md` and `docs/RELEASE_ACCEPTANCE_GATES.md`. Their consolidation, alpha-execution, multi-asset, PIT, at-use source-attestation, manual-review and live-acceptance requirements are mandatory. Preserve all existing architecture and safety rules in this file; this block does not authorize orders, fills, approvals, data purchases, pushes or model promotions. Read `docs/PROJECT_INSTRUCTIONS_OPERATING_MODE.md` for the matching ChatGPT Project guidance. Start every task with ALREADY DONE / ALREADY TRIED–FAILED / CURRENT BLOCKERS / NEW WORK and close with actual evidence plus COMMIT_OK or DO_NOT_COMMIT. No repeated closed sessions or proposals and no idle independent workstreams.
+<!-- END PAPER TRADER BINDING A-TO-Z OPERATING CONTRACT -->

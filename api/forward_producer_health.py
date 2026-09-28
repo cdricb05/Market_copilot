@@ -252,12 +252,47 @@ R_NO_BOUNDARY = "NO_NEXT_BOUNDARY_DECLARED"
 #: No producer is expected (declared, non-defect). Cannot be late for a boundary
 #: it was never going to take.
 R_NOT_EXPECTED = "NO_PRODUCER_EXPECTED"
+#: R80. The accrual owner has REFUSED this registration's declared entry mark: its
+#: declared valuation path cannot price the instant the strategy says it enters.
+#: Every OTHER readiness check passes for such a registration - its inputs are in
+#: hand, its producer is live and fresh, a producer exists, and two misses are not
+#: yet chronic - so it was counted READY_FOR_NEXT_BOUNDARY and the module's own
+#: headline said "every one has a declared, executable prediction path" about a
+#: registration whose prediction path the accrual owner had already declared
+#: inexecutable. It had emitted nothing across two boundaries and was two days
+#: from a third, and this monitor - the one instrument whose entire purpose is to
+#: speak BEFORE a boundary is lost - reported OK.
+#:
+#: It is a DEFECT and it is actionable, because it is reachable only by a governed
+#: decision on the entry contract or the valuation path, and that decision needs an
+#: operator who knows the boundary is about to be lost. Like R_CHRONIC it is
+#: REPORTED, never repaired here: this module changes no entry contract, no poll
+#: cadence and no valuation path.
+R_ENTRY_MARK_INFEASIBLE = "BOUNDARY_AHEAD_AND_ENTRY_MARK_UNPRICEABLE"
 READINESS_STATES = (R_READY, R_INPUT_PENDING, R_INPUT_LATE, R_PRODUCER_STALE,
-                    R_NO_PRODUCER, R_CHRONIC, R_NO_BOUNDARY, R_NOT_EXPECTED)
+                    R_NO_PRODUCER, R_CHRONIC, R_NO_BOUNDARY, R_NOT_EXPECTED,
+                    R_ENTRY_MARK_INFEASIBLE)
+
+
+#: The accrual owner's own refusal code and blocked state, imported rather than
+#: retyped so a rename cannot silently stop matching (the same discipline
+#: ``api.autonomous_operating_status`` applies to the identical string).
+def _unpriceable_entry_mark() -> tuple:
+    try:
+        from . import canonical_forward_accrual as _ACC
+        return (_ACC.INTEGRITY_ENTRY_MARK_UNPRICEABLE,
+                _ACC.ACC_INTEGRITY_BLOCKED)
+    except Exception:                                       # noqa: BLE001
+        return ("DECLARED_ENTRY_MARK_IS_NOT_SERVED_BY_THE_DECLARED_"
+                "VALUATION_PATH", "INTEGRITY_BLOCKED")
+
+
+UNPRICEABLE_ENTRY_MARK_BLOCKER, ACCRUAL_INTEGRITY_BLOCKED = \
+    _unpriceable_entry_mark()
 
 #: The readiness states that must reach an operator BEFORE the boundary passes.
 ACTIONABLE_READINESS_STATES = (R_INPUT_LATE, R_PRODUCER_STALE, R_NO_PRODUCER,
-                               R_CHRONIC)
+                               R_CHRONIC, R_ENTRY_MARK_INFEASIBLE)
 
 SEV_OK = "OK"
 SEV_WARN = "WARN"
@@ -271,6 +306,7 @@ READINESS_SEVERITY = {
     R_CHRONIC: SEV_WARN,
     R_PRODUCER_STALE: SEV_DEFECT,
     R_NO_PRODUCER: SEV_DEFECT,
+    R_ENTRY_MARK_INFEASIBLE: SEV_DEFECT,
 }
 
 #: Whether the inputs the next decision needs are in hand. Read from the
@@ -691,6 +727,16 @@ def preboundary_readiness(accrual: dict, beat: Optional[dict] = None, *,
 
     inputs = input_readiness(b)
     chronic = chronic_miss(acc, b)
+    # R80 - the accrual owner's refusal of the declared entry mark. Read from the
+    # accrual row under BOTH spellings the projection uses, because this estate has
+    # now lost four separate facts to one of them travelling under a name its
+    # reader did not use.
+    acc_state = acc.get("current_accrual_state") or acc.get("state")
+    acc_blocker = acc.get("latest_blocker") or acc.get("accrual_blocker")
+    entry_mark_unpriceable = bool(
+        str(acc_blocker or "") == UNPRICEABLE_ENTRY_MARK_BLOCKER
+        or (str(acc_state or "") == ACCRUAL_INTEGRITY_BLOCKED
+            and str(acc_blocker or "") == UNPRICEABLE_ENTRY_MARK_BLOCKER))
     boundaries = sorted({str(s)[:10] for s in (b.get("next_boundaries") or [])})
     next_boundary = boundaries[0] if boundaries else None
     nb_date = _as_date(next_boundary)
@@ -715,6 +761,13 @@ def preboundary_readiness(accrual: dict, beat: Optional[dict] = None, *,
         "producer_stale_after_hours": PRODUCER_STALE_AFTER_HOURS,
         "input_readiness": inputs,
         "chronic_miss": chronic,
+        # R80 - the inputs to the entry-mark verdict, so a reader handed the verdict
+        # can check it rather than take it.
+        "accrual_state": acc_state,
+        "accrual_blocker": acc_blocker,
+        "entry_mark_unpriceable": entry_mark_unpriceable,
+        "entry_mark_refusal_owner": (ACCRUAL_OWNER if entry_mark_unpriceable
+                                     else None),
         "monitoring_owner": CALCULATION_OWNER,
         "emits_no_prediction": True,
         "changes_no_decision_contract": True,
@@ -782,6 +835,24 @@ def preboundary_readiness(accrual: dict, beat: Optional[dict] = None, *,
         return _v(R_NOT_EXPECTED,
                   "no producer is expected for this registration (%s), so it "
                   "has no boundary to be ready for" % prod["reason"])
+    # R80. The most structural answer of all, and it outranks the chronic verdict
+    # because it EXPLAINS it: a registration whose declared entry mark its declared
+    # valuation path cannot price will miss every boundary it is ever handed, and
+    # no amount of input freshness or producer liveness changes that. Asked of the
+    # ACCRUAL owner, which is the only owner entitled to refuse an entry mark.
+    if entry_mark_unpriceable:
+        return _v(R_ENTRY_MARK_INFEASIBLE,
+                  "a boundary is declared at %s (%s calendar day(s) away) and the "
+                  "accrual owner has refused this registration's declared entry "
+                  "mark: %s (accrual state %s). The producer is live and its "
+                  "inputs are in hand, so nothing about this boundary is late - "
+                  "the entry instant itself cannot be priced by the declared "
+                  "valuation path, and it will be missed like the %d before it "
+                  "until a governed decision changes the entry contract or the "
+                  "valuation path. Reported here, never repaired here."
+                  % (next_boundary, days, acc_blocker or "unstated",
+                     acc_state or "unstated",
+                     len(b.get("missed_boundaries") or [])))
     if chronic.get("is_chronic"):
         # The structural verdict outranks the next boundary's own state, because
         # a contract that cannot be met most days is the fact worth acting on
@@ -833,7 +904,8 @@ def preboundary_readiness(accrual: dict, beat: Optional[dict] = None, *,
               % (last_run, next_boundary, days, inputs["input_state"]))
 
 
-def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
+def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None,
+                    now: Optional[datetime] = None) -> dict:
     """The producer lifecycle state of ONE registration.
 
     ``accrual`` is one row of ``api.canonical_forward_accrual``'s projection.
@@ -912,8 +984,15 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
     # retrospective half is: a reader must never have to infer from an absence
     # whether the question was asked. boundary_reconciliation says what was
     # lost; this says what is about to be.
+    # R80 - ``now`` is threaded so the AGGREGATE ledger can be asked at a frozen
+    # instant, exactly as the per-registration verdict already could. Without it
+    # ``producer_coverage`` always read the wall clock while its fixtures pinned
+    # absolute dates, so tests/test_release74_2_preboundary_monitoring.py's live-
+    # shaped fixture drifted one day further from its own journal every day and
+    # eventually reported the FX carry producer 27.6 hours stale against a boundary
+    # that had become imminent. The fixture was right and the seam had no clock.
     out["preboundary_readiness"] = preboundary_readiness(acc, beat,
-                                                         producer=prod)
+                                                         producer=prod, now=now)
 
     terminal = _lifecycle_terminal(acc)
     if terminal:
@@ -974,7 +1053,8 @@ def lifecycle_state(accrual: dict, *, beat: Optional[dict] = None) -> dict:
 # 5. THE INVARIANT
 # --------------------------------------------------------------------------- #
 def producer_coverage(*, accrual_by_identity: Optional[dict] = None,
-                      runs: Optional[dict] = None) -> dict:
+                      runs: Optional[dict] = None,
+                      now: Optional[datetime] = None) -> dict:
     """Does EVERY active registration have an executable prediction path?
 
     The live counterpart to the static audit check. A registration may have no
@@ -1009,7 +1089,7 @@ def producer_coverage(*, accrual_by_identity: Optional[dict] = None,
                               key=lambda kv: str(kv[1].get("challenger_id"))):
         prod = producer_for(str(acc.get("challenger_id") or ""))
         beat = (beats.get("stages") or {}).get(prod.get("producer_stage") or "")
-        rows.append(lifecycle_state(acc, beat=beat))
+        rows.append(lifecycle_state(acc, beat=beat, now=now))
 
     orphans = [r for r in rows if r["lifecycle"] == L_NOT_ARMED]
     failed = [r for r in rows if r["lifecycle"] == L_PRODUCER_FAILED]
@@ -1143,7 +1223,23 @@ def _headline(rows, orphans, failed, read_problem, *, n_unrecorded: int = 0,
         parts.append("%d have a producer that RAN AND FAILED: %s."
                      % (len(failed), ", ".join(sorted(r["challenger_id"]
                                                       for r in failed))))
-    if not orphans and not failed:
+    # R80 - an entry mark the accrual owner has REFUSED is not an executable
+    # prediction path, whatever the producer registry says. This clause used to be
+    # printed on the strength of orphans and producer failures alone, so the
+    # headline asserted that every registration could predict while one of them
+    # carried INTEGRITY_BLOCKED and had emitted nothing across two boundaries. The
+    # unpriceable registrations are named in the warning clause below; the blanket
+    # reassurance is simply not printed when one of them exists.
+    unpriceable = sorted(r["challenger_id"] for r in rows
+                         if (r.get("preboundary_readiness") or {}).get(
+                             "readiness") == R_ENTRY_MARK_INFEASIBLE)
+    if unpriceable:
+        parts.append(
+            "%d have a declared entry mark the accrual owner REFUSES as "
+            "unpriceable by the declared valuation path, so they have no "
+            "executable prediction path until a governed decision changes one of "
+            "the two: %s." % (len(unpriceable), ", ".join(unpriceable)))
+    if not orphans and not failed and not unpriceable:
         parts.append("Every one has a declared, executable prediction path.")
     if n_unrecorded:
         parts.append(
@@ -1184,6 +1280,8 @@ __all__ = [
     "READINESS_STATES", "ACTIONABLE_READINESS_STATES", "READINESS_SEVERITY",
     "R_READY", "R_INPUT_PENDING", "R_INPUT_LATE", "R_PRODUCER_STALE",
     "R_NO_PRODUCER", "R_CHRONIC", "R_NO_BOUNDARY", "R_NOT_EXPECTED",
+    "R_ENTRY_MARK_INFEASIBLE", "UNPRICEABLE_ENTRY_MARK_BLOCKER",
+    "ACCRUAL_INTEGRITY_BLOCKED",
     "SEV_OK", "SEV_WARN", "SEV_DEFECT",
     "INPUT_STATES", "I_PRESENT", "I_MISSING", "I_NOT_DECLARED",
     "INPUT_LEGS", "L_LEG_VENDOR", "L_LEG_LOCAL",

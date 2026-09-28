@@ -349,7 +349,7 @@ def _live_shaped_fixture():
 
 def test_the_warning_ledger_names_only_the_registration_that_cannot_comply():
     proj, runs = _live_shaped_fixture()
-    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs)
+    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs, now=NOW)
     ids = [w["challenger_id"] for w in cov["preboundary_warnings"]]
     assert ids == ["REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1"], (
         "the FX carry recovery and the superseded record are not warnings")
@@ -366,7 +366,7 @@ def test_the_warning_ledger_names_only_the_registration_that_cannot_comply():
 def test_a_correctly_blocked_strategy_stays_blocked_and_is_never_emitted_for():
     """Monitoring must not become a repair. Nothing here writes or emits."""
     proj, runs = _live_shaped_fixture()
-    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs)
+    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs, now=NOW)
     assert cov["writes_nothing"] is True
     assert cov["emits_no_prediction"] is True
     assert cov["read_only"] is True
@@ -382,7 +382,7 @@ def test_a_correctly_blocked_strategy_stays_blocked_and_is_never_emitted_for():
 def test_the_prospective_and_retrospective_ledgers_stay_separate():
     """Merging them would let "about to be lost" read as "already lost"."""
     proj, runs = _live_shaped_fixture()
-    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs)
+    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs, now=NOW)
     assert "preboundary_warnings" in cov
     assert "permanent_misses_by_challenger" in cov
     assert cov["n_preboundary_warnings"] != cov[
@@ -392,7 +392,7 @@ def test_the_prospective_and_retrospective_ledgers_stay_separate():
 
 def test_the_headline_states_the_warning_so_it_cannot_be_missed():
     proj, runs = _live_shaped_fixture()
-    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs)
+    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs, now=NOW)
     assert "CANNOT MEET" in cov["headline"]
     assert "REVERSED_SPY_PUT_CALL_SKEW_H5_NEXT_OPEN_V1" in cov["headline"]
 
@@ -408,7 +408,7 @@ def test_a_clean_estate_says_so_explicitly():
                     "state": "NOT_DUE",
                     "next_boundaries": ["2026-10-09"],
                     "missed_boundaries": []}]}]}
-    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs)
+    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs, now=NOW)
     assert cov["n_preboundary_warnings"] == 0
     assert cov["every_next_boundary_is_reachable"] is True
     assert "Every next boundary is reachable" in cov["headline"]
@@ -547,6 +547,6 @@ def test_the_warning_ledger_carries_the_short_leg():
                     "forward_panel_last_session": "2026-09-21",
                     "next_boundaries": ["2026-09-28"],
                     "missed_boundaries": []}]}]}
-    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs)
+    cov = H.producer_coverage(accrual_by_identity=proj, runs=runs, now=NOW)
     assert cov["n_preboundary_warnings"] == 1
     assert cov["preboundary_warnings"][0]["short_leg"] == H.L_LEG_LOCAL

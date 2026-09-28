@@ -300,10 +300,38 @@ def _portfolio_proposal_state(workflow: dict) -> dict:
     the third instance in this release of one fact travelling under two spellings.
     Both are read, canonical first, and ``projected_under`` says which answered so
     a reader is never guessing which vocabulary they are looking at.
+
+    R80 - THE FOURTH INSTANCE OF THE SAME DEFECT, AND IT IS NOT A SPELLING THIS
+    TIME BUT A DEPTH. ``canonical_portfolio_decision`` carries ``proposal_hash``
+    at its top level and carries NO ``proposal_id`` key at all: the canonical id
+    travels one level down, inside ``proposal_supersession``, which is the block
+    ``api.portfolio_decision`` writes and the block ``/v1/operations/
+    proposal-decision-review`` serves ``proposal_id`` from. A top-level-only
+    ``_pick`` therefore published ``proposal_id: null`` beside a real
+    ``proposal_hash`` for a proposal the estate can name, which is worse than
+    omitting the field: a reader reconciling this surface against the review
+    route sees the review name a proposal and the autonomy surface deny it.
+
+    ``_pick`` now falls back to the NESTED identity blocks after exhausting both
+    top levels. The order is the same as everywhere else in this projection -
+    canonical first - and no value is ever synthesised: if no block carries the
+    name, the answer is still None.
     """
     canon = _g(workflow, "canonical_portfolio_decision", default={}) or {}
     pd = _g(workflow, "portfolio_decision", default={}) or {}
     src = canon or pd
+
+    #: Blocks that carry proposal identity one level below the decision block.
+    #: A fact must be readable on the seam its reader uses, and the id's seam is
+    #: the supersession block rather than the decision root.
+    def _nested() -> list:
+        out = []
+        for block in (canon, pd):
+            for key in ("proposal_supersession", "supersession"):
+                nested = block.get(key)
+                if isinstance(nested, dict):
+                    out.append(nested)
+        return out
 
     def _pick(*names):
         for n in names:
@@ -312,6 +340,10 @@ def _portfolio_proposal_state(workflow: dict) -> dict:
         for n in names:
             if pd.get(n) is not None:
                 return pd[n]
+        for block in _nested():
+            for n in names:
+                if block.get(n) is not None:
+                    return block[n]
         return None
 
     return {
@@ -351,8 +383,39 @@ def _portfolio_proposal_state(workflow: dict) -> dict:
 
 
 def _runtime_source_identity(ready: dict, worker: dict) -> dict:
-    """WHICH CODE each process is running. Two processes, two answers."""
+    """WHICH CODE each process is running. Two processes, two answers.
+
+    R80 - AND WHETHER THAT CODE MAY STILL WRITE. ``maturation_gate`` published
+    ``worker["maturation"]``, which is the verdict the worker took ONCE, about
+    the source as it was at startup. For a worker that runs a cycle and exits
+    that is the whole question. This one is persistent - it has held its lease
+    since 16:05 and will hold it for days - so the startup answer describes a
+    checkout that no longer exists, and ``alpha_agent.r59.runtime`` says so in
+    as many words: it re-takes the attestation at the moment of use and records
+    it as ``maturation_now``.
+
+    The two disagree right now, and the surface was publishing the wrong one.
+    The worker's own artifact carries ``maturation_now`` = allowed FALSE,
+    SOURCE_HAS_UNCOMMITTED_CHANGES (loaded 5e98c80, checkout b0f7cb3, dirty)
+    while this block published allowed TRUE, COMMITTED_CLEAN_SOURCE - so the
+    one surface an operator reads to ask "can the estate still record forward
+    evidence?" answered yes on behalf of a worker that answers no, two days
+    before two real decision boundaries. ``processes_agree`` compounded it:
+    backend and worker do agree, and both are behind the checkout, which the
+    field cannot say because it only ever compared the two processes.
+
+    So the at-use verdict is published beside the startup one, never instead of
+    it, and the field that states the permission is the AT-USE one. Nothing is
+    computed here: both verdicts are the worker's own, read from its artifact,
+    and a worker that recorded no at-use verdict yields None rather than an
+    inferred yes.
+    """
     src = worker.get("source_identity") or {}
+    # The worker re-takes this at every prospective write. Absent (an older
+    # worker, or one that has not reached a write) it stays None: this
+    # projection never derives a permission the owner did not record.
+    at_use = worker.get("maturation_now") or None
+    checkout = (at_use or {}).get("current_commit")
     # ``api.runtime_identity.loaded_identity`` publishes ``commit``; the
     # ``/v1/ready`` envelope republishes the same value as ``loaded_commit``.
     # Both spellings are accepted so this block reads the owner directly or the
@@ -370,9 +433,29 @@ def _runtime_source_identity(ready: dict, worker: dict) -> dict:
         "research_worker_source": src,
         "research_worker_commit": research or None,
         "research_worker_dirty": src.get("dirty"),
+        # The STARTUP verdict, kept under its established name so no reader
+        # loses a field, and labelled so none mistakes it for permission.
         "maturation_gate": worker.get("maturation"),
+        "maturation_gate_is_the_startup_verdict": True,
+        # The verdict that actually governs the next prospective write.
+        "maturation_gate_at_use": at_use,
+        "may_write_prospective_evidence_now": (
+            None if not at_use else bool(at_use.get("allowed"))),
+        "prospective_write_blocker": (
+            None if not at_use or at_use.get("allowed")
+            else at_use.get("reason")),
+        "startup_and_at_use_verdicts_agree": (
+            None if not at_use or not worker.get("maturation")
+            else bool(at_use.get("allowed")
+                      is (worker.get("maturation") or {}).get("allowed"))),
+        # R80 - the THIRD identity. The two processes can agree with each other
+        # and both be behind the checkout, which is this estate's actual state.
+        "checkout_commit": checkout,
         "processes_agree": bool(backend and research
                                and backend[:12] == research[:12]),
+        "processes_agree_with_checkout": (
+            None if not (backend and research and checkout)
+            else bool(backend[:12] == research[:12] == str(checkout)[:12])),
     }
 
 

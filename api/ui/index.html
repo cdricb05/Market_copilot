@@ -30609,13 +30609,37 @@ function _r47Render(d) {
       + '<td>' + escapeHtml(String(r.action || '—')) + '</td>'
       + '<td>' + escapeHtml(String(r.detail || r.redistributed_to || '—')) + '</td></tr>';
   }
+  // R80 - THE LEDGER IS CUMULATIVE ACROSS REPAIR ROUNDS AND THE PROPOSAL IS THE
+  // LAST ROUND ONLY. The reallocation owner writes one adjustment note per round,
+  // so when a risk-contribution repair re-solves the target the earlier round's
+  // notes STAY in the log describing a solution that no longer exists. On the
+  // 2026-09-25 proposal the log carries TRADES_DEFERRED_TO_FIT_TURNOVER_BUDGET
+  // from a superseded round (15 trades) while the final target defers 0, and
+  // engine.proposal_decision_review already publishes exactly that
+  // reconciliation. An operator reading this ledger beside the review saw a
+  // deferral in one place and zero in the other, with nothing joining them. The
+  // caveat is drawn ONLY when the owner itself says a reoptimisation ran; the
+  // browser derives nothing and counts nothing - the count belongs to the review
+  // owner, which publishes it. (No token this region's guard forbids appears
+  // here, deliberately: the guard scans prose as well as code, and it is right
+  // to, because a comment claiming the browser calculates nothing is worth less
+  // than a scan that proves it.)
+  var reopt = d.constraint_reoptimization_applied === true;
+  var ledgerNote = reopt
+    ? '<div class="cc-na-note" style="font-size:10px;margin-top:6px;">This log is'
+      + ' CUMULATIVE across repair rounds; the proposal is the LAST round only.'
+      + ' A constraint re-optimisation re-solved this target after some of the'
+      + ' notes above were written, so an earlier round’s note may describe a'
+      + ' solution that was superseded. What the proposal would actually do is the'
+      + ' final ledger under Proposal Review, not a note here.</div>'
+    : '';
   _setHtml('r47-adjustments', ledger
     ? '<table style="width:100%;border-collapse:collapse;"><thead><tr>'
       + '<th style="text-align:left;">Constraint</th><th style="text-align:left;">Kind</th>'
       + '<th style="text-align:left;">Name</th><th style="text-align:left;">Before</th>'
       + '<th style="text-align:left;">After</th><th style="text-align:left;">Action</th>'
       + '<th style="text-align:left;">Detail</th></tr></thead><tbody>'
-      + ledger + '</tbody></table>'
+      + ledger + '</tbody></table>' + ledgerNote
     : 'No constraint changed this target.');
 }
 window._r47Render = _r47Render;

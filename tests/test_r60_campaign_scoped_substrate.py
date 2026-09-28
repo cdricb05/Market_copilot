@@ -242,8 +242,8 @@ def test_brief_dataset_block_is_bounded_however_large_the_census(pipe):
         {"dataset": "ds_%03d" % i, "asset_class": "US_EQUITY",
          "state": "OWNED, heavily mined with a great deal of prose attached"}
         for i in range(200)]}
-    digest = BR._dataset_digest(census)
-    assert len(digest) == BR.MAX_BRIEF_DATASETS
+    digest = BR._dataset_digest(pipe, census)
+    assert len(digest["census_claims"]) == BR.MAX_BRIEF_DATASETS
     assert BR.prose_words(digest) < 200
 
 
@@ -255,7 +255,8 @@ def test_brief_prefers_actionable_datasets_over_spent_ones(pipe):
           "state": "OWNED, heavily mined"} for i in range(20)]
         + [{"dataset": "fresh", "asset_class": "US_EQUITY",
             "state": "ALREADY_OWNED_UNUSED"}])}
-    names = [d["dataset"] for d in BR._dataset_digest(census)]
+    names = [d["dataset"]
+             for d in BR._dataset_digest(pipe, census)["census_claims"]]
     assert names[0] == "fresh", names[:3]
 
 
@@ -266,7 +267,8 @@ def test_dataset_digest_is_stable(pipe):
         {"dataset": "ds_%02d" % i, "asset_class": "US_EQUITY",
          "state": "FREE_AVAILABLE" if i % 3 else "OWNED, heavily mined"}
         for i in range(40)]}
-    assert BR._dataset_digest(census) == BR._dataset_digest(census)
+    assert (BR._dataset_digest(pipe, census)
+            == BR._dataset_digest(pipe, census))
 
 
 def test_real_census_keeps_the_director_brief_inside_its_contract(pipe):

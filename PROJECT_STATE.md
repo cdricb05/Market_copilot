@@ -5521,3 +5521,9 @@ Adds 4 NEW files this pass — `alpha_agent/production_universe.py`, `alpha_agen
 
 ### Release decision (this pass)
 **COMMIT_OK.** BEA works live (real acquisition, idempotent, ACCESSIBLE_NOW, through the queue). The permanent production agent is configured to exhaust the COMPLETE eligible universe (1,895 survivorship-safe symbols) through durable, sharded, resumable campaigns with cursors, repair queues and autonomous batch continuation; scheduled tasks select production mode; the multi-GB SEC bulk archives are actively mirrored on D:. Every accessible owned/free lane is operational; nothing is a fabricated completion. Full regression before committing: `C:\Users\binis\paper_trader\.venv-win\Scripts\python.exe -m pytest -q`. Elevated task install (registers Disabled): `powershell -ExecutionPolicy Bypass -File scripts\install_alpha_agent_tasks.ps1`.
+
+<!-- BEGIN PAPER TRADER A-TO-Z GOVERNANCE REFERENCE -->
+## Operating governance contract — 2026-09-27
+
+Binding process documentation: `docs/PAPER_TRADER_OPERATING_CONTRACT.md`, `docs/RELEASE_ACCEPTANCE_GATES.md`, and `docs/PROJECT_INSTRUCTIONS_OPERATING_MODE.md`. This section records a GOVERNANCE REQUIREMENT, not a deployed release, successful live A-to-Z run, new forward prediction, portfolio approval or alpha experiment. Current actual state must be freshly verified from canonical owners and journals before a release claim. The 48/72-hour targets are escalation objectives, never permission to invent point-in-time evidence or bypass manual review.
+<!-- END PAPER TRADER A-TO-Z GOVERNANCE REFERENCE -->

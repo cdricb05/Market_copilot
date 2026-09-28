@@ -303,17 +303,68 @@ def _dataset_rank(row: dict) -> tuple:
     return (1 if spent else 0, 0 if unused else 1)
 
 
-def _dataset_digest(census: dict) -> list:
-    """The dataset rows worth spending brief budget on, most actionable first.
+def _dataset_digest(pipe, census: dict) -> dict:
+    """What the estate can actually research on, asked of the CERTIFICATION store.
 
-    Ordering is STABLE (a sort by rank alone, preserving census order within a
-    rank), so two runs against the same census produce the same brief.
+    R80 - THE SECOND FROZEN CENSUS BLOCK, AND IT FAILS EXACTLY AS
+    ``best_domains`` DID. ``available_pit_datasets`` is a snapshot taken on the
+    census date and copied verbatim into every director brief since. Three of its
+    rows are now falsified by the estate's own later certifications:
+
+    * "SEC EDGAR full index (UPLOAD / CORRESP comment letters) - FREE, never
+      used" is ``CERTIFICATION: DATA_HOLD``
+      (campaign_r60_information_frontier/CERTIFICATION_DF4B_COMMENT_LETTERS).
+    * "EODHD dividend declarations - PIT_SAFE_R60" closed
+      ``DATA_HOLD_ON_A_PRE_DECLARED_KILL_CONDITION`` with purchase-gate state
+      COVERAGE_BLOCKED (campaign_r78_dividend_announcement).
+    * "Nasdaq trading halts - FREE_AVAILABLE, 0 hypotheses" failed its
+      certification: the feed is live tradability, not an archive, so it has no
+      historical depth to research on.
+
+    A director handed those three as FACTS reads three free, unused lanes that do
+    not exist, and this estate has already paid for that once: R76 read the frozen
+    NARRATIVE, wrote a refused cell up as available, and R77 spent a campaign
+    establishing it. The narrative was de-frozen; its sibling was not.
+
+    So the availability claim is no longer taken from the census. The live answer
+    is ``mem.provider_usage()`` - the certification store, which is where a
+    coverage verdict is actually recorded and which carries a CLASSIFICATION per
+    provider and data class. The census rows are still listed, because they name
+    owned panels the certification store does not itself enumerate, but they are
+    labelled as the frozen claim they are and the classification travels beside
+    them. Nothing is filtered out and no verdict is synthesised: a dataset the
+    certification store has never heard of says so.
+
+    Ordering of the census rows is STABLE (a sort by rank alone, preserving census
+    order within a rank), so two runs against the same census agree.
     """
+    certified: list = []
+    try:
+        usage = list(pipe.mem.provider_usage() or ())
+    except Exception:                                        # noqa: BLE001
+        usage = []
+    for row in usage:
+        cov = row.get("coverage")
+        cls = (cov or {}).get("classification") if isinstance(cov, dict) else None
+        # ONE unspaced pipe token per certified data class, for the same
+        # handoff-budget reason ``ruled_economic_families`` is one.
+        certified.append("|".join(str(x or "?") for x in (
+            row.get("provider"), row.get("data_class"), cls or "UNCLASSIFIED")))
+
     rows = list(census.get("available_pit_datasets") or ())
     ranked = sorted(rows, key=_dataset_rank)
-    return [{"dataset": d.get("dataset"), "asset_class": d.get("asset_class"),
-             "state": d.get("state")}
-            for d in ranked[:MAX_BRIEF_DATASETS]]
+    return {
+        "certified_data_classes": sorted(set(certified)),
+        "n_certified_data_classes": len(set(certified)),
+        "certification_owner": "mem.provider_usage()",
+        "census_rows_are_a_frozen_claim_not_a_certification": True,
+        "census_rows_include_claims_later_certifications_falsified": True,
+        "census_claims": [
+            {"dataset": d.get("dataset"), "asset_class": d.get("asset_class"),
+             "claimed_state": d.get("state")}
+            for d in ranked[:MAX_BRIEF_DATASETS]],
+        "verify_any_availability_claim_against_the_certification_store": True,
+    }
 
 
 #: The fixed field order inside the ``refused_by`` token. One string, not five,
@@ -458,6 +509,67 @@ def _census(contract_dir: Optional[Path] = None) -> dict:
         return {}
 
 
+def _open_information_families(pipe, census: dict) -> dict:
+    """Which economic families are still open, asked of the RULING STORE.
+
+    R80 - THE NARRATIVE WAS THE LAST UNJOINED PROJECTION, AND IT WAS THE ONE THE
+    DIRECTOR READ FIRST. ``census['best_domains']`` is four paragraphs of frozen
+    prose that were copied verbatim into every director brief since R60. Two of
+    the four recommend cells this estate has since REFUSED by durable ruling:
+    ``best_h1_h5_domain`` recommends "H1-H5 reversal conditioned on never-used
+    non-price information (FINRA short-volume share)", and ``best_cross_asset_
+    domain`` recommends CROSS_ASSET_RELATIVE_VALUE "first", then
+    CROSS_ASSET_LEAD_LAG. All three are ruled REFUSED, and the FINRA one is
+    refused by a reopen condition that names FINRA short volume and excludes it.
+
+    R79 joined the rulings into ``queued_hypotheses``, one row per proposal - and
+    that join works. But the director reads the agenda narrative at the TOP of
+    FACTS and the per-proposal refusal at row 9, 10 and 12 of a 13-row table. R76
+    read the narrative, wrote rank 12 up as available, and R77 was commissioned
+    on two already-refused cells and spent a whole campaign establishing it.
+
+    So the prose is no longer copied. The same reasoning the R79 author recorded
+    for the census's ``R68_MECHANISM_CHECK`` block applies to it word for word: it
+    is a static snapshot of a question the director must ask live anyway, its
+    answer is prose where the ruling store's is a code, and the census file is
+    already an ARTIFACT_POINTER the director may read in full. What replaces it is
+    the live answer - every economic family the ruling store has closed, as codes.
+
+    This also brings the brief back INSIDE its own handoff contract. The R79 join
+    added ``refused_by`` to thirteen queued rows and took the live director brief
+    to 504 words against ``MAX_HANDOFF_PROSE_WORDS`` = 500, so
+    ``brief_problems()`` refused it and ``agents_v2_brief.py --role
+    quant-research-director`` printed BRIEF_REFUSED and wrote no file: the fix for
+    the re-commissioning defect had made the director unbriefable. The fixture
+    store in the regression has no rulings, so the join added nothing there and
+    the test passed. Dropping 189 words of frozen prose to publish the live codes
+    costs the director nothing he should have been trusting and pays for the
+    refusals outright.
+    """
+    ruled: list = []
+    try:
+        rulings = list(pipe.mem.director_rulings() or ())
+    except Exception:                                        # noqa: BLE001
+        rulings = []
+    for r in rulings:
+        # ONE unspaced pipe token per closed family, for the same handoff-budget
+        # reason ``refused_by`` is one: ``prose_words`` counts string values by
+        # whitespace, so a family's four codes cost one word instead of four.
+        ruled.append("|".join(str(x or "?") for x in (
+            r.get("asset_class"), r.get("economic_family"),
+            r.get("verdict"), r.get("blocker_reason"),
+            "reopen=" + str(r.get("reopen_condition") or "?"))))
+    return {
+        # The prose stays in the census, which is an ARTIFACT_POINTER already.
+        "narrative_pointer": "%s#best_domains" % CENSUS_FILE,
+        "narrative_is_frozen_prose_not_live_state": True,
+        "narrative_recommends_families_that_are_now_ruled": True,
+        "ruled_economic_families": sorted(set(ruled)),
+        "n_ruled_economic_families": len(set(ruled)),
+        "read_the_ruling_store_before_believing_any_availability_claim": True,
+    }
+
+
 def director_brief(pipe, *, run_id: str, campaign_id: str,
                    spec: Optional[dict] = None,
                    contract_dir: Optional[Path] = None) -> dict:
@@ -482,14 +594,15 @@ def director_brief(pipe, *, run_id: str, campaign_id: str,
                   "to which signal agent, at what budget. Rule the tournament "
                   "on return."),
         facts={
-            "open_information_families": census.get("best_domains") or {},
+            "open_information_families": _open_information_families(
+                pipe, census),
             "exhausted_families": {
                 "closed_mechanisms": len(ledger),
                 "ledger_pointer": "%s#must_not_repeat.closed_mechanism_ledger"
                                   % CENSUS_FILE,
                 "structural_rule": must.get("rule") or "",
             },
-            "available_datasets": _dataset_digest(census),
+            "available_datasets": _dataset_digest(pipe, census),
             "available_datasets_pointer":
                 "%s#available_pit_datasets" % CENSUS_FILE,
             "blocked_datasets": (census.get("must_not_repeat") or {}).get(
