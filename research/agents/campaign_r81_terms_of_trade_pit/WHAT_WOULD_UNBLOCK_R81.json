@@ -1,0 +1,63 @@
+{
+ "campaign_id": "R81_TERMS_OF_TRADE_PIT",
+ "artifact": "MISSING_CAPABILITY_SPECIFICATION_AND_PURCHASE_GATE",
+ "as_of": "2026-09-28",
+ "read_only": true,
+ "purchases_nothing": true,
+ "authorises_nothing": true,
+ "gate_reference": "docs/INFORMATION_PURCHASE_GATE.md (the ten conditions)",
+
+ "HEADLINE": "R81 did not fail for want of data, so no dataset can unblock it. The certified information is sufficient and free; the binding constraint is the number of TRADABLE INSTRUMENTS the mechanism can address. That makes this a NOT_A_PURCHASE_CANDIDATE and an execution-representation question, not an information question.",
+
+ "WHY_A_PURCHASE_CANNOT_FIX_IT": {
+  "the_chain": [
+   "The mechanism ranks ECONOMIES by a non-price terms-of-trade measure.",
+   "An economy is expressible in this estate only as its currency future on the R38 certified dated-contract layer.",
+   "That layer contains exactly EIGHT currency futures: 6A, 6B, 6C, 6E, 6J, 6M, 6N, 6S.",
+   "Measured: MDE_80 is NOT REACHED for the 8-market cross-section even at an injected information coefficient of 0.20, which is 4-10x any plausible cross-sectional macro IC (0.02-0.05).",
+   "Therefore a dataset covering 40 economies with perfect point-in-time vintages would still be ranked into at most 8 tradable legs, and would still fail the same gate by the same margin."
+  ],
+  "the_one_line": "Buying wider INFORMATION does not widen the INSTRUMENT SET, and the instrument set is the wall.",
+  "corroboration": "The same wall appears with a SYNTHETIC signal of known strength, and the unmodified 28-market control panel detects IC 0.20 at 20 of 20. The null is a property of the cross-section, not of the signal or the harness."
+ },
+
+ "PURCHASE_GATE_EVALUATION": {
+  "verdict": "NOT_A_PURCHASE_CANDIDATE",
+  "condition_1_economic_mechanism": "SATISFIED. Terms-of-trade pass-through to the real exchange rate, one named channel, sign declared a priori.",
+  "condition_2_cheap_proxy": "FAILS THE PURCHASE, SATISFIES THE ESTATE. The free proxy is not merely adequate, it is CERTIFIED: FRED/ALFRED import-price-by-origin vintages, 8,703 records, 0 clamped, earliest vintage 2010-03-16, 16.3 years, $0. A purchase must beat a free certified dataset, and there is nothing to beat.",
+  "condition_3_marginal_evidence": "FAILS. No dataset adds marginal evidence, because the evidence ceiling is set by 8 instruments x 187 monthly decisions, not by information content.",
+  "condition_4_exact_data_gap": "NO DATA GAP EXISTS. The gap is an instrument gap. Stating a dataset here would misname the defect.",
+  "condition_5_point_in_time": "ALREADY SATISFIED FREE. True ALFRED realtime_start per observation; publication lag measured at median 13 days, p95 17 (n=3,152).",
+  "condition_6_survivorship_inactive": "NOT APPLICABLE to a macro index family; no delisted-name dimension exists.",
+  "condition_7_sample_evaluation": "DONE AND DECISIVE: 196 monthly non-overlapping decision periods, 187 on the book's own 21-session grid. This is the WHOLE archive; the family is published monthly so no purchase can raise the decision count.",
+  "condition_8_incremental_backtest": "REFUSED BY GATE B BEFORE MEASUREMENT, per R66's on_failure rule. No candidate return was scored, so no incremental backtest exists and none may be quoted.",
+  "condition_9_economic_value": "CANNOT BE ESTABLISHED. An effect large enough to clear MDE_80 here (IC >= 0.15) is not a plausible prior for a monthly macro signal, so expected value cannot be argued from evidence.",
+  "condition_10_licensing": "MOOT."
+ },
+
+ "THE_ACTUAL_MISSING_CAPABILITY": {
+  "name": "A WIDER TRADABLE FX CROSS-SECTION WITH A CANONICAL COST MODEL",
+  "what_it_is_not": "It is not a dataset, not an entitlement and not a subscription.",
+  "what_it_is": "An execution-representation expansion: the ability to express a ranked cross-section of 20+ economies. On the owned estate that means FX instruments beyond the 8 CME currency futures - deliverable forwards or non-deliverable forwards for the EM economies the BLS already publishes origins for - each with a per-instrument cost model the canonical futures book can charge.",
+  "why_the_estate_cannot_provide_it_today": [
+   "alpha_agent.agents_v2.books declares three books: EQUITY_TOPN, EQUITY_TRANCHE, FUTURES_DATED_CONTRACT. There is no FX spot or forward book, and no FX spot cost model.",
+   "Norgate 'Forex Spot' carries 57 symbols with full 2008-2026 history, so the PRICE side of a wider FX cross-section is already owned and free. What is absent is a certified cost model and an execution representation for it - a governed capability decision, not an acquisition.",
+   "Writing such a book is explicitly constrained by the no_duplicate_engine_rule in research/agents/governance_contract.json and would need its own certification and cost basis before any candidate could be scored on it."
+  ],
+  "expected_effective_sample_if_it_existed": {
+   "decisions": "187 on the existing 21-session grid; unchanged, because the information is monthly",
+   "width_needed_for_MDE_80_at_a_plausible_IC": "the measured curve reaches 80% power at IC 0.10 only at ~27-38 markets; at IC 0.05 it does not reach 80% at ANY width measured up to 38",
+   "the_honest_reading": "Even a 20-instrument FX cross-section would not clear MDE_80 at a plausible IC on 187 monthly decisions. Width alone is necessary but NOT sufficient. This axis is closed on power, not merely narrow."
+  }
+ },
+
+ "WHAT_A_FUTURE_CAMPAIGN_MAY_AND_MAY_NOT_DO": {
+  "may_reuse_without_re_certifying": "DATA_R81_D1_TERMS_OF_TRADE_VINTAGE_CERTIFICATION.json and configs/alpha_agent/stage2_terms_of_trade_vintage_backfill.json. The dataset is CERTIFIED_PIT, idempotent on re-run (verified: a second incremental run reports NO_NEW_SOURCE_DATA, 0 new records) and costs nothing.",
+  "may_not": [
+   "Re-commission this cell on a currency cross-section. The MDE curve settles it and re-running it would spend a slot to learn a measured number again.",
+   "Widen the cross-section by inventing a regional basket weighting for ASEANTOT / ASNRETOT / INDUSTOT / LATTOT / OASTOT / PRIMTOT. Those origins have no single currency, and choosing weights after seeing the width constraint is finalising the construction in sight of the gate - the exact fault R66 refused.",
+   "File NO_ALPHA_EVIDENCE for this cell. No return was ever scored."
+  ],
+  "the_generalisation_that_should_travel": "Any MONTHLY-published information family on this estate inherits this wall: at most ~196 decision periods, and a cross-section bounded by the tradable instruments the mechanism addresses. Before certifying the next monthly macro family, run the MDE curve FIRST - it is cheap, it needs no acquisition, and here it would have answered the campaign before a single record was downloaded."
+ }
+}

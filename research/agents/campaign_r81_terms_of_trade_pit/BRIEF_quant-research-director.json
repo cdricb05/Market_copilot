@@ -1,0 +1,424 @@
+{
+ "RUN_ID": "AGENTS_V2",
+ "CAMPAIGN_ID": "R81_TERMS_OF_TRADE_PIT",
+ "EXPERIMENT_ID": "",
+ "SOURCE_AGENT": "SESSION_ORCHESTRATOR",
+ "TARGET_AGENT": "quant-research-director",
+ "DECISION_REQUIRED": "Set the campaign agenda: which hypotheses to pre-register, to which signal agent, at what budget. Rule the tournament on return.",
+ "FACTS": {
+  "open_information_families": {
+   "narrative_pointer": "NEXT_CAMPAIGN_CENSUS.json#best_domains",
+   "narrative_is_frozen_prose_not_live_state": true,
+   "narrative_recommends_families_that_are_now_ruled": true,
+   "ruled_economic_families": [
+    "COMMODITY_FUTURES|CARRY|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_INFORMATION_NOT_DERIVABLE_FROM_THE_DATED_CONTRACT_PRICES",
+    "COMMODITY_FUTURES|POSITIONING|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_POSITIONING_INFORMATION_THAT_IS_NEITHER_EXCHANGE_OPEN_INTEREST_NOR_CFTC_COT",
+    "CROSS_ASSET|CARRY|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_INFORMATION_NOT_DERIVABLE_FROM_THE_DATED_CONTRACT_PRICES",
+    "CROSS_ASSET|CROSS_ASSET_LEAD_LAG|CONSIDERED_AND_NOT_PROPOSED|WAITING_FOR_EXTERNAL_ENTITLEMENT|reopen=OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG",
+    "CROSS_ASSET|CROSS_ASSET_LEAD_LAG|REFUSED_SETTLED_ON_THE_FULL_FOUR_PART_KEY|WAITING_FOR_EXTERNAL_ENTITLEMENT|reopen=OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG",
+    "CROSS_ASSET|CROSS_ASSET_REGIME_CONDITIONING|REFUSED_AS_A_REPLICATION|SUPERSEDED|reopen=A_MECHANISM_THAT_IS_NOT_THE_TIMING_A_PREMIUM_SHAPE",
+    "CROSS_ASSET|CROSS_ASSET_RELATIVE_VALUE|REFUSED|WAITING_FOR_EXTERNAL_ENTITLEMENT|reopen=OWNED_PIT_NON_PRICE_TERMS_OF_TRADE_VINTAGES",
+    "US_EQUITY|LIQUIDITY_PREMIUM|REFUSED_A_UNIVERSE_IS_NOT_NEW_INFORMATION|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_NON_PRICE_INFORMATION_ABOUT_LIQUIDITY_PROVISION_NOT_A_WIDER_TICKER_LIST",
+    "US_EQUITY|PROFITABILITY|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_INFORMATION_BEYOND_PIT_FUNDAMENTAL_FACTS",
+    "US_EQUITY|RESIDUAL_MOMENTUM|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_NON_PRICE_INFORMATION",
+    "US_EQUITY|SHORT_TERM_REVERSAL|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME",
+    "US_EQUITY|SHORT_TERM_REVERSAL|REFUSED_THE_REOPEN_CONDITION_EXCLUDES_THIS_EXACT_INFORMATION|FAMILY_EXHAUSTED|reopen=NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME"
+   ],
+   "n_ruled_economic_families": 12,
+   "read_the_ruling_store_before_believing_any_availability_claim": true
+  },
+  "exhausted_families": {
+   "closed_mechanisms": 8,
+   "ledger_pointer": "NEXT_CAMPAIGN_CENSUS.json#must_not_repeat.closed_mechanism_ledger",
+   "structural_rule": "A settled family reopens ONLY on its recorded reopen condition (NEW_ORTHOGONAL_INFORMATION), stated in the hypothesis text. Renaming a dead idea is refused by the director and the duplicate-identity check."
+  },
+  "available_datasets": {
+   "certified_data_classes": [
+    "EODHD|CORPORATE_ACTIONS|UNCLASSIFIED",
+    "EODHD|EARNINGS_EVENTS|UNCLASSIFIED",
+    "EODHD|FUNDAMENTALS|UNCLASSIFIED",
+    "EODHD|INSIDER|UNCLASSIFIED",
+    "EODHD|NEWS|UNCLASSIFIED",
+    "EODHD|PRICES|UNCLASSIFIED",
+    "FREE_PUBLIC_SOURCES|BEA_BLS|TIMESTAMP_INSUFFICIENT",
+    "FREE_PUBLIC_SOURCES|FINRA_SHORT_VOLUME|PROSPECTIVE_ONLY",
+    "FREE_PUBLIC_SOURCES|FRED_ALFRED_VINTAGES|HISTORICAL_PIT_READY",
+    "FREE_PUBLIC_SOURCES|SEC_COMPANYFACTS|HISTORICAL_PIT_READY",
+    "FREE_PUBLIC_SOURCES|SEC_FORM4_INSIDER|UNCLASSIFIED",
+    "NORGATE|US_EQUITY_PIT_PANEL|UNCLASSIFIED",
+    "NORGATE|WORLD_FUTURES|UNCLASSIFIED"
+   ],
+   "n_certified_data_classes": 13,
+   "certification_owner": "mem.provider_usage()",
+   "census_rows_are_a_frozen_claim_not_a_certification": true,
+   "census_rows_include_claims_later_certifications_falsified": true,
+   "census_claims": [
+    {
+     "dataset": "SEC companyfacts store",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "FREE_AVAILABLE"
+    },
+    {
+     "dataset": "EODHD dividend/split history, full universe",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "ALREADY_OWNED_UNUSED (16-year history confirmed for a probe name)"
+    },
+    {
+     "dataset": "FINRA daily short volume",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "FREE_AVAILABLE, 1 hypothesis"
+    },
+    {
+     "dataset": "Nasdaq trading halts",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "FREE_AVAILABLE, 0 hypotheses"
+    },
+    {
+     "dataset": "SEC EDGAR full index (UPLOAD / CORRESP comment letters)",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "FREE, never used"
+    },
+    {
+     "dataset": "r58_pit_fundamental_panel_v1",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "OWNED, mined on S&P 500 only"
+    },
+    {
+     "dataset": "R38 native_contract_layer",
+     "asset_class": "all futures",
+     "claimed_state": "OWNED, 12 hypotheses only"
+    },
+    {
+     "dataset": "SEC bulk Form 4 data sets",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "OWNED_WITH_HISTORY"
+    },
+    {
+     "dataset": "EODHD dividend declarations",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "PIT_SAFE_R60"
+    },
+    {
+     "dataset": "R38 deferred leg (ret2)",
+     "asset_class": "all futures",
+     "claimed_state": "PIT_SAFE_R60"
+    },
+    {
+     "dataset": "us_equity_extension_pit_panel_v1",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "BUILT_PIT_SAFE_R60"
+    },
+    {
+     "dataset": "sp500_pit_panel_v1",
+     "asset_class": "US_EQUITY",
+     "claimed_state": "OWNED, heavily mined"
+    }
+   ],
+   "verify_any_availability_claim_against_the_certification_store": true
+  },
+  "available_datasets_pointer": "NEXT_CAMPAIGN_CENSUS.json#available_pit_datasets",
+  "blocked_datasets": [
+   "Unconditional month-end ZN long (+1.47%/yr net, t 3.20 as a CONTROL): adoptable only by a human-authorised fresh pre-registration on untouched 2017-2026.",
+   "Single-name options history purchase: PURCHASE_NOT_GLOBALLY_JUSTIFIED.",
+   "Analyst revision vintages: INADEQUATE, STOP BEFORE PURCHASE.",
+   "OPRA subscription: answered NO (next-open entry keeps 98.7% of the edge)."
+  ],
+  "queued_hypotheses": [
+   {
+    "rank": 1,
+    "proposal": "FUT_BASIS_MOMENTUM_COMMODITY",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "COMMODITY_FUTURES",
+    "family": "CARRY",
+    "horizon_sessions": 21,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 2,
+    "settled_by": "NO_ALPHA_EVIDENCE=2",
+    "settled_state": "RULED_BY_THE_DIRECTOR",
+    "already_ruled": true,
+    "refused_by": "R73_POST_R72_AGENDA|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|ECONOMIC_FAMILY|reopen=NEW_ORTHOGONAL_INFORMATION_NOT_DERIVABLE_FROM_THE_DATED_CONTRACT_PRICES",
+    "covering_ruling_count": 1
+   },
+   {
+    "rank": 2,
+    "proposal": "EQ_EXTENSION_LIQUIDITY_PREMIUM",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "US_EQUITY",
+    "family": "LIQUIDITY",
+    "horizon_sessions": 21,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 1,
+    "settled_by": "NO_ALPHA_EVIDENCE=1",
+    "settled_state": "SETTLED_BY_MEASUREMENT_WITHOUT_A_RULING",
+    "census_novelty_claim_is_false": true,
+    "already_ruled": false
+   },
+   {
+    "rank": 3,
+    "proposal": "XA_TERMS_OF_TRADE_RELATIVE_VALUE",
+    "agent": "reversal-signal-agent",
+    "asset_class": "CROSS_ASSET",
+    "family": "RELATIVE_VALUE",
+    "horizon_sessions": 21,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 1,
+    "settled_by": "NO_ALPHA_EVIDENCE=1",
+    "settled_state": "SETTLED_BY_MEASUREMENT_WITHOUT_A_RULING",
+    "census_novelty_claim_is_false": false,
+    "already_ruled": false
+   },
+   {
+    "rank": 4,
+    "proposal": "FUT_OPEN_INTEREST_GROWTH",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "COMMODITY_FUTURES",
+    "family": "POSITIONING",
+    "horizon_sessions": 21,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 4,
+    "settled_by": "NO_ALPHA_EVIDENCE=3|REJECTED=1",
+    "settled_state": "RULED_BY_THE_DIRECTOR",
+    "already_ruled": true,
+    "refused_by": "R73_POST_R72_AGENDA|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|ECONOMIC_FAMILY|reopen=NEW_ORTHOGONAL_POSITIONING_INFORMATION_THAT_IS_NEITHER_EXCHANGE_OPEN_INTEREST_NOR_CFTC_COT",
+    "covering_ruling_count": 1
+   },
+   {
+    "rank": 5,
+    "proposal": "EQ_EXTENSION_RESIDUAL_MOMENTUM",
+    "agent": "momentum-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "MOMENTUM",
+    "horizon_sessions": 21,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 1,
+    "settled_by": "NO_ALPHA_EVIDENCE=1",
+    "settled_state": "SETTLED_BY_MEASUREMENT_WITHOUT_A_RULING",
+    "census_novelty_claim_is_false": true,
+    "already_ruled": false
+   },
+   {
+    "rank": 6,
+    "proposal": "EQ_SEC_COMMENT_LETTER_DRIFT",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "EVENT_OVERREACTION",
+    "horizon_sessions": 63,
+    "mechanism_settled": false,
+    "mechanism_settled_rows": 0,
+    "settled_state": "NOT_SETTLED_IN_CANONICAL_MEMORY",
+    "already_ruled": false
+   },
+   {
+    "rank": 7,
+    "proposal": "XA_BASIS_MOMENTUM_REPLICATION",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "CROSS_ASSET",
+    "family": "CARRY",
+    "horizon_sessions": 21,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 2,
+    "settled_by": "NO_ALPHA_EVIDENCE=2",
+    "settled_state": "RULED_BY_THE_DIRECTOR",
+    "already_ruled": true,
+    "refused_by": "R73_POST_R72_AGENDA|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|ECONOMIC_FAMILY|reopen=NEW_ORTHOGONAL_INFORMATION_NOT_DERIVABLE_FROM_THE_DATED_CONTRACT_PRICES",
+    "covering_ruling_count": 1
+   },
+   {
+    "rank": 8,
+    "proposal": "EQ_DIVIDEND_CHANGE_ANNOUNCEMENT_DRIFT",
+    "agent": "momentum-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "FUNDAMENTAL_MOMENTUM",
+    "horizon_sessions": 63,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 3,
+    "settled_by": "DATA_HOLD=2|NO_ALPHA_EVIDENCE=1",
+    "settled_state": "SETTLED_BY_MEASUREMENT_WITHOUT_A_RULING",
+    "already_ruled": false
+   },
+   {
+    "rank": 9,
+    "proposal": "EQ_EXTENSION_H5_LIQUIDITY_PROVISION_REVERSAL",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "SHORT_TERM_REVERSAL",
+    "horizon_sessions": 5,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 2,
+    "settled_by": "NO_ALPHA_EVIDENCE=1|REJECTED=1",
+    "settled_state": "RULED_BY_THE_DIRECTOR",
+    "already_ruled": true,
+    "refused_by": "R77_SHORT_VOLUME_AND_CROSS_ASSET_LEAD_LAG|REFUSED_THE_REOPEN_CONDITION_EXCLUDES_THIS_EXACT_INFORMATION|FAMILY_EXHAUSTED|MECHANISM|reopen=NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME",
+    "covering_ruling_count": 2
+   },
+   {
+    "rank": 10,
+    "proposal": "XA_LEAD_LAG_SINGLE_CHANNEL",
+    "agent": "trend-breadth-signal-agent",
+    "asset_class": "CROSS_ASSET",
+    "family": "CROSS_ASSET_LEAD_LAG",
+    "horizon_sessions": 3,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 1,
+    "settled_by": "NO_ALPHA_EVIDENCE=1",
+    "settled_state": "RULED_BY_THE_DIRECTOR",
+    "already_ruled": true,
+    "refused_by": "R77_SHORT_VOLUME_AND_CROSS_ASSET_LEAD_LAG|REFUSED_SETTLED_ON_THE_FULL_FOUR_PART_KEY|WAITING_FOR_EXTERNAL_ENTITLEMENT|MECHANISM|reopen=OWNED_PIT_NON_PRICE_INFORMATION_ON_AT_LEAST_ONE_LEG",
+    "covering_ruling_count": 2
+   },
+   {
+    "rank": 11,
+    "proposal": "EQ_EXTENSION_GROSS_PROFITABILITY",
+    "agent": "volatility-liquidity-agent",
+    "asset_class": "US_EQUITY",
+    "family": "PROFITABILITY",
+    "horizon_sessions": 21,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 1,
+    "settled_by": "NO_ALPHA_EVIDENCE=1",
+    "settled_state": "RULED_BY_THE_DIRECTOR",
+    "already_ruled": true,
+    "refused_by": "R73_POST_R72_AGENDA|REFUSED_AS_ALREADY_MEASURED|FAMILY_EXHAUSTED|ECONOMIC_FAMILY|reopen=NEW_ORTHOGONAL_INFORMATION_BEYOND_PIT_FUNDAMENTAL_FACTS",
+    "covering_ruling_count": 1
+   },
+   {
+    "rank": 12,
+    "proposal": "EQ_H5_REVERSAL_GIVEN_SHORT_VOLUME",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "SHORT_TERM_REVERSAL",
+    "horizon_sessions": 5,
+    "mechanism_settled": true,
+    "mechanism_settled_rows": 2,
+    "settled_by": "NO_ALPHA_EVIDENCE=1|REJECTED=1",
+    "settled_state": "RULED_BY_THE_DIRECTOR",
+    "already_ruled": true,
+    "refused_by": "R77_SHORT_VOLUME_AND_CROSS_ASSET_LEAD_LAG|REFUSED_THE_REOPEN_CONDITION_EXCLUDES_THIS_EXACT_INFORMATION|FAMILY_EXHAUSTED|MECHANISM|reopen=NEW_ORTHOGONAL_NON_PRICE_INFORMATION_THAT_IS_NOT_FINRA_SHORT_VOLUME",
+    "covering_ruling_count": 2
+   },
+   {
+    "rank": 13,
+    "proposal": "EQ_POST_HALT_H3",
+    "agent": "reversal-signal-agent",
+    "asset_class": "US_EQUITY",
+    "family": "EVENT_OVERREACTION",
+    "horizon_sessions": 3,
+    "mechanism_settled": false,
+    "mechanism_settled_rows": 0,
+    "settled_state": "NOT_SETTLED_IN_CANONICAL_MEMORY",
+    "already_ruled": false
+   }
+  ],
+  "current_campaign": {
+   "campaign_id": "R81_TERMS_OF_TRADE_PIT",
+   "experiments_preregistered": 0,
+   "experiments_in_spec": 0,
+   "assigned_by_agent": {},
+   "unmeasured_by_agent": {},
+   "measured": [],
+   "halted": 0,
+   "awaiting_skeptic": [],
+   "skeptic_survivors": [],
+   "awaiting_risk": [],
+   "validated_survivors": [],
+   "meta_reviewed": [],
+   "director_cleared": [],
+   "data_certified": false,
+   "universe_defined": false,
+   "features_published": false,
+   "substrate_required": {
+    "datasets": [
+     "fred_alfred_terms_of_trade_vintage_v1"
+    ],
+    "universes": [
+     "r81_fx_terms_of_trade_relative_value"
+    ],
+    "feature_sets": [
+     "fs_r81_import_price_by_origin_vintage_momentum"
+    ]
+   },
+   "substrate_missing": {
+    "datasets": [
+     "fred_alfred_terms_of_trade_vintage_v1"
+    ],
+    "universes": [
+     "r81_fx_terms_of_trade_relative_value"
+    ],
+    "feature_sets": [
+     "fs_r81_import_price_by_origin_vintage_momentum"
+    ]
+   }
+  }
+ },
+ "METRICS": {
+  "hypotheses_settled": null,
+  "qualified_survivors": null,
+  "search_burden_total": 8416,
+  "burden_by_asset_class": {
+   "CROSS_ASSET": 2448,
+   "US_EQUITY": 1826,
+   "COMMODITY_FUTURES": 1621,
+   "EQUITY_INDEX_FUTURES": 923,
+   "RATES_FUTURES": 864,
+   "FX_FUTURES": 692,
+   "VOLATILITY": 13,
+   "CREDIT_PROXY": 1
+  },
+  "honest_prior": "0 of None hypotheses have qualified"
+ },
+ "FAILED_GATES": [],
+ "ARTIFACT_POINTERS": {
+  "census": "C:\\Users\\binis\\paper_trader\\research\\agents\\NEXT_CAMPAIGN_CENSUS.json",
+  "standing_rulings": "mem.director_rulings(asset_class,economic_family)",
+  "refused_by_field_order": "campaign_id|verdict|blocker_reason|ruling_scope|reopen",
+  "charter": "docs/PROJECT_CHARTER.md",
+  "frontier": "docs/PNL_OPPORTUNITY_FRONTIER.md",
+  "sleeve_contract": "docs/STRATEGY_SLEEVE_CONTRACT.md",
+  "protocol": "research/agents/research_director_protocol.json"
+ },
+ "SAFETY_STATE": {
+  "research_only": true,
+  "paper_only": true,
+  "creates_orders": false,
+  "creates_fills": false,
+  "broker_enabled": false,
+  "promotes_model": false,
+  "automatic_model_promotion_allowed": false,
+  "approves_proposal": false,
+  "makes_sleeve_capital_eligible": false,
+  "mutates_operational_store": false,
+  "automation_enabled": false,
+  "backfills_forward_evidence": false,
+  "manual_review_required": true,
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ },
+ "AGENT_SYSTEM_VERSION": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "BRIEF_OWNER": "alpha_agent.agents_v2.briefs",
+ "BRIEF_VERSION": "R58_AGENT_CONTEXT_CONTRACT_V1",
+ "DO_NOT_RECOMPUTE": {
+  "arithmetic": "alpha_agent.agents_v2.runner",
+  "statistics": "alpha_agent.r59.engines.gate",
+  "ranking": "alpha_agent.agents_v2.books",
+  "backtests": "alpha_agent.agents_v2.books",
+  "feature_computation": "campaign executor module",
+  "transaction_costs": "alpha_agent.agents_v2.books",
+  "universe_filtering": "campaign executor module",
+  "date_slicing": "alpha_agent.agents_v2.runner",
+  "placebo": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "doubled_cost": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "subperiod_stability": "alpha_agent.agents_v2.runner.adversarial_pack",
+  "duplicate_identity": "alpha_agent.r59.memory.ResearchMemory.is_novel",
+  "threshold_comparison": "alpha_agent.r59.engines.gate",
+  "experiment_state_lookup": "alpha_agent.r59.memory.ResearchMemory",
+  "burden_calculation": "alpha_agent.r59.handlers.search_denominator",
+  "stage_advance_rule": "alpha_agent.r59.engines.stage_advance",
+  "result_formatting": "alpha_agent.agents_v2.briefs"
+ },
+ "MODEL_ROUTING": {
+  "model": "opus",
+  "effort": "high",
+  "tier": "HIGH_REASONING"
+ },
+ "FULL_MEMORY_DUMP_REQUIRED": false,
+ "FULL_CENSUS_READ_REQUIRED": false
+}

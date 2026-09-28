@@ -5527,3 +5527,115 @@ Adds 4 NEW files this pass — `alpha_agent/production_universe.py`, `alpha_agen
 
 Binding process documentation: `docs/PAPER_TRADER_OPERATING_CONTRACT.md`, `docs/RELEASE_ACCEPTANCE_GATES.md`, and `docs/PROJECT_INSTRUCTIONS_OPERATING_MODE.md`. This section records a GOVERNANCE REQUIREMENT, not a deployed release, successful live A-to-Z run, new forward prediction, portfolio approval or alpha experiment. Current actual state must be freshly verified from canonical owners and journals before a release claim. The 48/72-hour targets are escalation objectives, never permission to invent point-in-time evidence or bypass manual review.
 <!-- END PAPER TRADER A-TO-Z GOVERNANCE REFERENCE -->
+
+<!-- BEGIN RELEASE 81 TERMS-OF-TRADE PIT CERTIFICATION AND THE WIDTH LAW -->
+## Release 81 - the free ALFRED terms-of-trade vintages are CERTIFIED, and the cross-asset axis closes on WIDTH - 2026-09-28
+
+Two durable products from zero experiments, zero pre-registrations and zero
+burden charged.
+
+### 1. The data question is settled AFFIRMATIVELY, at $0
+
+`DATA_R75_D1_ALFRED_VINTAGE_CERTIFICATION.json` recorded `NOT_CERTIFIABLE`, but
+it judged the estate's **45-day rolling configuration**, not the source. Both of
+its failing gates were configuration artifacts, and the collector already owned
+the remedy its own remediation note named:
+
+- HISTORY_FLOOR: production `configs/alpha_agent/stage2_ingestion.json` carries
+  no `historical_backfill` block, so the collector defaults to a 45-day window.
+- PIT_INTEGRITY: R75 recorded clamped availability as unavoidable. It is not.
+  `alpha_agent/collectors/fred_alfred.py` line 97 dispatches to
+  `_collect_historical` (line 310), which walks the realtime axis in
+  Jan-1-bounded chunks and **drops carry-ins clamped to a chunk start**
+  (line 264), reconstructing genuine un-clamped first releases.
+
+Running that path through the canonical Stage 2 runner acquired **8,703
+normalized vintage records, 16/16 series, 0 HTTP errors, 0 clamped records,
+earliest vintage 2010-03-16, 224 observation periods and 198 vintages per
+series, 196 monthly non-overlapping decision periods over 16.3 years**, with
+publication lag **measured** at median 13 calendar days / p95 17 / max 63
+(n=3,152). PIT reconstruction at five probed instants returns all 16 series with
+the newest knowable observation at exactly T minus one month - no lookahead.
+Verdict **`CERTIFIED_PIT`**. Free registered FRED key; no new entitlement; no
+purchase. A second incremental run reports `NO_NEW_SOURCE_DATA` with 0 new
+records, so the chunk cursor makes the asset idempotent and reproducible.
+
+The acquisition used a **bounded one-time sibling config**,
+`configs/alpha_agent/stage2_terms_of_trade_vintage_backfill.json`, and a
+**campaign-scoped output root**. Both choices are load-bearing:
+`historical_backfill` is an EXCLUSIVE mode switch, so adding it to production
+would have silently ended the 12-series rolling macro collection; and a
+fred-only `latest.json` written into the production ingestion root would have
+overwritten the source inventory that live surfaces read. The production config
+and the production ingestion root are untouched, and the production collection
+ran independently the same morning under its own run id.
+`tests/test_r81_terms_of_trade_config.py` (11 tests) pins that arrangement.
+
+### 2. The cross-asset axis closes on CROSS-SECTION WIDTH, measured
+
+The census ranked terms-of-trade FIRST among the cross-asset families the R59
+frontier lists as open. R66 refused it and recorded a written reopen condition;
+R67_06 was refused again for violating it. R81 is the first of the three
+sightings to honour that condition - and the cell still dies, on power.
+
+R66's gate B (a pre-registered MDE curve, computed BEFORE any candidate return)
+was measured by the canonical owner `alpha_agent.r61.power` on the R38 certified
+dated-contract layer under `FUTURES_PER_MARKET_R38_PLUS_ROLL_V1`:
+
+| cross-section | MDE_80 (injected information coefficient) |
+| --- | --- |
+| FX5, the only 1:1 origin-to-instrument mapping | NOT REACHED at IC <= 0.20 |
+| FX8, all currency futures - the upper bound for ANY currency expression | NOT REACHED at IC <= 0.20 |
+| commodity width 8-12, what a clean 1:1 BLS-to-futures mapping supports | ~0.15 |
+| commodity width 38 | ~0.10 |
+
+A plausible cross-sectional macro IC is 0.02-0.05, so the requirement exceeds
+the plausible effect by **3-7x at every width this information family can
+reach**. Apparatus calibration: **0 detections at IC 0.0 at all seven widths**,
+while the unmodified 28-market control detects IC 0.20 at 20 of 20 - so the null
+is a property of the cross-section, not of the signal or the harness.
+
+Verdict **`DATA_HOLD / WITHDRAWN_UNDERPOWERED`**, withdrawn BEFORE
+pre-registration per R66's own `on_failure` rule: **0 experiments
+pre-registered, 0 experiment ids minted, 0 burden charged, no research-memory
+hypothesis, and `NO_ALPHA_EVIDENCE` NOT filed** (no candidate return was ever
+scored, so absence-of-alpha cannot be claimed in either direction). Verified
+empirically: the worker reports `hypotheses=8473 burden=8416 families=347`
+before and after, unchanged.
+
+**THE R81 WIDTH LAW**, recorded as a standing estate-level finding, scope-limited
+to 21-session futures panels under the R38 cost model: at 21-session cadence on
+187-196 decisions a book needs roughly 25-38 independent legs before MDE_80
+falls to IC ~0.10, and MDE_80 is never reached at IC <= 0.05 at any width
+measured. A monthly non-price cross-sectional signal on a narrow futures
+cross-section is undetectable in this estate whether or not the signal is real.
+The practical consequence: **run the MDE-vs-width curve BEFORE certifying the
+next monthly macro family** - it costs about 30 seconds per panel, needs no
+acquisition, and here it would have answered the campaign before a single record
+was downloaded.
+
+A purchase cannot fix this and none is proposed.
+`WHAT_WOULD_UNBLOCK_R81.json` evaluates all ten conditions of
+`docs/INFORMATION_PURCHASE_GATE.md` and records **`NOT_A_PURCHASE_CANDIDATE`**:
+the mechanism ranks economies, an economy is expressible here only as one of
+eight currency futures on the certified layer, so a dataset covering forty
+economies would still be ranked into at most eight tradable legs and would fail
+the same gate by the same margin. Buying wider information does not widen the
+instrument set, and the instrument set is the wall.
+
+### Release decision (this pass)
+
+**COMMIT_OK** for the R81 evidence, the bounded config and its regression test.
+Nothing here authorises an order, a fill, a portfolio approval, a model
+promotion, a data purchase, a forward registration or a push. The cell may not
+be re-commissioned on a currency cross-section; the certification is reusable
+without re-certifying.
+
+**Open handoff, not closed by this pass:** `NEXT_CAMPAIGN_CENSUS.json` still
+ranks terms-of-trade FIRST in `best_domains.best_cross_asset_domain` and still
+carries `queued_hypotheses` rank 3 `XA_TERMS_OF_TRADE_RELATIVE_VALUE`. R67_V2
+predicted this exact recurrence in writing ("This cell will be proposed a third
+time") because the refusal lived only inside a ruling file - and it was proposed
+a third time. The census is frozen prose with a generator that overwrites it, so
+amending it is a census-maintainer decision and is left for the operator.
+<!-- END RELEASE 81 TERMS-OF-TRADE PIT CERTIFICATION AND THE WIDTH LAW -->

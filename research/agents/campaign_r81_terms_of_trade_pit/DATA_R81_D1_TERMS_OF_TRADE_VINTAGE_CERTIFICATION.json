@@ -1,0 +1,742 @@
+{
+ "campaign_id": "R81_TERMS_OF_TRADE_PIT",
+ "task": "D1",
+ "produced_by": "data-foundation-agent (measurement executed in-session)",
+ "as_of": "2026-09-28",
+ "DATASET_ID": "fred_alfred_terms_of_trade_vintage_v1",
+ "question": "Is the ALFRED VINTAGE dimension of the already-owned, free fred_alfred source certifiable as a point-in-time dataset for the terms-of-trade information family?",
+ "VERDICT": "CERTIFIED_PIT",
+ "supersedes": {
+  "artifact": "research/agents/campaign_r75_alfred_vintage_admissibility/DATA_R75_D1_ALFRED_VINTAGE_CERTIFICATION.json",
+  "prior_verdict": "NOT_CERTIFIABLE",
+  "why_the_prior_verdict_is_superseded": "R75 measured the CONFIGURATION, not the source. It failed HISTORY_FLOOR because configs/alpha_agent/stage2_ingestion.json sets a 45-day rolling window with no historical_backfill block, and it failed PIT_INTEGRITY because the ROLLING path stamps carry-ins with realtime_start == the request window start and labels them an upper bound. Both are properties of that configuration. The collector's OWN historical_backfill path (alpha_agent/collectors/fred_alfred.py lines 310-399), which R75's own remediation note names, walks the realtime axis in Jan-1-bounded chunks and DROPS carry-ins clamped to a chunk start, reconstructing genuine un-clamped first releases. R75 recorded as unavoidable ('Accept that clamped observations carry bounded availability timestamps') a defect the owned code already solves. This certification ran that path and measured the result.",
+  "cost_of_the_remediation_usd": 0,
+  "new_entitlement_required": false
+ },
+ "acquisition": {
+  "runner": "scripts/run_alpha_data_ingestion.py (canonical Stage 2)",
+  "collector": "alpha_agent/collectors/fred_alfred.py (EXISTING; no second collector was written)",
+  "config": "configs/alpha_agent/stage2_terms_of_trade_vintage_backfill.json (bounded ONE-TIME sibling; the production Stage 2 config is UNMODIFIED and keeps its 12-series rolling macro collection)",
+  "output_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion_terms_of_trade (campaign-scoped, so a fred-only latest.json cannot overwrite the production source inventory)",
+  "run_id": "stage2_d60a760e3aa933c0",
+  "terminal": "ALPHA_AGENT_STAGE2_READY",
+  "raw_objects": 64,
+  "normalized_records": 8703,
+  "duplicates_prevented": 0,
+  "dq_failures": 0,
+  "http_errors": 0,
+  "series_collected": "16/16",
+  "source_health_state": "DEGRADED",
+  "why_DEGRADED_is_not_a_data_defect": "The only degradation is freshness: 'STALE: newest event 58 days old'. The newest OBSERVATION PERIOD is 2026-08-01 and the source's freshness_threshold_days is 45, a threshold calibrated for the daily series in the production allowlist. A monthly index published ~13 days after period end is 45-75 days old by construction, so this family can never be 'fresh' under a 45-day daily threshold. 16/16 series collected, 0 errors."
+ },
+ "measurements": [
+  {
+   "category": "ENTITLEMENT",
+   "gate": "PASS",
+   "measured": "FRED_API_KEY / PAPER_TRADER_FRED_API_KEY present (32 chars, never printed). Free registered key.",
+   "cost_usd": 0
+  },
+  {
+   "category": "HISTORY_FLOOR",
+   "gate": "PASS",
+   "required_floor": "2012-01-01",
+   "measured_earliest_vintage": "2010-03-16",
+   "measured": "All 16 series report n_vintage_dates=198 with earliest vintage 2010-03-16, which PRECEDES the 2012-01-01 floor R75 required. 176 vintage dates fall on/after 2012-01-01.",
+   "source": "FRED series/vintagedates, per series"
+  },
+  {
+   "category": "PIT_INTEGRITY",
+   "gate": "PASS",
+   "measured": "0 of 8,703 acquired records carry availability_clamped_to_window=true, and 0 carry an AVAILABILITY_CLAMPED warning. available_at is ALFRED's own realtime_start for every record.",
+   "residual_limitation_that_must_travel": "For observation periods whose true first release PRE-DATES the ALFRED archive start (2010-03-16), available_at is the archive start, which is a CONSERVATIVE upper bound: it never claims knowledge earlier than can be proved. Decisions taken from 2010-03-16 onward using available_at <= T are genuinely PIT."
+  },
+  {
+   "category": "VINTAGE_COMPLETENESS",
+   "gate": "PASS",
+   "measured": "198 distinct vintages and 224 observation periods per series, all 16 series identical."
+  },
+  {
+   "category": "PUBLICATION_LAG",
+   "gate": "MEASURED_NOT_ASSUMED",
+   "measured": {
+    "max": 63,
+    "median": 13.0,
+    "n": 3152,
+    "p95": 17
+   },
+   "units": "calendar days between the observation month END and the first owned release instant",
+   "note": "n=3,152 first-release events across 16 series; pre-archive observations excluded because their availability is a bound."
+  },
+  {
+   "category": "REVISION_MATERIALITY",
+   "gate": "PASS",
+   "measured": {
+    "IQ": {
+     "max_abs_rel_revision": 0.007557,
+     "mean_abs_rel_revision": 0.001304,
+     "median_abs_rel_revision": 0.00082,
+     "n": 175,
+     "pct_periods_revised": 78.3
+    },
+    "IR": {
+     "max_abs_rel_revision": 0.010552,
+     "mean_abs_rel_revision": 0.002018,
+     "median_abs_rel_revision": 0.001441,
+     "n": 175,
+     "pct_periods_revised": 86.3
+    },
+    "IREXPET": {
+     "max_abs_rel_revision": 0.005521,
+     "mean_abs_rel_revision": 0.000825,
+     "median_abs_rel_revision": 0.000837,
+     "n": 175,
+     "pct_periods_revised": 64.0
+    }
+   },
+   "note": "IQ 78.3% and IR 86.3% of observation periods are revised at least once; mean |relative revision| 0.13% and 0.20%. Revisions are real, so a vintage archive is not decorative.",
+   "REBASING_TRAP_DECLARED": "IQ12260 measures mean |revision| of 80% because its units are 'Index Dec 2024=100' while IQ/IR are 'Index 2000=100': a REBASING appears as a vintage revision in levels. Any feature on this family must be built from within-vintage changes, never from a level difference across vintages."
+  },
+  {
+   "category": "PIT_RECONSTRUCTABILITY",
+   "gate": "PASS",
+   "measured": {
+    "2011-06-30": {
+     "ASEANTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "ASNRETOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "CANTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "CHNTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "EECTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "FRNTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "GERTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "INDUSTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "IQ": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "IR": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "JPNTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "LATTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "MEXTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "OASTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "PRIMTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     },
+     "UKTOT": {
+      "latest_obs_known": "2011-05-01",
+      "n_obs_known": 41
+     }
+    },
+    "2014-06-30": {
+     "ASEANTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "ASNRETOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "CANTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "CHNTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "EECTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "FRNTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "GERTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "INDUSTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "IQ": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "IR": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "JPNTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "LATTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "MEXTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "OASTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "PRIMTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     },
+     "UKTOT": {
+      "latest_obs_known": "2014-05-01",
+      "n_obs_known": 77
+     }
+    },
+    "2018-06-30": {
+     "ASEANTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "ASNRETOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "CANTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "CHNTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "EECTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "FRNTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "GERTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "INDUSTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "IQ": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "IR": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "JPNTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "LATTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "MEXTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "OASTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "PRIMTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     },
+     "UKTOT": {
+      "latest_obs_known": "2018-05-01",
+      "n_obs_known": 125
+     }
+    },
+    "2022-06-30": {
+     "ASEANTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "ASNRETOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "CANTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "CHNTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "EECTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "FRNTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "GERTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "INDUSTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "IQ": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "IR": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "JPNTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "LATTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "MEXTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "OASTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "PRIMTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     },
+     "UKTOT": {
+      "latest_obs_known": "2022-05-01",
+      "n_obs_known": 173
+     }
+    },
+    "2026-06-30": {
+     "ASEANTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "ASNRETOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "CANTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "CHNTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "EECTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "FRNTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "GERTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "INDUSTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "IQ": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "IR": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "JPNTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "LATTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "MEXTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "OASTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "PRIMTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     },
+     "UKTOT": {
+      "latest_obs_known": "2026-05-01",
+      "n_obs_known": 220
+     }
+    }
+   },
+   "note": "At every probed decision instant T, all 16 series reconstruct and the newest observation knowable at T is exactly T minus one month. No lookahead."
+  },
+  {
+   "category": "CADENCE_AND_EFFECTIVE_SAMPLE",
+   "gate": "PASS",
+   "measured": {
+    "first_vintage_month": "2010-04",
+    "last_vintage_month": "2026-09",
+    "n_monthly_decision_periods": 196,
+    "years": 16.33
+   }
+  }
+ ],
+ "series_certified": {
+  "ASEANTOT": {
+   "n_records": 533,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "ASNRETOT": {
+   "n_records": 701,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "CANTOT": {
+   "n_records": 682,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "CHNTOT": {
+   "n_records": 432,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "EECTOT": {
+   "n_records": 530,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "FRNTOT": {
+   "n_records": 469,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "GERTOT": {
+   "n_records": 464,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "INDUSTOT": {
+   "n_records": 629,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "IQ": {
+   "n_records": 527,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "IR": {
+   "n_records": 590,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "JPNTOT": {
+   "n_records": 426,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "LATTOT": {
+   "n_records": 648,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "MEXTOT": {
+   "n_records": 600,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "OASTOT": {
+   "n_records": 488,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "PRIMTOT": {
+   "n_records": 428,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  },
+  "UKTOT": {
+   "n_records": 556,
+   "n_observation_periods": 224,
+   "n_distinct_vintages": 198,
+   "first_vintage": "2010-03-16",
+   "last_vintage": "2026-09-16",
+   "n_clamped": 0
+  }
+ },
+ "series_discovery_method": "FRED series/search metadata, never guessed identifiers. The 14 'Import Price Index by Origin (NAICS): All Industries for X' series are the COMPLETE set FRED publishes at All-Industries level; IQ and IR are the end-use export/import aggregates.",
+ "origin_vintage_support": {
+  "ASEANTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Association of Southeast Asian Nations"
+  },
+  "ASNRETOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Asia Near East"
+  },
+  "CANTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "1990-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Canada"
+  },
+  "CHNTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for China"
+  },
+  "EECTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "1990-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for European Union"
+  },
+  "FRNTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for France"
+  },
+  "GERTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Germany"
+  },
+  "INDUSTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "1990-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Industrialized Countries"
+  },
+  "JPNTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "1990-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Japan"
+  },
+  "LATTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "1997-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Latin America"
+  },
+  "MEXTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Mexico"
+  },
+  "OASTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "1990-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Asian Newly Industrialized Countries"
+  },
+  "PRIMTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for Pacific Rim"
+  },
+  "UKTOT": {
+   "earliest_vintage": "2010-03-16",
+   "error": null,
+   "frequency": "M",
+   "latest_vintage": "2026-09-16",
+   "n_vintages": 198,
+   "n_vintages_since_2012": 176,
+   "obs_end": "2026-08-01",
+   "obs_start": "2003-12-01",
+   "title": "Import Price Index by Origin (NAICS): All Industries for United Kingdom"
+  }
+ },
+ "safety": {
+  "read_only_operational_stores": true,
+  "creates_orders": false,
+  "purchases_nothing": true,
+  "cost_usd": 0,
+  "registers_no_hypothesis": true,
+  "charges_no_burden": true
+ }
+}

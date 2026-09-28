@@ -1,0 +1,793 @@
+{
+ "campaign_id": "R81_TERMS_OF_TRADE_PIT",
+ "task": "GATE_B_MINIMUM_DETECTABLE_EFFECT",
+ "as_of": "2026-09-28",
+ "why_this_artifact_exists": "R66's ruling on r66_02 XA_TERMS_OF_TRADE_COMMODITY_CURRENCY_RV recorded, in writing, the ONLY terms on which CROSS_ASSET_RELATIVE_VALUE may be reopened: 'an UNCONDITIONAL, ALWAYS-ON hedged carry structure with a sign derived from one named economic channel and NO deviation-based entry rule, pre-registered on its own merits with an MDE curve'. R67_06 was REFUSED for violating that condition in terms. This is the MDE curve, computed BEFORE any candidate return was scored.",
+ "owner": "alpha_agent.r61.power",
+ "calibration_version": "R61_SYNTHETIC_IC_POWER_CALIBRATION_V1",
+ "method": "alpha_agent.r61.power injects a synthetic cross-sectional information coefficient of KNOWN strength into the REAL certified panel under the REAL per-market cost model, the REAL decision grid and the REAL qualification gate, and counts detections. The injected signal is synthetic and known to be synthetic; no candidate return is scored anywhere in this artifact.",
+ "cost_model": {
+  "cost_model_id": "FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+  "rate_per_side": "per market, 2-15 bp",
+  "basis": "traded notional",
+  "roll_cost": "charged",
+  "owner": "R38 native_contract_layer cost_bps_per_side"
+ },
+ "cadence_sessions": 21,
+ "horizon_sessions": 21,
+ "apparatus_calibration_check": {
+  "false_positive_rate_at_rho_0": "0 detections at rho=0.0 at every width measured (7 of 7 widths)",
+  "control_full_28_market_cross_asset_panel": {
+   "rho_0.0": "0/20",
+   "rho_0.05": "1/20",
+   "rho_0.1": "11/20",
+   "rho_0.2": "20/20",
+   "reading": "the harness detects a strong effect on a wide panel, so a NULL result on a narrow one is a statement about the cross-section, not about the harness."
+  }
+ },
+ "A_the_only_1_to_1_expression_FX": {
+  "mapping_rule": "each import-price-by-origin series maps to that economy's currency future, 1:1, with no discretion: UKTOT->6B, CANTOT->6C, EECTOT->6E, JPNTOT->6J, MEXTOT->6M",
+  "excluded_ex_ante": {
+   "CHNTOT->CNY": "managed float, not a free-floating relative-value leg",
+   "GERTOT/FRNTOT": "duplicate EUR leg; EECTOT is the euro-area aggregate"
+  },
+  "unmappable_origins": [
+   "ASEANTOT",
+   "ASNRETOT",
+   "INDUSTOT",
+   "LATTOT",
+   "OASTOT",
+   "PRIMTOT"
+  ],
+  "why_unmappable": "a multi-country region has no single currency, and inventing a basket weighting after seeing the width constraint would be finalising the construction in sight of the gate",
+  "measured": {
+   "FX5_TERMS_OF_TRADE_MAPPED": {
+    "panel_id": "FX5_TERMS_OF_TRADE_MAPPED",
+    "markets": [
+     "6B",
+     "6C",
+     "6E",
+     "6J",
+     "6M"
+    ],
+    "instrument_count": 5,
+    "min_markets": 5,
+    "seeds_per_point": 40,
+    "curve": [
+     {
+      "rho": 0.0,
+      "seeds": 40,
+      "detections": 0,
+      "detection_rate": 0.0,
+      "ci95_lo": 0.0,
+      "ci95_hi": 0.08762453925039232,
+      "lockboxes_computed": 3,
+      "halted_at_D": 33,
+      "halted_at_V": 4,
+      "median_lockbox_ann_net_excess": -0.022764705769469373,
+      "median_lockbox_ann_gross_excess": -0.01570106940583301,
+      "median_oneway_turnover": 0.6098484848484849
+     },
+     {
+      "rho": 0.01,
+      "seeds": 40,
+      "detections": 0,
+      "detection_rate": 0.0,
+      "ci95_lo": 0.0,
+      "ci95_hi": 0.08762453925039232,
+      "lockboxes_computed": 5,
+      "halted_at_D": 31,
+      "halted_at_V": 4,
+      "median_lockbox_ann_net_excess": -0.022090461492984725,
+      "median_lockbox_ann_gross_excess": -0.014999552402075633,
+      "median_oneway_turnover": 0.6287878787878788
+     },
+     {
+      "rho": 0.02,
+      "seeds": 40,
+      "detections": 0,
+      "detection_rate": 0.0,
+      "ci95_lo": 0.0,
+      "ci95_hi": 0.08762453925039232,
+      "lockboxes_computed": 6,
+      "halted_at_D": 28,
+      "halted_at_V": 6,
+      "median_lockbox_ann_net_excess": -0.02259039226371288,
+      "median_lockbox_ann_gross_excess": -0.015731301354621974,
+      "median_oneway_turnover": 0.6590909090909091
+     },
+     {
+      "rho": 0.03,
+      "seeds": 40,
+      "detections": 0,
+      "detection_rate": 0.0,
+      "ci95_lo": 0.0,
+      "ci95_hi": 0.08762453925039232,
+      "lockboxes_computed": 7,
+      "halted_at_D": 25,
+      "halted_at_V": 8,
+      "median_lockbox_ann_net_excess": -0.020060269361547683,
+      "median_lockbox_ann_gross_excess": -0.012805723907002232,
+      "median_oneway_turnover": 0.6401515151515151
+     },
+     {
+      "rho": 0.05,
+      "seeds": 40,
+      "detections": 1,
+      "detection_rate": 0.025,
+      "ci95_lo": 0.0044267174077949265,
+      "ci95_hi": 0.1288165948800778,
+      "lockboxes_computed": 12,
+      "halted_at_D": 20,
+      "halted_at_V": 8,
+      "median_lockbox_ann_net_excess": -0.005541960158745679,
+      "median_lockbox_ann_gross_excess": 0.0010444034776179586,
+      "median_oneway_turnover": 0.6590909090909092
+     },
+     {
+      "rho": 0.075,
+      "seeds": 40,
+      "detections": 2,
+      "detection_rate": 0.05,
+      "ci95_lo": 0.013820377146101098,
+      "ci95_hi": 0.165041708179252,
+      "lockboxes_computed": 16,
+      "halted_at_D": 17,
+      "halted_at_V": 7,
+      "median_lockbox_ann_net_excess": -0.001984487940706499,
+      "median_lockbox_ann_gross_excess": 0.004588239332020775,
+      "median_oneway_turnover": 0.6590909090909091
+     },
+     {
+      "rho": 0.1,
+      "seeds": 40,
+      "detections": 6,
+      "detection_rate": 0.15,
+      "ci95_lo": 0.07061091708507436,
+      "ci95_hi": 0.2907262603902002,
+      "lockboxes_computed": 21,
+      "halted_at_D": 12,
+      "halted_at_V": 7,
+      "median_lockbox_ann_net_excess": 0.0021967079932562698,
+      "median_lockbox_ann_gross_excess": 0.009069435265983545,
+      "median_oneway_turnover": 0.6515151515151515
+     },
+     {
+      "rho": 0.15,
+      "seeds": 40,
+      "detections": 14,
+      "detection_rate": 0.35,
+      "ci95_lo": 0.2213433317104915,
+      "ci95_hi": 0.5049440300646263,
+      "lockboxes_computed": 34,
+      "halted_at_D": 4,
+      "halted_at_V": 2,
+      "median_lockbox_ann_net_excess": 0.01421871546062024,
+      "median_lockbox_ann_gross_excess": 0.02095042035019323,
+      "median_oneway_turnover": 0.6515151515151515
+     },
+     {
+      "rho": 0.2,
+      "seeds": 40,
+      "detections": 23,
+      "detection_rate": 0.575,
+      "ci95_lo": 0.42194800436059987,
+      "ci95_hi": 0.7149083147518411,
+      "lockboxes_computed": 40,
+      "halted_at_D": 0,
+      "halted_at_V": 0,
+      "median_lockbox_ann_net_excess": 0.022131526391679913,
+      "median_lockbox_ann_gross_excess": 0.028867890028043547,
+      "median_oneway_turnover": 0.649621212121212
+     }
+    ],
+    "elapsed_s": 29.9,
+    "mde_50": {
+     "power": 0.5,
+     "mde_rho": 0.18333333333333335,
+     "mde_ann_net_excess": 0.01949392274799336,
+     "mde_ann_gross_excess": 0.02622873346876011,
+     "reached": true
+    },
+    "mde_80": {
+     "power": 0.8,
+     "mde_rho": null,
+     "mde_ann_net_excess": null,
+     "mde_ann_gross_excess": null,
+     "reached": false,
+     "note": "detection never reached 80% anywhere on the frozen effect grid (max rho 0.200); the MDE is ABOVE the grid and is not extrapolated"
+    },
+    "mde_80_burden_1": {
+     "power": 0.8,
+     "mde_rho": null,
+     "mde_ann_net_excess": null,
+     "mde_ann_gross_excess": null,
+     "reached": false,
+     "note": "detection never reached 80% anywhere on the frozen effect grid (max rho 0.200); the MDE is ABOVE the grid and is not extrapolated"
+    },
+    "mde_80_burden_1000": {
+     "power": 0.8,
+     "mde_rho": null,
+     "mde_ann_net_excess": null,
+     "mde_ann_gross_excess": null,
+     "reached": false,
+     "note": "detection never reached 80% anywhere on the frozen effect grid (max rho 0.200); the MDE is ABOVE the grid and is not extrapolated"
+    }
+   },
+   "FX8_ALL_CURRENCY_FUTURES": {
+    "panel_id": "FX8_ALL_CURRENCY_FUTURES",
+    "markets": [
+     "6A",
+     "6B",
+     "6C",
+     "6E",
+     "6J",
+     "6M",
+     "6N",
+     "6S"
+    ],
+    "instrument_count": 8,
+    "min_markets": 8,
+    "seeds_per_point": 40,
+    "curve": [
+     {
+      "rho": 0.0,
+      "seeds": 40,
+      "detections": 0,
+      "detection_rate": 0.0,
+      "ci95_lo": 0.0,
+      "ci95_hi": 0.08762453925039232,
+      "lockboxes_computed": 1,
+      "halted_at_D": 31,
+      "halted_at_V": 8,
+      "median_lockbox_ann_net_excess": 0.0004382997141125579,
+      "median_lockbox_ann_gross_excess": 0.007326367895930736,
+      "median_oneway_turnover": 0.65625
+     },
+     {
+      "rho": 0.01,
+      "seeds": 40,
+      "detections": 1,
+      "detection_rate": 0.025,
+      "ci95_lo": 0.0044267174077949265,
+      "ci95_hi": 0.1288165948800778,
+      "lockboxes_computed": 2,
+      "halted_at_D": 30,
+      "halted_at_V": 8,
+      "median_lockbox_ann_net_excess": 0.010451797255893444,
+      "median_lockbox_ann_gross_excess": 0.017281058619529804,
+      "median_oneway_turnover": 0.6441761363636364
+     },
+     {
+      "rho": 0.02,
+      "seeds": 40,
+      "detections": 1,
+      "detection_rate": 0.025,
+      "ci95_lo": 0.0044267174077949265,
+      "ci95_hi": 0.1288165948800778,
+      "lockboxes_computed": 4,
+      "halted_at_D": 26,
+      "halted_at_V": 10,
+      "median_lockbox_ann_net_excess": -0.0041218832391022,
+      "median_lockbox_ann_gross_excess": 0.0028633440336250727,
+      "median_oneway_turnover": 0.6669034090909091
+     },
+     {
+      "rho": 0.03,
+      "seeds": 40,
+      "detections": 1,
+      "detection_rate": 0.025,
+      "ci95_lo": 0.0044267174077949265,
+      "ci95_hi": 0.1288165948800778,
+      "lockboxes_computed": 6,
+      "halted_at_D": 23,
+      "halted_at_V": 11,
+      "median_lockbox_ann_net_excess": -0.005707520297401314,
+      "median_lockbox_ann_gross_excess": 0.001157536520780504,
+      "median_oneway_turnover": 0.6605113636363636
+     },
+     {
+      "rho": 0.05,
+      "seeds": 40,
+      "detections": 2,
+      "detection_rate": 0.05,
+      "ci95_lo": 0.013820377146101098,
+      "ci95_hi": 0.165041708179252,
+      "lockboxes_computed": 9,
+      "halted_at_D": 18,
+      "halted_at_V": 13,
+      "median_lockbox_ann_net_excess": -0.0012069043905704741,
+      "median_lockbox_ann_gross_excess": 0.005440822882156799,
+      "median_oneway_turnover": 0.65625
+     },
+     {
+      "rho": 0.075,
+      "seeds": 40,
+      "detections": 5,
+      "detection_rate": 0.125,
+      "ci95_lo": 0.05459419773541284,
+      "ci95_hi": 0.26112420670238146,
+      "lockboxes_computed": 15,
+      "halted_at_D": 10,
+      "halted_at_V": 15,
+      "median_lockbox_ann_net_excess": 0.003128244315946295,
+      "median_lockbox_ann_gross_excess": 0.009806653406855385,
+      "median_oneway_turnover": 0.6434659090909091
+     },
+     {
+      "rho": 0.1,
+      "seeds": 40,
+      "detections": 7,
+      "detection_rate": 0.175,
+      "ci95_lo": 0.08745302996883067,
+      "ci95_hi": 0.3195029205439244,
+      "lockboxes_computed": 24,
+      "halted_at_D": 7,
+      "halted_at_V": 9,
+      "median_lockbox_ann_net_excess": 0.005653678032657294,
+      "median_lockbox_ann_gross_excess": 0.012458494558225536,
+      "median_oneway_turnover": 0.6477272727272727
+     },
+     {
+      "rho": 0.15,
+      "seeds": 40,
+      "detections": 18,
+      "detection_rate": 0.45,
+      "ci95_lo": 0.307050752809447,
+      "ci95_hi": 0.6017117011155924,
+      "lockboxes_computed": 37,
+      "halted_at_D": 0,
+      "halted_at_V": 3,
+      "median_lockbox_ann_net_excess": 0.014415096304218267,
+      "median_lockbox_ann_gross_excess": 0.021333846304218272,
+      "median_oneway_turnover": 0.6491477272727273
+     },
+     {
+      "rho": 0.2,
+      "seeds": 40,
+      "detections": 31,
+      "detection_rate": 0.775,
+      "ci95_lo": 0.6249660359590695,
+      "ci95_hi": 0.8768404674532148,
+      "lockboxes_computed": 38,
+      "halted_at_D": 0,
+      "halted_at_V": 2,
+      "median_lockbox_ann_net_excess": 0.023717418497764153,
+      "median_lockbox_ann_gross_excess": 0.030579918497764157,
+      "median_oneway_turnover": 0.6519886363636364
+     }
+    ],
+    "elapsed_s": 28.5,
+    "mde_50": {
+     "power": 0.5,
+     "mde_rho": 0.1576923076923077,
+     "mde_ann_net_excess": 0.015846222795533018,
+     "mde_ann_gross_excess": 0.022756318949379177,
+     "reached": true
+    },
+    "mde_80": {
+     "power": 0.8,
+     "mde_rho": null,
+     "mde_ann_net_excess": null,
+     "mde_ann_gross_excess": null,
+     "reached": false,
+     "note": "detection never reached 80% anywhere on the frozen effect grid (max rho 0.200); the MDE is ABOVE the grid and is not extrapolated"
+    },
+    "mde_80_burden_1": {
+     "power": 0.8,
+     "mde_rho": null,
+     "mde_ann_net_excess": null,
+     "mde_ann_gross_excess": null,
+     "reached": false,
+     "note": "detection never reached 80% anywhere on the frozen effect grid (max rho 0.200); the MDE is ABOVE the grid and is not extrapolated"
+    },
+    "mde_80_burden_1000": {
+     "power": 0.8,
+     "mde_rho": null,
+     "mde_ann_net_excess": null,
+     "mde_ann_gross_excess": null,
+     "reached": false,
+     "note": "detection never reached 80% anywhere on the frozen effect grid (max rho 0.200); the MDE is ABOVE the grid and is not extrapolated"
+    }
+   }
+  }
+ },
+ "B_power_against_cross_section_width": {
+  "panel": "COMMODITY_FUTURES (39 certified dated-contract markets)",
+  "why_measured": "if the FX expression is too narrow, the next question is how wide ANY expression of this information family would have to be. Width is varied on a panel that HAS width, holding the min_markets floor at 5 so a late-starting market cannot flatten the book.",
+  "rows": [
+   {
+    "n_rows_selected": 5,
+    "median_realised_width": 5.0,
+    "n_decisions": 187,
+    "markets": [
+     "AFB",
+     "AWM",
+     "BRN",
+     "CC",
+     "CL"
+    ],
+    "seeds_per_point": 24,
+    "detection": {
+     "0": {
+      "detected": 0,
+      "trials": 24,
+      "rate": 0.0
+     },
+     "0.05": {
+      "detected": 2,
+      "trials": 24,
+      "rate": 0.0833
+     },
+     "0.075": {
+      "detected": 4,
+      "trials": 24,
+      "rate": 0.1667
+     },
+     "0.1": {
+      "detected": 5,
+      "trials": 24,
+      "rate": 0.2083
+     },
+     "0.15": {
+      "detected": 13,
+      "trials": 24,
+      "rate": 0.5417
+     }
+    }
+   },
+   {
+    "n_rows_selected": 9,
+    "median_realised_width": 9.0,
+    "n_decisions": 187,
+    "markets": [
+     "AFB",
+     "AWM",
+     "BRN",
+     "CC",
+     "CL",
+     "CT",
+     "DC",
+     "EUA",
+     "GAS"
+    ],
+    "seeds_per_point": 24,
+    "detection": {
+     "0": {
+      "detected": 0,
+      "trials": 24,
+      "rate": 0.0
+     },
+     "0.05": {
+      "detected": 1,
+      "trials": 24,
+      "rate": 0.0417
+     },
+     "0.075": {
+      "detected": 4,
+      "trials": 24,
+      "rate": 0.1667
+     },
+     "0.1": {
+      "detected": 9,
+      "trials": 24,
+      "rate": 0.375
+     },
+     "0.15": {
+      "detected": 21,
+      "trials": 24,
+      "rate": 0.875
+     }
+    }
+   },
+   {
+    "n_rows_selected": 12,
+    "median_realised_width": 12.0,
+    "n_decisions": 187,
+    "markets": [
+     "AFB",
+     "AWM",
+     "BRN",
+     "CC",
+     "CL",
+     "CT",
+     "DC",
+     "EUA",
+     "GAS",
+     "GC",
+     "GF",
+     "GWM"
+    ],
+    "seeds_per_point": 24,
+    "detection": {
+     "0": {
+      "detected": 0,
+      "trials": 24,
+      "rate": 0.0
+     },
+     "0.05": {
+      "detected": 2,
+      "trials": 24,
+      "rate": 0.0833
+     },
+     "0.075": {
+      "detected": 5,
+      "trials": 24,
+      "rate": 0.2083
+     },
+     "0.1": {
+      "detected": 12,
+      "trials": 24,
+      "rate": 0.5
+     },
+     "0.15": {
+      "detected": 20,
+      "trials": 24,
+      "rate": 0.8333
+     }
+    }
+   },
+   {
+    "n_rows_selected": 16,
+    "median_realised_width": 16.0,
+    "n_decisions": 187,
+    "markets": [
+     "AFB",
+     "AWM",
+     "BRN",
+     "CC",
+     "CL",
+     "CT",
+     "DC",
+     "EUA",
+     "GAS",
+     "GC",
+     "GF",
+     "GWM",
+     "HE",
+     "HG",
+     "HO",
+     "KC"
+    ],
+    "seeds_per_point": 24,
+    "detection": {
+     "0": {
+      "detected": 0,
+      "trials": 24,
+      "rate": 0.0
+     },
+     "0.05": {
+      "detected": 3,
+      "trials": 24,
+      "rate": 0.125
+     },
+     "0.075": {
+      "detected": 8,
+      "trials": 24,
+      "rate": 0.3333
+     },
+     "0.1": {
+      "detected": 14,
+      "trials": 24,
+      "rate": 0.5833
+     },
+     "0.15": {
+      "detected": 22,
+      "trials": 24,
+      "rate": 0.9167
+     }
+    }
+   },
+   {
+    "n_rows_selected": 20,
+    "median_realised_width": 19.0,
+    "n_decisions": 187,
+    "markets": [
+     "AFB",
+     "AWM",
+     "BRN",
+     "CC",
+     "CL",
+     "CT",
+     "DC",
+     "EUA",
+     "GAS",
+     "GC",
+     "GF",
+     "GWM",
+     "HE",
+     "HG",
+     "HO",
+     "KC",
+     "KE",
+     "LBR",
+     "LCC",
+     "LE"
+    ],
+    "seeds_per_point": 24,
+    "detection": {
+     "0": {
+      "detected": 0,
+      "trials": 24,
+      "rate": 0.0
+     },
+     "0.05": {
+      "detected": 3,
+      "trials": 24,
+      "rate": 0.125
+     },
+     "0.075": {
+      "detected": 9,
+      "trials": 24,
+      "rate": 0.375
+     },
+     "0.1": {
+      "detected": 15,
+      "trials": 24,
+      "rate": 0.625
+     },
+     "0.15": {
+      "detected": 22,
+      "trials": 24,
+      "rate": 0.9167
+     }
+    }
+   },
+   {
+    "n_rows_selected": 28,
+    "median_realised_width": 27.0,
+    "n_decisions": 187,
+    "markets": [
+     "AFB",
+     "AWM",
+     "BRN",
+     "CC",
+     "CL",
+     "CT",
+     "DC",
+     "EUA",
+     "GAS",
+     "GC",
+     "GF",
+     "GWM",
+     "HE",
+     "HG",
+     "HO",
+     "KC",
+     "KE",
+     "LBR",
+     "LCC",
+     "LE",
+     "LRC",
+     "LSU",
+     "LWB",
+     "MWE",
+     "NG",
+     "OJ",
+     "PA",
+     "PL"
+    ],
+    "seeds_per_point": 24,
+    "detection": {
+     "0": {
+      "detected": 0,
+      "trials": 24,
+      "rate": 0.0
+     },
+     "0.05": {
+      "detected": 2,
+      "trials": 24,
+      "rate": 0.0833
+     },
+     "0.075": {
+      "detected": 11,
+      "trials": 24,
+      "rate": 0.4583
+     },
+     "0.1": {
+      "detected": 19,
+      "trials": 24,
+      "rate": 0.7917
+     },
+     "0.15": {
+      "detected": 24,
+      "trials": 24,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "n_rows_selected": 39,
+    "median_realised_width": 38.0,
+    "n_decisions": 187,
+    "markets": [
+     "AFB",
+     "AWM",
+     "BRN",
+     "CC",
+     "CL",
+     "CT",
+     "DC",
+     "EUA",
+     "GAS",
+     "GC",
+     "GF",
+     "GWM",
+     "HE",
+     "HG",
+     "HO",
+     "KC",
+     "KE",
+     "LBR",
+     "LCC",
+     "LE",
+     "LRC",
+     "LSU",
+     "LWB",
+     "MWE",
+     "NG",
+     "OJ",
+     "PA",
+     "PL",
+     "RB",
+     "RS",
+     "SB",
+     "SI",
+     "ZC",
+     "ZL",
+     "ZM",
+     "ZO",
+     "ZR",
+     "ZS",
+     "ZW"
+    ],
+    "seeds_per_point": 24,
+    "detection": {
+     "0": {
+      "detected": 0,
+      "trials": 24,
+      "rate": 0.0
+     },
+     "0.05": {
+      "detected": 7,
+      "trials": 24,
+      "rate": 0.2917
+     },
+     "0.075": {
+      "detected": 13,
+      "trials": 24,
+      "rate": 0.5417
+     },
+     "0.1": {
+      "detected": 18,
+      "trials": 24,
+      "rate": 0.75
+     },
+     "0.15": {
+      "detected": 24,
+      "trials": 24,
+      "rate": 1.0
+     }
+    }
+   }
+  ],
+  "power_target": "80% detection = 19.2 of 24 trials"
+ },
+ "VERDICT": "GATE_B_FAILED",
+ "verdict_detail": {
+  "FX5_signal_mapped": "MDE_80 NOT REACHED anywhere on the frozen effect grid (max rho 0.200). MDE_50 = rho 0.183.",
+  "FX8_all_currency_futures": "MDE_80 NOT REACHED at rho <= 0.200. MDE_50 = rho 0.158. This is the UPPER BOUND on any currency-expressed signal in this estate.",
+  "commodity_width_8_to_12": "MDE_80 ~ rho 0.15, which is the width a clean 1:1 BLS-commodity-to-futures mapping supports.",
+  "commodity_width_38": "MDE_80 ~ rho 0.10, the best this estate can do at 21-session cadence.",
+  "plausible_effect_size": "a cross-sectional macro/fundamental information coefficient of 0.02-0.05",
+  "the_number_that_decides": "the required IC exceeds the plausible IC by 3-7x at every width this information family can reach. The binding constraint is cross-section width times 187 monthly decisions, and it is NOT the signal: the same wall appears with a synthetic signal of known strength."
+ },
+ "on_failure_rule_applied": "R66 gate_B_minimum_detectable_effect: 'The cell is WITHDRAWN BEFORE MEASUREMENT. Verdict DATA_HOLD / WITHDRAWN_UNDERPOWERED. Burden charge ZERO. NO_ALPHA_EVIDENCE MAY NOT BE FILED.'",
+ "safety": {
+  "registers_no_hypothesis": true,
+  "mints_no_experiment_id": true,
+  "charges_no_burden": true,
+  "reads_no_lockbox": true,
+  "scores_no_candidate_return": true
+ }
+}

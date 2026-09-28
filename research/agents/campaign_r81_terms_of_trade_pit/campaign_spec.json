@@ -1,0 +1,102 @@
+{
+ "agent_system_version": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "contract": "research/agents/governance_contract.json",
+ "campaign_id": "R81_TERMS_OF_TRADE_PIT",
+ "campaign_class": "SINGLE_CELL_REOPEN_UNDER_A_RECORDED_REOPEN_CONDITION",
+ "authored_on": "2026-09-28",
+ "frozen": true,
+ "spec_status": "FROZEN__PRE_REGISTRATION_WITHHELD_PENDING_GATE_B",
+ "experiments_preregistered": 0,
+ "experiment_ids_minted": [],
+ "lockbox_looks_spent": 0,
+ "burden_charged": 0,
+ "research_memory_writes": [],
+ "durable_writes": [],
+ "forward_registrations_touched": [],
+
+ "ONE_PARAGRAPH": "This campaign names ONE cell. The estate's own census ranks it first among the cross-asset families the R59 frontier lists as open and could never execute: CROSS_ASSET_RELATIVE_VALUE, terms-of-trade. R66 refused that family and recorded a written reopen condition; R67_06 was refused again for violating it. What is new here is not the idea but the INFORMATION: the free, already-owned FRED/ALFRED import-price-by-origin family, whose vintage dimension R75 declared NOT_CERTIFIABLE on the basis of the estate's 45-day rolling CONFIGURATION rather than the source. This campaign reconfigured the EXISTING collector along its own historical-backfill path, acquired the vintages at zero cost, certified them, and then answered R66's gate B before pre-registering anything.",
+
+ "requires": {
+  "datasets": ["fred_alfred_terms_of_trade_vintage_v1"],
+  "universes": ["r81_fx_terms_of_trade_relative_value"],
+  "feature_sets": ["fs_r81_import_price_by_origin_vintage_momentum"]
+ },
+
+ "CANDIDATE": {
+  "cell_id": "R81_C1",
+  "label": "XA_IMPORT_PRICE_BY_ORIGIN_VINTAGE_RELATIVE_VALUE",
+  "status": "WITHDRAWN_BEFORE_PRE_REGISTRATION__GATE_B_FAILED",
+  "four_part_mechanism_key": {
+   "asset_class": "FX_FUTURES",
+   "economic_family": "CROSS_ASSET_RELATIVE_VALUE",
+   "information_family": "FRED_ALFRED_IMPORT_PRICE_BY_ORIGIN_VINTAGE",
+   "expression_model_family": "XS_RANK_BOOK_UNCONDITIONAL",
+   "canonical_family_key_string": "CROSS_ASSET_RELATIVE_VALUE|FRED_ALFRED_IMPORT_PRICE_BY_ORIGIN_VINTAGE|FX_FUTURES|XS_RANK_BOOK_UNCONDITIONAL"
+  },
+
+  "economic_mechanism": "The US Bureau of Labor Statistics surveys the transaction prices at which the United States actually imports goods, and publishes an index per ORIGIN economy. That index is not a market price: it is a survey of realised customs-border transaction prices, released about 13 days after the month it describes and revised thereafter. When the price the US pays for goods from economy X rises faster than the price it pays other origins, X's exporters are realising better terms on the goods they actually ship - a non-price, survey-measured change in X's terms of trade. The named channel is terms-of-trade pass-through to the real exchange rate: an economy whose export prices are firming is under appreciation pressure against one whose are not. The sign is therefore pre-declared POSITIVE on the residual (long the currency of the origin with the strongest relative import-price inflation) and it is declared BEFORE measurement, not chosen from the data.",
+
+  "why_the_raw_feature_would_be_a_price_signal_in_disguise": "The BLS index is denominated in USD, so a currency that has already appreciated mechanically raises the USD price the US pays for its goods. The raw feature therefore CONTAINS lagged FX return and a result on it would be a re-test of settled FX momentum. The declared feature is the component ORTHOGONAL to the contemporaneous currency return over the same window, estimated PIT on an expanding window, and the raw non-orthogonalised version is a pre-declared CONTROL whose purpose is to show whether any result is merely FX momentum.",
+
+  "COMPLIANCE_WITH_THE_RECORDED_REOPEN_CONDITION": {
+   "the_condition_verbatim": "R66 DIRECTOR_R66_RULING.json, ruling_2_r66_02, economic_channel_if_it_were_ever_reopened: 'If CROSS_ASSET_RELATIVE_VALUE is to be reopened in a later campaign it comes back as an UNCONDITIONAL, ALWAYS-ON hedged carry structure with a sign derived from one named economic channel and NO deviation-based entry rule, pre-registered on its own merits with an MDE curve, and it is a later campaign's decision, not this one's.'",
+   "unconditional_always_on": "SATISFIED. A rank-centred, dollar-neutral, unit-gross cross-sectional book rebalanced every 21 sessions, always fully invested. There is no regime switch, no on/off state and no exposure that depends on the size of a premium.",
+   "sign_from_one_named_channel": "SATISFIED. Terms-of-trade pass-through to the real exchange rate; sign pre-declared POSITIVE on the FX-orthogonalised residual.",
+   "no_deviation_based_entry_rule": "SATISFIED, AND THIS IS THE AXIS R67_06 FAILED. R67_06 was refused because 'mean reversion of a residual IS conditioning on the current deviation' - a z-score entry band on a spread. This cell has no band, no threshold and no deviation trigger: the score is a cross-sectional rank of a 12-month within-vintage change, and every instrument is held at a rank-implied weight at every rebalance.",
+   "pre_registered_with_an_MDE_curve": "THE CURVE WAS COMPUTED AND THE CELL FAILED IT. See MDE_R81_GATE_B_CURVE.json. Pre-registration was therefore never called, so no experiment id was minted and no burden was charged.",
+   "structural_rule_TIMING_A_PREMIUM_tested": "DOES_NOT_APPLY. NEXT_CAMPAIGN_CENSUS.json must_not_repeat.structural[2] kills 'TIMING a premium with a conditioning variable'. Here the import-price residual is the predicted-return signal that ORDERS the cross-section; it does not set the size of some other premium-bearing exposure.",
+   "structural_rule_H21_PRICE_STATE_RANK_BOOK_tested": "DOES_NOT_APPLY. The ranking variable is a BLS survey index vintage, not a price state of the panel.",
+   "structural_rule_RESCUING_A_KILLED_CANDIDATE_tested": "The adversarial reading is stated rather than dismissed: R66_02 and R67_06 are prior sightings in this economic family, and this cell is NOT charged to a fresh burden-0 key. Its multiple-testing denominator is the CROSS_ASSET burden of 2,448, which is the harshest in the estate."
+  },
+
+  "WHY_THIS_IS_NOT_THE_R67_TERMS_OF_TRADE_OFFENCE": "R67's V2 ruling refused XA_TERMS_OF_TRADE partly because the feature was built entirely from returns - the same input bytes already present in the price panels. This cell's input bytes are BLS survey observations carrying ALFRED vintage timestamps, a byte stream this estate had never collected until this campaign collected it. That difference is verifiable at the file level: 8,703 records under D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion_terms_of_trade, source_id fred_alfred, record_type MACRO_OBSERVATION, none of which exists in any price panel.",
+
+  "DATASET": {
+   "dataset_id": "fred_alfred_terms_of_trade_vintage_v1",
+   "provider": "FRED/ALFRED, Federal Reserve Bank of St. Louis (public data; cite FRED)",
+   "cost_usd": 0,
+   "entitlement": "the free registered key the estate already holds",
+   "certification": "DATA_R81_D1_TERMS_OF_TRADE_VINTAGE_CERTIFICATION.json, verdict CERTIFIED_PIT",
+   "supersedes_certification": "DATA_R75_D1_ALFRED_VINTAGE_CERTIFICATION.json, verdict NOT_CERTIFIABLE",
+   "collector": "alpha_agent/collectors/fred_alfred.py (EXISTING; no second collector)",
+   "config": "configs/alpha_agent/stage2_terms_of_trade_vintage_backfill.json (bounded ONE-TIME sibling; production Stage 2 config UNMODIFIED)"
+  },
+
+  "PIT_AVAILABILITY_RULE": "A value is observable at instant T if and only if its ALFRED realtime_start (persisted as available_at) is on or before T. The first owned vintage is 2010-03-16; observation periods whose true first release pre-dates the archive carry the archive start, which is a conservative upper bound and never an earlier claim. Measured publication lag: median 13 calendar days after the observation month end, p95 17, max 63, n=3,152.",
+
+  "EXECUTION_REPRESENTATION": {
+   "instruments": "CME currency futures on the R38 certified dated-contract layer, 3.00 bp per side, roll cost charged",
+   "book": "FUTURES_DATED_CONTRACT (alpha_agent.agents_v2.books; no new book was written)",
+   "mapping_rule_1_to_1_no_discretion": {"UKTOT": "6B", "CANTOT": "6C", "EECTOT": "6E", "JPNTOT": "6J", "MEXTOT": "6M"},
+   "excluded_ex_ante": {"CHNTOT": "CNY is a managed float, not a free-floating relative-value leg", "GERTOT": "duplicate EUR leg", "FRNTOT": "duplicate EUR leg"},
+   "unmappable_origins": ["ASEANTOT", "ASNRETOT", "INDUSTOT", "LATTOT", "OASTOT", "PRIMTOT"]
+  },
+
+  "GATE_B_OUTCOME": {
+   "verdict": "GATE_B_FAILED__WITHDRAWN_UNDERPOWERED",
+   "artifact": "MDE_R81_GATE_B_CURVE.json",
+   "FX5_mapped_cross_section": "MDE_80 NOT REACHED anywhere on the frozen effect grid up to rho 0.200; MDE_50 = rho 0.183",
+   "FX8_upper_bound_for_any_currency_expression": "MDE_80 NOT REACHED up to rho 0.200; MDE_50 = rho 0.158",
+   "commodity_width_8_to_12": "MDE_80 approximately rho 0.15",
+   "commodity_width_38": "MDE_80 approximately rho 0.10",
+   "plausible_cross_sectional_macro_IC": "0.02 to 0.05",
+   "the_binding_constraint": "cross-section width times 187 monthly decisions, NOT signal quality: the same wall appears with a synthetic signal of known strength, while the full 28-market control detects rho 0.2 at 20 of 20.",
+   "apparatus_calibration": "0 detections at rho = 0.0 at every width measured, 7 of 7",
+   "rule_applied": "R66 gate_B on_failure: WITHDRAWN BEFORE MEASUREMENT, burden charge ZERO, NO_ALPHA_EVIDENCE MAY NOT BE FILED"
+  },
+
+  "WHAT_WOULD_UNBLOCK_IT": [
+   "A wider cross-section on the SAME information family. The BLS publishes import-price indexes by origin only at All-Industries level for 14 origins, of which 5 map 1:1 to a tradable free-floating currency future. Width, not data depth, is the wall.",
+   "More decisions. Impossible on this family: the index is published monthly, so 21-session cadence is already the fastest honest grid and 187 decisions is the whole archive.",
+   "A different instrument set for the same non-price information, reaching 25 or more legs at a plausible IC. No such mapping exists on the owned estate without inventing a basket weighting after seeing the constraint, which would be finalising the construction in sight of the gate."
+  ]
+ },
+
+ "safety": {
+  "paper_only": true, "creates_orders": false, "approves_nothing": true,
+  "promotes_no_model": true, "purchases_nothing": true, "cost_usd": 0,
+  "registers_no_hypothesis": true, "mints_no_experiment_id": true,
+  "charges_no_burden": true, "reads_no_lockbox": true,
+  "scores_no_candidate_return": true, "read_only_operational_stores": true
+ }
+}

@@ -1,0 +1,218 @@
+{
+ "schema": "r81_director_ruling/1",
+ "campaign_id": "R81_TERMS_OF_TRADE_PIT",
+ "ruling_agent": "quant-research-director",
+ "contract": "PAPER_TRADER_ALPHA_AGENTS_V2",
+ "ruling_date": "2026-09-28",
+ "cell_ruled_on": "R81_C1 XA_IMPORT_PRICE_BY_ORIGIN_VINTAGE_RELATIVE_VALUE",
+ "campaign_class": "SINGLE_CELL_REOPEN_UNDER_A_RECORDED_REOPEN_CONDITION",
+
+ "VERDICT": "DATA_HOLD / WITHDRAWN_UNDERPOWERED — CELL WITHDRAWN BEFORE PRE-REGISTRATION ON R66 GATE B; DATA CERTIFICATION STANDS AND SUPERSEDES R75 D1",
+ "VERDICT_ONE_LINE": "The reopen condition was honoured for the first time in three sightings and the cell still dies, because the pre-registered MDE curve says the cross-section is 3-7x too narrow to ever separate a plausible macro IC from zero: R81_C1 is WITHDRAWN_UNDERPOWERED at zero burden, the certified ALFRED terms-of-trade vintage asset stands on its own merits, and CROSS_ASSET_RELATIVE_VALUE is now closed on WIDTH rather than on construction.",
+
+ "experiments_preregistered": 0,
+ "experiment_ids_minted": [],
+ "burden_charged": 0,
+ "durable_writes": [],
+ "research_memory_writes": [],
+ "pipeline_verbs_invoked": [],
+ "lockbox_reads": 0,
+ "forward_registrations_touched": [],
+ "new_paid_data_cost_usd": 0,
+ "no_alpha_evidence_filed": false,
+ "why_no_alpha_evidence_is_not_filed": "No candidate return was ever scored. MDE_R81_GATE_B_CURVE.json states scores_no_candidate_return: true and the only returns in it are synthetic-IC injections of known strength owned by alpha_agent.r61.power. R66's gate_B on_failure rule and R67's WHAT_I_AM_DELIBERATELY_NOT_DOING.not_filing_no_alpha_evidence both forbid filing absence-of-alpha for a cell that computed nothing. Filing it would be a contract violation.",
+ "safety": "RESEARCH ONLY. PAPER ONLY. NO ORDERS, NO FILLS, NO PROMOTION, NO ADOPTION, NO FORWARD REGISTRATION, NO PORTFOLIO APPROVAL, NO CAPITAL ELIGIBILITY, NO PURCHASE, NO OPERATIONAL WRITE. This ruling changes nothing operational.",
+
+ "REASONING_IN_ORDER_OF_WEIGHT": [
+  "1. THE DECIDING FACT IS POWER, AND IT WAS MEASURED BEFORE ANY CANDIDATE RETURN EXISTED. alpha_agent.r61.power, the canonical power owner, injected synthetic cross-sectional ICs of KNOWN strength into the R38 certified dated-contract panel under the real per-market cost model, the real 21-session decision grid and the real qualification gate. On the only non-discretionary 1:1 expression this information family has (FX5: 6B, 6C, 6E, 6J, 6M) MDE_80 is NOT REACHED anywhere on the frozen grid up to rho 0.200; MDE_50 = rho 0.183. On FX8 — every currency future in the estate, the UPPER BOUND on any currency-expressed version — MDE_80 is still NOT REACHED up to rho 0.200; MDE_50 = rho 0.158. The plausible cross-sectional macro IC is 0.02-0.05. The required effect exceeds the plausible effect by 3-7x at every width this family can reach. There is no reading of that curve on which the cell should be measured.",
+  "2. THE NULL IS A STATEMENT ABOUT THE CROSS-SECTION, NOT ABOUT THE HARNESS, AND THE ARTIFACT PROVES IT BOTH WAYS. Calibration: 0 detections at rho = 0.0 at all 7 widths measured, so the apparatus does not manufacture detections. Control: the full 28-market cross-asset panel detects rho 0.20 at 20/20 and rho 0.10 at 11/20. The same wall therefore appears with a signal of known strength on a narrow panel and disappears on a wide one. The binding constraint is cross-section width times 187 monthly decisions. Because MDE_80 was never reached on the grid, the artifact records mde_rho as null and explicitly declines to extrapolate — that is the correct refusal to round a borderline into a pass, and I adopt it.",
+  "3. THIS IS THE CASE R66 WROTE GATE B FOR, AND THE GATE DID ITS JOB. R66's gate_B rationale named R60's FUT_BASIS_MOMENTUM_COMMODITY, which 'died at |t| < 0.69 ... and now sits in its family's denominator forever having answered nothing', and said: 'I will not repeat R60's mistake by discovering the power problem after the number exists.' R81 discovered the power problem before the number existed. The cell is withdrawn having charged nothing, and the estate learns a durable width law instead of acquiring an uninterpretable null. This is the single most favourable outcome available from a failing cell.",
+  "4. THE REOPEN CONDITION WAS GENUINELY HONOURED THIS TIME, AND I SAY SO ON THE RECORD. R66 refused r66_02 as the fourth sighting of premium timing; R67 refused r67_06 at 0 of 5 clauses, over a residual-reversion entry rule and an information family that on measurement consumed 100% futures returns. R81_C1 is not that cell: it has no band, no threshold, no on/off state and no deviation trigger, its sign is pre-declared from one named economic channel, and its input bytes are BLS survey observations carrying ALFRED vintage timestamps that did not exist in this estate until this campaign collected them. The estate has now demonstrated that it can satisfy its own hardest recorded reopen condition. That matters for the next director's trust in the condition, and it is why this cell dies on arithmetic rather than on conduct.",
+  "5. THE CONSTRAINT IS STRUCTURAL AND ESTATE-WIDE, NOT A DEFECT OF THIS IDEA. Section B of the MDE artifact varies width on a panel that HAS width: MDE_80 is ~rho 0.15 at width 8-12 (the width a clean 1:1 BLS-commodity-to-futures mapping would support), and still ~rho 0.10 at width 38 — the best this estate can do at 21-session cadence on 187 decisions. A monthly-published macro series can never exceed 187-196 decisions on a 16.3-year archive. Therefore NO monthly cross-sectional macro cell in this estate, on this information family or any other, is detectable at a plausible IC at 21-session cadence on a narrow futures cross-section. That generalisation is the campaign's real product and I record it as a standing width law below.",
+  "6. WITHDRAWAL IS CHEAPER THAN MEASUREMENT AND THE BUDGET RULE SAYS SO. R66: 'An unused slot costs nothing; a used slot is charged to every later claim forever.' CROSS_ASSET carries the estate's worst denominator. Spending a slot against 2,448 priors on a construction whose own power curve says it cannot detect its own hypothesised effect would burn multiple-testing budget to fill time, which my contract forbids outright.",
+  "7. I DO NOT DRAFT A RESCUE. R66 refused to supply a channel inside the ruling that refused the cell, calling that 'the director fitting the agenda to a desired count'. The campaign spec's own WHAT_WOULD_UNBLOCK_IT correctly names the third option — a re-basketed instrument set reaching 25+ legs — as 'inventing a basket weighting after seeing the constraint, which would be finalising the construction in sight of the gate'. I adopt that refusal. No construction, no channel, no sign and no mapping is proposed anywhere in this ruling."
+ ],
+
+ "A_COMPLIANCE_WITH_THE_RECORDED_REOPEN_CONDITION": {
+  "the_condition_verbatim": "If CROSS_ASSET_RELATIVE_VALUE is to be reopened in a later campaign it comes back as an UNCONDITIONAL, ALWAYS-ON hedged carry structure with a sign derived from one named economic channel and NO deviation-based entry rule, pre-registered on its own merits with an MDE curve, and it is a later campaign's decision, not this one's.",
+  "source": "research/agents/campaign_r66_hedged_rv/DIRECTOR_R66_RULING.json, ruling_2_r66_02.economic_channel_if_it_were_ever_reopened (line 93)",
+  "note_on_the_clause_count": "The campaign spec decomposes the condition into FOUR parts. R67's own verbatim test decomposed the SAME sentence into FIVE clauses, adding 'hedged CARRY structure' as a separate clause (DIRECTOR_R67_RULING_V2.json, test_of_r67_06_against_each_clause, lines 69-73). I rule on all five, because using the narrower four-part reading would silently drop the one clause this cell does not literally satisfy, and that would be rounding.",
+  "clause_1_UNCONDITIONAL_ALWAYS_ON": {
+   "verdict": "HOLDS",
+   "basis": "campaign_spec.json CANDIDATE.COMPLIANCE_WITH_THE_RECORDED_REOPEN_CONDITION.unconditional_always_on: a rank-centred, dollar-neutral, unit-gross cross-sectional book rebalanced every 21 sessions, always fully invested; no regime switch, no on/off state, no exposure whose size depends on the size of a premium. This is the shape R66's ruling_1 froze for r66_01 ('no z-score, no entry band, no exit band, no momentum overlay, no regime filter, no carry filter, no volatility filter') and the shape R67 found absent in r67_06.",
+   "evidential_status": "DECLARED, NOT MACHINE-VERIFIED. No feature set was published and no experiment id was minted, so no leakage check or gate ever inspected this construction. I accept the declaration as internally consistent and sufficient for a WITHDRAWAL ruling; it would require machine verification before any pre-registration, and this ruling authorises none."
+  },
+  "clause_2_HEDGED_CARRY_STRUCTURE": {
+   "verdict": "DOES NOT HOLD LITERALLY — RECORDED, NOT ROUNDED INTO A PASS",
+   "basis": "The cell is a cross-sectional relative-value rank book on an exogenous non-price survey index. No carry quantity appears anywhere in the declared construction: the ranking variable is a 12-month within-vintage change in a BLS import-price index, not a carry. On R67's five-clause reading, this clause fails exactly as it failed for r67_06, though for the opposite reason (r67_06 was a reversion structure; R81_C1 is a cross-sectional predictor).",
+   "my_ruling_on_materiality": "NON-MATERIAL, AND MOOT. 'Hedged carry structure' in R66's sentence describes the r66_01-shaped object R66 had in view when it wrote the sentence; the operative content of the clause — verified against R66's ruling_1.frozen_construction.conditioning and ruling_4 — is the total absence of any variable that decides WHEN or HOW MUCH to be on. A dollar-neutral, unit-gross, always-invested rank book satisfies that content. I therefore do not refuse the cell on this clause. I record the literal deviation so that no future proposer can cite R81 as authority that 'carry' was silently deleted from the condition: it was not deleted, it was judged non-operative on this construction, and clause 5 decides the cell anyway."
+  },
+  "clause_3_SIGN_FROM_ONE_NAMED_ECONOMIC_CHANNEL": {
+   "verdict": "HOLDS",
+   "basis": "One channel is named: terms-of-trade pass-through to the real exchange rate. The sign is pre-declared POSITIVE on the FX-orthogonalised residual, before any measurement. This is the clause r67_06 failed by deriving its sign from 'the mean reversion hypothesis', which R67 correctly called 'a statistical assertion, not an economic channel'.",
+   "additional_credit": "campaign_spec.json why_the_raw_feature_would_be_a_price_signal_in_disguise anticipates the strongest objection unprompted — the USD-denominated BLS index mechanically contains lagged FX return — and pre-declares the orthogonalised residual as the signal and the raw index as a CONTROL. That is the correct handling of an embedded price channel and it is stated before measurement, not after."
+  },
+  "clause_4_NO_DEVIATION_BASED_ENTRY_RULE": {
+   "verdict": "HOLDS, AND THIS IS THE AXIS R67_06 FAILED MOST DIRECTLY",
+   "basis": "R66's generalised test, quoted verbatim by R67: 'If a proposed construction's position size or on/off state is a function of the CURRENT DEVIATION of the spread from its own history, it is premium timing and is refused before it is measured, whatever the family label on the front of it.' R81_C1's position is a function of a CROSS-SECTIONAL RANK of an exogenous survey-index change across five origins at each rebalance. It is not a function of the spread's own deviation from its own history. There is no band, no z-score, no threshold and no trigger; every instrument is held at a rank-implied weight at every rebalance.",
+   "the_objection_i_tested_and_rejected": "A cross-sectional rank is a relative ordering and could be argued to be 'a deviation from the cross-sectional mean'. I reject that reading: the prohibition is about a spread's deviation from ITS OWN HISTORY deciding WHEN to be on, and a rank book that is always fully invested in all five legs has no when. Accepting the wider reading would prohibit every cross-sectional book in the estate, which is not what R43, R63 or the index-level implied-state sightings established."
+  },
+  "clause_5_PRE_REGISTERED_ON_ITS_OWN_MERITS_WITH_AN_MDE_CURVE": {
+   "verdict": "PROCEDURALLY HONOURED IN FULL; SUBSTANTIVELY FAILED. THIS CLAUSE DECIDES THE CELL.",
+   "procedural": "The curve exists, it was computed by the canonical owner alpha_agent.r61.power under calibration_version R61_SYNTHETIC_IC_POWER_CALIBRATION_V1, on the real certified panel, the real cost model FUTURES_PER_MARKET_R38_PLUS_ROLL_V1 and the real 21-session grid, and it was computed BEFORE any candidate return. It is the first time in three sightings of this family that the clause has been honoured at all — r66_02 and r67_06 offered no curve.",
+   "substantive": "The cell failed it. MDE_80 not reached at rho <= 0.200 on FX5 or on the FX8 upper bound, against a plausible IC of 0.02-0.05.",
+   "consequence": "Because the clause was honoured procedurally, the answer is DURABLE and the family is SETTLED ON POWER rather than left ambiguous. Because it failed substantively, pre-registration was correctly never called, so no experiment id was minted and no burden was charged."
+  },
+  "score": "4 of 5 clauses hold (1, 3, 4 outright; 5 procedurally; 2 fails literally and is ruled non-operative and moot). Contrast r67_06 at 0 of 5. The cell is refused on the SUBSTANCE of clause 5, not on conduct.",
+  "structural_must_not_repeat_tests": {
+   "TIMING_A_PREMIUM_WITH_A_CONDITIONING_VARIABLE": "DOES NOT APPLY. Source: NEXT_CAMPAIGN_CENSUS.json:142, must_not_repeat.structural[2]. The import-price residual is the predicted-return signal that ORDERS the cross-section; it does not modulate the size of some other premium-bearing exposure. This is exactly the distinction R75 applied to its own C1 and found violated there ('the overlay role IS the timing role'); here the role is predictor, not overlay, so the rule does not bite. I tested the R75 phrasing directly: the mechanism can be stated without the words 'when X is large, hold more of Y'.",
+   "H21_PRICE_STATE_RANK_BOOK_ON_THE_EXISTING_PANELS": "DOES NOT APPLY. Source: must_not_repeat.structural[0]. The ranking variable is a BLS survey index vintage, not a price state of the traded panel. This is the precise axis on which R67's G1 INFORMATION_FAMILY_LAUNDERING finding killed r67_06, whose every feature input measured out as a futures return series.",
+   "RESCUING_A_KILLED_CANDIDATE": "TESTED AND NOT VIOLATED BY THE PROPOSAL, AND NOT VIOLATED BY THIS RULING. Source: must_not_repeat.structural[3]. The spec states the adversarial reading rather than dismissing it, names r66_02 and r67_06 as prior sightings in the same economic family, and refuses to claim a burden-0 key. This ruling adds no rescue construction of its own."
+  }
+ },
+
+ "B_IS_THE_INFORMATION_FAMILY_GENUINELY_NEW_AND_WHAT_DENOMINATOR_MUST_IT_CARRY": {
+  "information_family": "FRED_ALFRED_IMPORT_PRICE_BY_ORIGIN_VINTAGE",
+  "ruling": "GENUINELY NEW INFORMATION — NOT A RENAMED DEAD IDEA. This is the first of the three terms-of-trade sightings in which the label is backed by actual terms-of-trade data.",
+  "why_on_evidence_not_assertion": [
+   "R67's G1 finding is the correct test and it was measured, not asserted: 'every input to every one of the three features is a futures RETURN series ... There is no trade-balance series, no export-volume series, no commodity-price index weighted by actual export shares, no terms-of-trade data of any kind. The construction is 100 percent price data.' R67 ruled the true information family PRICE_STATE and the TERMS_OF_TRADE label 'invented for the occasion'.",
+   "R81's inputs measure out the other way. DATA_R81_D1_TERMS_OF_TRADE_VINTAGE_CERTIFICATION.json records 8,703 normalized records, record type MACRO_OBSERVATION, 16/16 series, 198 distinct vintages and 224 observation periods per series, acquired under run_id stage2_d60a760e3aa933c0 into D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion_terms_of_trade. These are BLS customs-border survey observations carrying ALFRED realtime_start timestamps. No price panel in this estate contains them, and no campaign before R81 had collected them.",
+   "The novelty is therefore in the BYTES, which is the only novelty that counts. R67's own words: 'No such family exists because the LABEL is new, not because the INFORMATION is new.' Here the label and the information are both new, and the information is verifiable at the file level."
+  ],
+  "novelty_does_not_reset_the_denominator": "THIS IS THE HALF THE ESTATE KEEPS GETTING WRONG AND I RULE IT EXPLICITLY. A new information family does NOT mint a fresh burden. The economic family is CROSS_ASSET_RELATIVE_VALUE and the multiple-testing denominator this cell must carry is the counted CROSS_ASSET denominator — which the R81 director brief reports as 2,448 of an estate total of 8,416, and which R66 called 'the estate's worst ... against a declared prior of LOW-MEDIUM'. It is NOT 0 and NOT 1. The campaign spec correctly charged itself that denominator rather than claiming a burden-1 key, and that self-discipline is recorded here to its credit.",
+  "who_owns_the_number": "alpha_agent.r59.handlers.search_denominator is the only thing that counts the denominator. I quote the brief's figure and do not re-derive it. I note without resolving it that DIRECTOR_R67_RULING_V2.json BURDEN_AND_STATE_EFFECT records cross_asset_burden 2462 and estate total 8415 while this campaign's brief reports 2448 and 8416; the discrepancy is a projection/vintage question for search_denominator and the census maintainer, not something a director settles by hand, and it does not change any conclusion here because no burden was charged.",
+  "consequence_of_the_withdrawal_for_the_denominator": "ZERO. CROSS_ASSET stays where the brief reports it. Nothing is filed. No identity is written to research memory, so the four-part key CROSS_ASSET_RELATIVE_VALUE|FRED_ALFRED_IMPORT_PRICE_BY_ORIGIN_VINTAGE|FX_FUTURES|XS_RANK_BOOK_UNCONDITIONAL remains UNMEASURED and UNTESTED in the registry. It is closed by this RULING, not by a measurement, and the distinction is load-bearing for part E."
+ },
+
+ "C_VERDICT_ON_THE_CELL": {
+  "cell": "R81_C1 XA_IMPORT_PRICE_BY_ORIGIN_VINTAGE_RELATIVE_VALUE",
+  "verdict_in_the_estate_s_existing_vocabulary": "DATA_HOLD / WITHDRAWN_UNDERPOWERED",
+  "status": "WITHDRAWN_BEFORE_PRE_REGISTRATION__GATE_B_FAILED",
+  "vocabulary_source_verbatim": "DIRECTOR_R66_RULING.json ruling_1_r66_01.two_pre_return_gates_that_must_pass_before_any_return_is_computed.gate_B_minimum_detectable_effect.on_failure: 'The cell is WITHDRAWN BEFORE MEASUREMENT. Verdict DATA_HOLD / WITHDRAWN_UNDERPOWERED. Burden charge ZERO. NO_ALPHA_EVIDENCE MAY NOT BE FILED.'",
+  "i_am_applying_r66_s_own_rule_unaltered": "Every clause of it: withdrawn before measurement, burden zero, NO_ALPHA_EVIDENCE not filed. I invent no new verdict word for this cell.",
+  "what_this_verdict_is_NOT": [
+   "NOT REFUTED. The hypothesis was never tested. Nobody in this estate knows whether import-price-by-origin vintages predict currency returns, and this ruling makes no claim that they do not.",
+   "NOT NO_ALPHA_EVIDENCE. See no_alpha_evidence_filed above. Filing it would be a contract violation.",
+   "NOT REFUSED_FOR_VIOLATING_THE_REOPEN_CONDITION, which is what r67_06 was. R81_C1 substantially met the condition. Recording the difference is the point of this ruling: the next director must not read R81 as a fourth refusal on conduct.",
+   "NOT A DATA FAILURE. The data passed. See part D."
+  ],
+  "how_this_differs_from_the_r60_basis_momentum_precedent": "The census records FUT_BASIS_MOMENTUM_COMMODITY as 'UNDERPOWERED, NOT DEAD, BLOCKED, not reopenable, and settled only by a pre-registered MDE curve' — an ambiguity purchased with a slot and a permanent burden charge. R81_C1 is the mirror image: the MDE curve came FIRST, so the underpowered finding is itself the settlement, it cost zero burden, and no future campaign needs to re-run it. That is the whole value of gate B and it has now paid for itself once."
+ },
+
+ "D_DOES_THE_DATA_CERTIFICATION_STAND_INDEPENDENTLY": {
+  "ruling": "YES. THE CERTIFICATION STANDS ON ITS OWN MERITS, IS THE DURABLE PRODUCT OF THIS CAMPAIGN, AND IS WHOLLY INDEPENDENT OF THE CELL'S WITHDRAWAL.",
+  "precedent_that_governs_this_answer_verbatim": "DIRECTOR_R75_RULING.json, does_D1_still_matter: 'YES, independently. Whether the ALFRED vintage dimension is certifiable is a fact about data, not about this cell. A recorded CERTIFIED or NOT_CERTIFIABLE answer is worth having either way ... D1 must be allowed to reach its own answer on its own evidence and must not be curtailed by this ruling.' R75 ruled that a data answer survives the death of the cell that motivated it. R81 is the same shape with the verdicts inverted, and I apply R75's rule unaltered.",
+  "why_it_stands_on_merit": [
+   "Every gate is MEASURED, not asserted: ENTITLEMENT PASS (free registered key, 32 chars, never printed, cost 0); HISTORY_FLOOR PASS (earliest vintage 2010-03-16, which PRECEDES the 2012-01-01 floor R75 itself required, 176 vintage dates on/after it); VINTAGE_COMPLETENESS PASS (198 vintages x 224 observation periods, all 16 series identical); PIT_INTEGRITY PASS (0 of 8,703 records clamped, 0 AVAILABILITY_CLAMPED warnings, available_at is ALFRED's own realtime_start for every record); PUBLICATION_LAG MEASURED_NOT_ASSUMED (median 13 days, p95 17, max 63, n=3,152 first-release events); REVISION_MATERIALITY PASS; PIT_RECONSTRUCTABILITY PASS at five probed decision instants from 2011-06-30 to 2026-06-30, where the newest knowable observation is exactly T minus one month at every T; CADENCE PASS (196 monthly decision periods over 16.33 years).",
+   "0 HTTP errors, 0 dq failures, 0 duplicates, 16/16 series, terminal ALPHA_AGENT_STAGE2_READY. Cost 0 USD and no new entitlement.",
+   "It was acquired through canonical owners and wrote no second anything: runner scripts/run_alpha_data_ingestion.py, existing collector alpha_agent/collectors/fred_alfred.py, output to a campaign-scoped root so a fred-only latest.json cannot overwrite the production source inventory, and the production Stage 2 config left UNMODIFIED. That is the correct way to add a dataset in this estate.",
+   "Reusability is the test of a durable asset and this one passes it: 16.3 years of un-clamped ALFRED vintages, PIT-reconstructable at any instant, on a source that is free and already owned. Its value does not depend on the FX cross-section that failed gate B, and the brief already lists FREE_PUBLIC_SOURCES|FRED_ALFRED_VINTAGES|HISTORICAL_PIT_READY among the certified data classes."
+  ],
+  "does_it_supersede_the_r75_d1_certification": {
+   "ruling": "YES, ON THE DATA QUESTION, AND WITHIN A SCOPE I STATE PRECISELY.",
+   "what_is_superseded": "DATA_R75_D1_ALFRED_VINTAGE_CERTIFICATION.json's verdict NOT_CERTIFIABLE, as an answer to the question 'is the ALFRED vintage dimension of the already-owned free fred_alfred source certifiable as point-in-time'. That verdict is superseded by measurement and no longer governs.",
+   "why_the_supersession_is_legitimate_and_not_a_re_litigation": "R75's D1 measured the CONFIGURATION, not the source, and its own evidence says so. Its HISTORY_FLOOR failure cites configs/alpha_agent/stage2_ingestion.json lines 213-238 setting observation_window_days 45 with no historical_backfill key, giving 'approximately T-45 days from collection date'. Its PIT_INTEGRITY failure cites the clamp warning. Both are properties of that configuration. I independently verified the load-bearing code claim rather than taking it on report: alpha_agent/collectors/fred_alfred.py line 93 reads the historical_backfill config key and line 97 dispatches to _collect_historical (defined at line 310); the backfill path's comment at line 264 is 'Drop ALFRED carry-ins clamped to the chunk start (their true release ...)'. The owned code already solved the defect R75 recorded as unavoidable ('Accept that clamped observations carry bounded availability timestamps'), and R75's own remediation note named that path. R81 ran it and measured 0 of 8,703 clamped. A measurement of the un-exercised path supersedes an inference about it. R75's D1 was an honest failure, correctly recorded and correctly acted on; it was a verdict about a config file.",
+   "what_is_NOT_superseded_and_a_future_director_MUST_NOT_read_as_reopened": [
+    "DIRECTOR_R75_RULING.json's verdict on its cell C1: REFUSED_BY_STRUCTURAL_RULE, on 'TIMING a premium with a conditioning variable', with reopen_condition 'NONE. A structural must-not-repeat carries no reopen condition. This refusal is not reopened by NEW_ORTHOGONAL_INFORMATION on any of the three killer rows, because the orthogonality of the information does not change the mechanism role.' R81 certifying the data does not touch that. The RATES_FUTURES|REGIME|FRED_ALFRED_VINTAGE_REVISION|DIRECTIONAL_SINGLE_INSTRUMENT axis stays closed, and it stays closed for a reason R81 has no bearing on.",
+    "The FORWARD_FROZEN row H_b214b94b_c7a6676b8573 (MACRO_RELEASE_SURPRISE|MACRO_RELEASE_SURPRISE|RATES_FUTURES|DIRECTIONAL_SINGLE_INSTRUMENT), whose recorded reopen_conditions list is EMPTY.",
+    "The production Stage 2 rolling path. It is unchanged and R75's findings about it remain exactly true of it. The certification covers the historical_backfill configuration and the 16 series named in DATA_R81_D1.series_certified, not the 45-day rolling collection."
+   ],
+   "certification_authority_note": "The certification verdict is the data-foundation-agent's and the certification store is mem.provider_usage(). This ruling records that it stands and defines its scope; it does not re-issue it, and this ruling writes nothing to the store."
+  },
+  "three_limitations_that_must_travel_with_the_asset_forever": [
+   "PRE-ARCHIVE AVAILABILITY IS A BOUND, NOT A FACT. For observation periods whose true first release pre-dates 2010-03-16, available_at is the archive start — a CONSERVATIVE upper bound that never claims earlier knowledge. Decisions from 2010-03-16 onward under available_at <= T are genuinely PIT. No feature may claim PIT status before that date.",
+   "THE REBASING TRAP. DATA_R81_D1 REVISION_MATERIALITY records IQ12260 showing mean |revision| of 80% purely because its units are 'Index Dec 2024=100' against IQ/IR's 'Index 2000=100': a REBASING appears as a vintage revision in levels. ANY feature on this family must be built from WITHIN-VINTAGE changes and never from a level difference across vintages. A future proposal that differences levels across vintages is refused on sight.",
+   "SOURCE_HEALTH_STATE DEGRADED IS A THRESHOLD ARTIFACT, NOT A DATA DEFECT, AND MUST BE REPORTED AS SUCH. The only degradation is freshness against a 45-day threshold calibrated for daily series; a monthly index published ~13 days after period end is 45-75 days old by construction. 16/16 series, 0 errors. Nobody may later cite DEGRADED as evidence against this dataset."
+  ]
+ },
+
+ "E_THE_SINGLE_MOST_VALUABLE_NEXT_GOVERNED_ACTION": {
+  "the_one_action": "AMEND NEXT_CAMPAIGN_CENSUS.json SO THAT THE R81 WIDTH LAW AND THE CLOSURE OF CROSS_ASSET_RELATIVE_VALUE ARE VISIBLE WHERE AN AGENDA-SETTER ACTUALLY LOOKS — specifically: (i) add the width law below as must_not_repeat.structural[4]; (ii) remove terms-of-trade / CROSS_ASSET_RELATIVE_VALUE from best_domains.best_cross_asset_domain, where it is still ranked FIRST among open cross-asset families; (iii) replace queued_hypotheses rank 3 XA_TERMS_OF_TRADE_RELATIVE_VALUE with the closure and the reopen condition recorded in this ruling.",
+  "why_this_and_not_another_experiment": "R67 already diagnosed this exact failure and predicted this exact recurrence. DIRECTOR_R67_RULING_V2.json new_item_H6: 'Record the R66 reopen condition for CROSS_ASSET_RELATIVE_VALUE where an agenda-setter will actually see it ... The condition is written only inside DIRECTOR_R66_RULING.json. NEXT_CAMPAIGN_CENSUS.json still carries this hypothesis at queued rank 3 ... with no mention that it was refused a campaign ago with a five-clause reopen condition attached. Consequence if uncorrected: This cell will be proposed a third time.' It was not corrected. It WAS proposed a third time — this campaign. The estate has now spent three campaigns of director time on one cell because a refusal lived only in a ruling file. The census amendment is worth more than any experiment I could authorise, because it is the only action that stops a fourth.",
+  "this_action_is_NOT_mine_to_execute": "NEXT_CAMPAIGN_CENSUS.json is a frozen prose artifact and the director brief states plainly that its narrative 'recommends families that are now ruled'. Amending it is a census-maintainer / human decision, not a research-memory write, and I neither perform it nor widen my own authority to perform it. I hand it off and record the reason.",
+  "explicitly_not_recommended": [
+   "Do NOT commission a wider or re-basketed expression of this information family. The spec already establishes the BLS publishes import-price-by-origin at All-Industries level for 14 origins only, 5 of which map 1:1 to a tradable free-floating currency future. Inventing a basket weighting now would be finalising a construction in sight of the gate.",
+   "Do NOT commission a higher-frequency version. The index is monthly; 21-session cadence is already the fastest honest grid and 187-196 decisions is the whole archive.",
+   "Do NOT re-run the gate B curve. It is answered by the canonical power owner and re-running it violates the do-not-recompute rule.",
+   "Do NOT propose an equity or any other rescue expression inside the slipstream of this ruling. I deliberately design nothing here."
+  ],
+  "second_ranked_action_for_completeness_not_a_proposal": "Apply the width law as a PRE-AGENDA ADMISSIBILITY CHECK: require an alpha_agent.r61.power MDE-versus-width curve BEFORE any future cross-sectional cell is specified, not after it is built. R81 demonstrates the check costs ~30 seconds of compute per panel (elapsed_s 29.9 and 28.5) and can retire a whole family at zero burden. That is a cheap standing gate, and naming it is a governance observation, not an authorisation."
+ },
+
+ "THE_R81_WIDTH_LAW_RECORDED_FOR_THE_ESTATE": {
+  "statement": "In this estate, at 21-session cadence on a 16-year archive (187-196 decisions), a cross-sectional book needs roughly 25-38 independently-priced legs before MDE_80 falls to an IC of ~0.10, and it NEVER reaches MDE_80 at an IC of 0.05 or below at any width measured. A plausible cross-sectional macro or fundamental IC is 0.02-0.05. Therefore a monthly-published, non-price cross-sectional signal expressed on a narrow futures cross-section is UNDETECTABLE in this estate regardless of whether the signal is real.",
+  "measured_support": "MDE_R81_GATE_B_CURVE.json section B_power_against_cross_section_width, seven widths on the 39-market certified commodity panel at 24 seeds per point, min_markets floored at 5, 187 decisions: width 5 detects rho 0.15 at 54%; width 9 at 88%; width 12 detects rho 0.10 at 50%; width 19 at 63%; width 27 at 79%; width 38 detects rho 0.10 at 75% and rho 0.05 at only 29%. Every width shows 0 detections at rho 0.0.",
+  "owner": "alpha_agent.r61.power. This law is a reading of that owner's output, not an independent calculation, and it must not be re-derived by hand.",
+  "scope_limit_stated_honestly": "The law is calibrated at 21-session cadence on futures panels under the R38 per-market cost model. It is NOT a statement about wide equity panels, about shorter horizons, or about event-window statistics whose power does not scale with width times decisions. Extending it to those is a new measurement, not an inference."
+ },
+
+ "RECORDED_REOPEN_CONDITION_FOR_THE_NEXT_DIRECTOR": {
+  "family_closed": "CROSS_ASSET_RELATIVE_VALUE",
+  "cell_closed": "CROSS_ASSET_RELATIVE_VALUE|FRED_ALFRED_IMPORT_PRICE_BY_ORIGIN_VINTAGE|FX_FUTURES|XS_RANK_BOOK_UNCONDITIONAL",
+  "closed_on": "WIDTH / POWER — not on construction, not on conduct, not on data, and not on measurement of the hypothesis.",
+  "state": "WITHDRAWN_UNDERPOWERED. Settled by a pre-registered MDE curve at zero burden. The R66 condition remains in force in full, all five clauses, in addition to everything below.",
+  "may_a_future_campaign_re_commission_this_cell": "NO — not in any cross-sectional expression whose realisable width times decision count cannot reach MDE_80 at an injected IC of 0.05 or below, as measured by alpha_agent.r61.power on a certified panel under the real per-market cost model. R81_C1 as specified, and every FX5 or FX8 variant of it, is answered and may not be re-commissioned at all.",
+  "it_reopens_ONLY_on_one_of_these_two_machine_CHECKABLE_conditions_BEFORE_pre_registration": [
+   "R1 WIDTH. A pre-declared, non-discretionary mapping of this information family (or a successor source carrying the same non-price content) to at least 25 tradable, free-floating, independently-priced legs on a CERTIFIED layer, such that alpha_agent.r61.power returns MDE_80 REACHED at rho <= 0.05 at that realised width and that realised decision count, computed BEFORE any candidate return. Basket weightings, composite legs or proxy mappings invented after the width constraint is known do not satisfy this and are refused on sight as finalising a construction in sight of the gate. The mapping rule must be statable in one sentence with no discretion, as the 1:1 rule in R81 was.",
+   "R2 DECISIONS. An information source carrying the same non-price terms-of-trade content published at materially higher than monthly frequency, yielding materially more than 196 decisions on the same archive length, with its own MDE curve. This is impossible on BLS import-price-by-origin, which is monthly; it requires a DIFFERENT source, and that source must carry its own certification."
+  ],
+  "boundary_clause_so_this_is_not_read_as_a_design": "Any expression of this information family under a PRIMARY STATISTIC whose power does not scale with cross-section width times decision count is a DIFFERENT economic family. It is not a reopen of CROSS_ASSET_RELATIVE_VALUE, it must be proposed on its own merits, it carries its own counted denominator from alpha_agent.r59.handlers.search_denominator, and it needs its own MDE curve. This ruling neither designs nor endorses any such construction, and no future proposal may cite R81 as having suggested one.",
+  "anti_relitigation_clause": "The R81 gate B answer is DURABLE. No future campaign may re-run the FX5 or FX8 MDE curve for this family, or re-measure the width law, to get a second opinion. Re-running a settled measurement violates the do-not-recompute contract. Equally, no future campaign may re-commission this cell on the ground that 'the reopen condition is now satisfied': it WAS satisfied in R81 and the cell still failed, and satisfying the R66 condition is necessary but not sufficient.",
+  "what_a_future_director_must_read_before_touching_this_family": [
+   "research/agents/campaign_r66_hedged_rv/DIRECTOR_R66_RULING.json ruling_2_r66_02 and ruling_4 — the condition and the premium-timing test.",
+   "research/agents/campaign_r67_multi_strategy/DIRECTOR_R67_RULING_V2.json — the five-clause test and the G1 laundering test.",
+   "this file — the width law, and the fact that the condition has already been met once without saving the cell.",
+   "research/agents/campaign_r81_terms_of_trade_pit/MDE_R81_GATE_B_CURVE.json — the numbers, which are not to be recomputed."
+  ]
+ },
+
+ "HANDOFFS": {
+  "to_the_census_maintainer_human_decision": "The three census amendments in section E. Blocking reason for my not doing it: NEXT_CAMPAIGN_CENSUS.json is frozen prose outside my write authority, and a scope change is a human decision.",
+  "to_data_foundation_agent": "None commissioned. DATA_R81_D1 is complete and its verdict stands. The only follow-on I note, and do not commission, is that the three travelling limitations in section D must accompany the dataset in any future feature-set lineage on it.",
+  "to_the_four_signal_agents": "NOTHING. No assignment manifest is emitted by this campaign and none is warranted: there is no pre-registered experiment to assign. assignment_manifest.json is deliberately absent.",
+  "to_signal_publishing_agent": "NOTHING. No cleared candidate exists.",
+  "to_skeptic_risk_and_meta_agents": "NOTHING. No candidate reached them and none should be dispatched to them. No final tournament is run, because there is nothing in it."
+ },
+
+ "CAMPAIGN_STATE_EFFECT": {
+  "experiments_preregistered": 0,
+  "experiment_ids_minted": 0,
+  "burden_charged": 0,
+  "cross_asset_burden_after": "UNCHANGED at the figure search_denominator counts (brief reports 2,448).",
+  "estate_total_burden_after": "UNCHANGED at the figure search_denominator counts (brief reports 8,416).",
+  "director_cleared": [],
+  "durable_writes_by_this_ruling": "NONE. No pipeline verb was invoked. The D1 certification event is the data-foundation-agent's and stands on its own; it is not an experiment and charges nothing.",
+  "diversity_gates": "NOT ENGAGED AND NOT SATISFIED: 0 experiments, 0 asset classes, 0 H1-H5, 0 cross-asset measured. I decline to pad a campaign to satisfy a diversity count on a cell that has no power, exactly as R66 and R67 declined. The budget is a ceiling, not a target.",
+  "campaign_outcome": "TWO PRODUCTS, ONE NEGATIVE AND ONE POSITIVE, BOTH DURABLE: a reusable certified 16.3-year un-clamped ALFRED vintage asset at zero cost, and a measured width law that retires a whole cross-asset family at zero burden. Zero experiments and zero burden is the correct result for this campaign, not a failure of it."
+ },
+
+ "ARTIFACTS_READ_OR_VERIFIED_FOR_THIS_RULING": [
+  "research/agents/campaign_r81_terms_of_trade_pit/BRIEF_quant-research-director.json (full)",
+  "research/agents/campaign_r81_terms_of_trade_pit/campaign_spec.json (full)",
+  "research/agents/campaign_r81_terms_of_trade_pit/DATA_R81_D1_TERMS_OF_TRADE_VINTAGE_CERTIFICATION.json (full)",
+  "research/agents/campaign_r81_terms_of_trade_pit/MDE_R81_GATE_B_CURVE.json (full)",
+  "research/agents/campaign_r66_hedged_rv/DIRECTOR_R66_RULING.json (lines 1-100: verification block, ruling_1 incl. both gates, ruling_2_r66_02; plus ruling_4 and ruling_5 burden/budget blocks)",
+  "research/agents/campaign_r67_multi_strategy/DIRECTOR_R67_RULING_V2.json (five-clause reopen test, G1 laundering finding, G5 power finding, burden effect, new_item_H6)",
+  "research/agents/campaign_r75_alfred_vintage_admissibility/DIRECTOR_R75_RULING.json (verdict, structural ruling, does_D1_still_matter, preconditions, reopen_condition NONE)",
+  "research/agents/campaign_r75_alfred_vintage_admissibility/DATA_R75_D1_ALFRED_VINTAGE_CERTIFICATION.json (verdict, HISTORY_FLOOR and PIT_INTEGRITY findings, code_evidence)",
+  "research/agents/NEXT_CAMPAIGN_CENSUS.json (must_not_repeat.rule and .structural, best_domains.best_cross_asset_domain — sections only, as the deciding rules live there)",
+  "alpha_agent/collectors/fred_alfred.py (lines 93, 97, 193, 264, 310 by targeted search only — to verify at source the single load-bearing claim on which the supersession of R75 D1 rests)"
+ ],
+
+ "CONSTRAINT_COMPLIANCE": {
+  "preregister_called": false,
+  "experiment_ids_minted": 0,
+  "burden_charged": 0,
+  "no_alpha_evidence_filed": false,
+  "research_memory_written": false,
+  "forward_registration_created": false,
+  "portfolio_proposal_approved": false,
+  "model_promoted": false,
+  "purchase_authorised": false,
+  "operational_store_mutated": false,
+  "rescue_construction_invented_inside_this_ruling": false,
+  "files_written_by_this_ruling": 1,
+  "file_written": "research/agents/campaign_r81_terms_of_trade_pit/DIRECTOR_R81_RULING.json",
+  "shell": "WINDOWS_POWERSHELL_ONLY"
+ }
+}
