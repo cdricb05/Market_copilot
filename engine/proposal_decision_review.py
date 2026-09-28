@@ -189,6 +189,42 @@ REPAIR_ACTION_VOCAB = tuple(_hoc.REQUIRED_ACTION_VOCAB)
 RISK_MEASURED = "MEASURED"
 RISK_NOT_MEASURED = "NOT_MEASURED"
 
+# --------------------------------------------------------------------------- #
+# R82.1 - a repair solved against a cap a governed RULING holds constant.
+#
+# ``solve_minimum_repair`` derives its per-round cap from
+# ``_hoc.risk_contribution_limit(n)``, so the cap follows the shrinking universe -
+# which is the declared 3/N policy, correctly applied, and exactly the effect
+# R69.1 raised for manual review. When an operator RULES that the limit the
+# before-book was judged against binds the decision, the same solver must run
+# against THAT cap instead. Nothing else about it changes: the same obligations,
+# the same first-order reduction, the same canonical covariance owner re-measuring
+# every round, the same independent feasibility verifier at the end.
+#
+# The held cap is never invented here. It is passed in by the ruling owner and is
+# a limit ``engine.holding_opportunity_cost`` already published for the book the
+# ruling names.
+# --------------------------------------------------------------------------- #
+RULED_LIMIT_BASIS = "REFERENCE_LIMIT_HELD_CONSTANT_BY_A_GOVERNED_RULING"
+RULED_LIMIT_SOURCE = "api.portfolio_decision governed risk-policy ruling"
+#: The CONVERGENCE budget for a repair solved against a held cap, and a genuinely
+#: different problem from the one ``max_risk_contribution_repair_rounds`` (3) was
+#: calibrated for. Against the moving 3/N cap the repair converges in one round,
+#: because exiting names RAISES the cap toward the shares. Against a held cap it
+#: cannot: reducing a breaching name shrinks the invested base, which RAISES every
+#: remaining name's share of risk, so the solver walks down in smaller steps and a
+#: three-round budget stops mid-descent. On the frozen 2026-09-25 book it needs
+#: five measured rounds and converges to zero breaches at 12.00%.
+#:
+#: This is an ITERATION budget, not a threshold: a larger budget can only ever
+#: make the resulting book MORE compliant with the cap the ruling names, never
+#: less, and it moves no declared limit. Exhausting it is reported as a repair
+#: that did NOT converge, with the open breach named - never as a clean book.
+RULED_REPAIR_MAX_ROUNDS = 12
+#: Whether a repair reached a book with no breach of the cap it was solved against.
+REPAIR_CONVERGED = "CONVERGED"
+REPAIR_NOT_CONVERGED = "ROUND_BUDGET_EXHAUSTED_WITH_A_BREACH_OPEN"
+
 EXPECTED_RETURN_STATE_NOT_CALIBRATED = _rp.EXPECTED_RETURN_STATE_NOT_CALIBRATED
 #: Evidence that has not reached the canonical sufficiency gate says so and stops.
 EVIDENCE_INSUFFICIENT = "EVIDENCE_INSUFFICIENT"
@@ -524,7 +560,9 @@ def repair_obligations(*, proposal: dict, hoc_assessment: Optional[dict],
 # THE MINIMUM REPAIR - a deterministic reduction, never a search
 # --------------------------------------------------------------------------- #
 def solve_minimum_repair(*, proposal: dict, obligations: list, policy: dict,
-                         aligned_returns: Optional[dict] = None) -> dict:
+                         aligned_returns: Optional[dict] = None,
+                         binding_risk_contribution_limit: Optional[float] = None,
+                         max_risk_repair_rounds: Optional[int] = None) -> dict:
     """The smallest valid book reachable from the CURRENT one, and how it got there.
 
     There is no optimisation in here. Names an obligation says cannot be held are
@@ -538,6 +576,14 @@ def solve_minimum_repair(*, proposal: dict, obligations: list, policy: dict,
     the shares and the limit (3/N over a smaller covariance universe). Without it
     the repaired book's risk is not measured and the repair is reported as
     unverified rather than guessed.
+
+    R82.1 - ``binding_risk_contribution_limit`` HOLDS the per-name cap constant at
+    a limit the risk owner already published, instead of re-deriving 3/N over the
+    universe each round. It is the mechanism a governed
+    ``JUDGE_AGAINST_THE_BEFORE_UNIVERSE`` ruling uses, and it is the ONLY
+    behavioural difference: same obligations, same reduction rule, same covariance
+    owner, same independent verifier. Left at ``None`` this function is byte-for-byte
+    what it always was, which is what keeps every historical review hash stable.
     """
     cur = current_weights(proposal)
     cands = candidate_rows(proposal)
@@ -589,7 +635,10 @@ def solve_minimum_repair(*, proposal: dict, obligations: list, policy: dict,
         ceilings[tk] = limit
 
     # --- 3. the risk-contribution cap, re-measured round by round -------------- #
-    max_rounds = int(policy.get("max_risk_contribution_repair_rounds", 3) or 3)
+    held_limit = _f(binding_risk_contribution_limit)
+    max_rounds = int(max_risk_repair_rounds
+                     if max_risk_repair_rounds is not None
+                     else (policy.get("max_risk_contribution_repair_rounds", 3) or 3))
     rounds: list[dict] = []
     risk_state = RISK_NOT_MEASURED
     measured: dict = {}
@@ -610,10 +659,30 @@ def solve_minimum_repair(*, proposal: dict, obligations: list, policy: dict,
                 break
             risk_state = RISK_MEASURED
             contributions = dict(measured.get("contributions") or {})
-            limit_block = _hoc.risk_contribution_limit(
+            governed_block = _hoc.risk_contribution_limit(
                 n_covariance_names=len(measured.get("included_tickers") or []),
                 policy=policy)
-            limit = _f(limit_block.get("limit"))
+            if held_limit is None:
+                limit_block, limit = governed_block, _f(governed_block.get("limit"))
+            else:
+                # The RULED cap. The governed 3/N figure for this same universe is
+                # published beside it, so a reader can always see both the cap that
+                # binds and the cap that would have.
+                limit = held_limit
+                limit_block = {
+                    "owner": _hoc.RISK_CONTRIBUTION_POLICY_OWNER,
+                    "field": _hoc.RISK_CONTRIBUTION_FIELD,
+                    "basis": RULED_LIMIT_BASIS,
+                    "limit": _r(held_limit, 8),
+                    "n_covariance_names": governed_block.get("n_covariance_names"),
+                    "state": "AVAILABLE",
+                    "held_constant": True,
+                    "held_constant_source": RULED_LIMIT_SOURCE,
+                    "governed_limit_at_this_universe": governed_block.get("limit"),
+                    "governed_limit_basis": governed_block.get("basis"),
+                    "excess_multiple": governed_block.get("excess_multiple"),
+                    "equal_weight_share": governed_block.get("equal_weight_share"),
+                }
             breaches = _hoc.risk_contribution_breaches(contributions=contributions,
                                                        limit=limit)
             rounds.append({"round": rnd, "limit": limit_block,
@@ -655,7 +724,25 @@ def solve_minimum_repair(*, proposal: dict, obligations: list, policy: dict,
         rc_remaining = None
 
     repaired_codes = sorted({a.get("constraint") for a in adjustments if a.get("constraint")})
+    # R82.1 - published ONLY when a cap was actually held constant. An unconditional
+    # key would change the identity of every review ever taken without one input
+    # moving, and a governed selection binds ``review_hash``.
+    ruled = {}
+    if held_limit is not None:
+        converged = bool(risk_state == RISK_MEASURED and not rc_remaining)
+        ruled = {
+            "binding_risk_contribution_limit": _r(held_limit, 8),
+            "binding_limit_basis": RULED_LIMIT_BASIS,
+            "binding_limit_source": RULED_LIMIT_SOURCE,
+            "binding_limit_is_a_new_threshold": False,
+            "risk_repair_round_budget": max_rounds,
+            "risk_repair_rounds_measured": len(rounds),
+            "risk_repair_convergence": (REPAIR_CONVERGED if converged
+                                        else REPAIR_NOT_CONVERGED),
+            "risk_repair_converged": converged,
+        }
     return {
+        **ruled,
         "weights": final,
         "adjustments": adjustments,
         "weight_ceilings": {k: _r(v, 8) for k, v in sorted(ceilings.items())},
@@ -2252,18 +2339,30 @@ def build_review(*, proposal: dict, hoc_assessment: Optional[dict] = None,
                  outcome_evidence: Optional[dict] = None,
                  aligned_returns: Optional[dict] = None,
                  read_state: Optional[str] = None,
-                 identity: Optional[dict] = None) -> dict:
+                 identity: Optional[dict] = None,
+                 binding_risk_contribution_limit: Optional[float] = None,
+                 max_risk_repair_rounds: Optional[int] = None) -> dict:
     """Adjudicate ONE persisted proposal. Pure: no I/O, no clock, no network.
 
     Called twice with the same inputs it returns the same payload, byte for byte -
     the review is a projection of evidence, never an event.
+
+    R82.1 - ``binding_risk_contribution_limit`` holds the per-name risk-contribution
+    cap constant for the repair, so a governed ruling can have the SAME kernel
+    re-solve the SAME obligations against the cap the ruling makes binding. Left at
+    ``None``, which is every ordinary read, this returns exactly what it always
+    returned - asserted by test, because ``review_hash`` is computed over this
+    payload and every governed selection ever made binds it.
     """
     policy = review_policy(proposal)
     hurdle = switching_hurdle(proposal, policy)
     obligations = repair_obligations(proposal=proposal, hoc_assessment=hoc_assessment,
                                      policy=policy)
-    repair = solve_minimum_repair(proposal=proposal, obligations=obligations,
-                                  policy=policy, aligned_returns=aligned_returns)
+    repair = solve_minimum_repair(
+        proposal=proposal, obligations=obligations, policy=policy,
+        aligned_returns=aligned_returns,
+        binding_risk_contribution_limit=binding_risk_contribution_limit,
+        max_risk_repair_rounds=max_risk_repair_rounds)
     states = {
         STATE_CURRENT: build_current_state(proposal=proposal, obligations=obligations),
         STATE_MINIMUM_REPAIR: build_repair_state(proposal=proposal, repair=repair,

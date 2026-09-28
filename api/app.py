@@ -7356,6 +7356,183 @@ def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -
         actor=body.requested_by)
 
 
+class RiskPolicyRulingConfirmationRequest(BaseModel):
+    """R82.1.1 ACT ONE — open the governed operator-confirmation ceremony.
+
+    R82.1 made a ruling authoritative on a book-bound token plus
+    ``operator_confirmed: true``. The token is a pure function of the frozen
+    identity and the boolean is the caller's own word, so any caller holding the
+    served token could mint an ``OPERATOR_UI_CONFIRMED`` ruling. That is a claim,
+    not evidence.
+
+    This route issues the evidence instead. It returns a single-use confirmation the
+    backend holds in memory, bound to ONE ruling on ONE frozen book, which the
+    ruling write SPENDS. It is never persisted, never re-derivable and never
+    returned by any read, so it cannot be reconstructed from the store, the
+    repository or a previous request.
+
+    It records NOTHING: no ruling, no decision, no approval, no order plan, no order
+    and no fill. Opening a ceremony and abandoning it leaves no artifact.
+    """
+
+    ruling: str
+    confirmation: str
+    submission_token: str | None = None
+    requested_by: str = "manual_ui"
+    surface: str | None = None
+
+
+@app.post(
+    "/v1/operations/portfolio-decision/risk-policy-ruling/confirmation",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_decision_risk_policy_ruling_confirmation(
+        body: RiskPolicyRulingConfirmationRequest) -> dict:
+    """R82.1.1 — issue ONE single-use operator confirmation for ONE ruling.
+
+    The frozen identity is read from the LIVE governed review here and is never
+    taken from the request: a confirmation bound to identities a caller supplied
+    would be bound to whatever the caller wanted it bound to. The caller must still
+    echo the submission token the governed read minted for that same live book,
+    which is what proves it read this backend's review rather than guessed at it.
+
+    Creates NO ruling, approval, order plan, order or fill, and changes no holding,
+    cash, NAV or declared threshold.
+    """
+    envelope = _pdreview.load_proposal_decision_review()
+    selection = ((envelope or {}).get("governance") or {}).get("selection")
+    review = _pdecision.selection_policy_review(selection or {})
+    out = _pdecision.open_ruling_confirmation(
+        ruling=body.ruling,
+        confirm=body.confirmation,
+        submission_token=body.submission_token,
+        selection_id=(selection or {}).get("selection_id"),
+        selected_target_implementation_hash=review.get("implementation_hash"),
+        reference_limit=review.get("reference_limit"),
+        surface=body.surface,
+        actor=body.requested_by)
+    if not out.get("issued"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"reason": out.get("reason"), "message": out.get("message"),
+                    "refusal_vocabulary": out.get("refusal_vocabulary")},
+        )
+    return out
+
+
+class RiskPolicyRulingRequest(BaseModel):
+    """R82 governed RISK-POLICY RULING body (the manual ruling R69.5 named).
+
+    ``ruling`` must be one of ``engine.selected_target.RULING_AVAILABLE``:
+    ``ACCEPT_AS_IS`` (the cap is a relative-concentration rule) or
+    ``JUDGE_AGAINST_THE_BEFORE_UNIVERSE`` (a risk-contribution breach must be
+    repaired by reducing the breaching name, not by shrinking the universe around
+    it). ``ADD_AN_ABSOLUTE_COMPANION_FLOOR`` is declared in the vocabulary and
+    REFUSED: it needs an absolute threshold no owner has set, and that stays a
+    separate policy decision.
+
+    ``confirmation`` must equal the ruling token — distinct from both the approval
+    and the selection tokens, so none of the three can be replayed as another. The
+    optional expected identities bind what the operator actually saw; a ruling that
+    names a different frozen book, reference limit or instrument set is refused.
+
+    Ruling is NOT approving. It records no portfolio decision, creates no order
+    plan, order or fill, moves no capital, changes no declared threshold and grants
+    no standing exception — and it can only ever make an approval LESS available.
+    """
+
+    ruling: str
+    confirmation: str
+    expected_selection_id: str | None = None
+    expected_selected_target_implementation_hash: str | None = None
+    expected_reference_limit: float | None = None
+    instruments: list[str] | None = None
+    requested_by: str = "manual_ui"
+    # R82.1 / R82.1.1 — the PROVENANCE evidence. ``operator_confirmation`` is the
+    # single-use confirmation the ceremony route issued for THIS ruling on THIS
+    # frozen book; it is spent by this call and cannot be spent again.
+    # ``submission_token`` is the book token the governed read minted.
+    # ``operator_confirmed`` and ``surface`` are recorded as CLAIMS and weigh
+    # nothing — a boolean a caller sets is not evidence, which was the R82.1 defect.
+    # None of them names a channel: the decision owner DERIVES that, so a caller can
+    # never declare its own ruling authoritative. Without a spent confirmation the
+    # ruling is still recorded — as readable audit evidence that governs nothing.
+    submission_token: str | None = None
+    operator_confirmation: str | None = None
+    operator_confirmed: bool = False
+    surface: str | None = None
+
+
+@app.post(
+    "/v1/operations/portfolio-decision/risk-policy-ruling",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_decision_risk_policy_ruling(
+        body: RiskPolicyRulingRequest) -> dict:
+    """R82 — record the manual RISK-POLICY ruling R69.5 withholds approval for.
+
+    R69.5 held a target that clears its own per-name risk-contribution cap only
+    because that cap ROSE with a shrinking covariance universe, and offered exactly
+    one recordable outcome: a per-request acknowledgement that let the approval
+    through. This route records the ruling ITSELF as a durable governed artifact
+    bound to ONE proposal, ONE selection and ONE frozen book.
+
+    ``JUDGE_AGAINST_THE_BEFORE_UNIVERSE`` makes the limit the current book was
+    judged against the binding cap for that frozen book, so every risk-contribution
+    breach the shrinking universe discharged becomes an OPEN mandatory repair
+    obligation again and approval is refused at
+    ``SELECTED_TARGET_BREACHES_THE_RULED_REFERENCE_LIMIT``. No acknowledgement can
+    clear that state, because the refusal is substantive rather than procedural.
+
+    R82.1.1 — a ruling is AUTHORITATIVE only if it SPENDS a single-use operator
+    confirmation this backend issued at the confirmation route for this exact ruling
+    on this exact frozen book. A boolean this request sets is a claim, not evidence:
+    ``operator_confirmed`` is recorded and weighed at nothing. A submission without
+    a confirmation — every direct diagnostic call — is still recorded, as readable
+    audit evidence that binds nothing and leaves approval withheld exactly where it
+    was, and is classified ``API_DIRECT_CALL``. The channel is derived by the
+    decision owner and is never taken from this request, so no caller can declare
+    its own ruling authoritative. Under an authoritative ``JUDGE_AGAINST_THE_BEFORE_UNIVERSE`` the
+    review then solves and publishes the ``POLICY_COMPLIANT_REPAIR`` successor
+    target; selecting and approving it remain two separate manual acts.
+
+    It creates NO approval, order plan, order or fill, changes NO holding, cash or
+    NAV, moves NO declared threshold, grants NO standing exception, invents NO
+    absolute companion floor, and never rewrites the frozen proposal, the selection
+    record or its ``selected_target_implementation_hash``.
+    """
+    if body.ruling not in _pdecision.RULING_VOCAB:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Unknown ruling. Send one of "
+                    f"{list(_pdecision.RULING_AVAILABLE)}."),
+        )
+    if body.confirmation != _pdecision.RULING_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit manual confirmation required. Send "
+                    f"{{'confirmation': '{_pdecision.RULING_CONFIRM_TOKEN}'}} to "
+                    f"record a risk-policy ruling."),
+        )
+    envelope = _pdreview.load_proposal_decision_review()
+    selection = ((envelope or {}).get("governance") or {}).get("selection")
+    return _pdecision.record_risk_policy_ruling(
+        ruling=body.ruling, confirm=body.confirmation,
+        selection=selection,
+        expected_selection_id=body.expected_selection_id,
+        expected_selected_target_implementation_hash=(
+            body.expected_selected_target_implementation_hash),
+        expected_reference_limit=body.expected_reference_limit,
+        instruments=body.instruments,
+        submission_token=body.submission_token,
+        confirmed_in_ui=body.operator_confirmed,
+        operator_confirmation=body.operator_confirmation,
+        surface=body.surface,
+        actor=body.requested_by)
+
+
 @app.post(
     "/v1/operations/portfolio-decision/select-target",
     status_code=status.HTTP_200_OK,

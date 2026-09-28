@@ -45,7 +45,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -143,6 +146,15 @@ PDS_REPAIR_OBLIGATIONS_OPEN = _hoc.OBLIGATIONS_UNRESOLVED
 #: binds that ruling to the exact instruments, the exact reference limit and the
 #: exact frozen book. REJECT and HOLD stay available throughout.
 PDS_RISK_POLICY_REVIEW_REQUIRED = "SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW"
+#: R82 — the operator RULED, and the ruling is JUDGE_AGAINST_THE_BEFORE_UNIVERSE.
+#: The cap the breach was raised against is now the binding cap for this frozen
+#: book, and the target does not satisfy it: the risk-contribution obligations that
+#: the shrinking covariance universe discharged are OPEN again. This is a different
+#: state from PDS_RISK_POLICY_REVIEW_REQUIRED, which means "nobody has ruled yet" —
+#: here the ruling exists and the target fails it, so no acknowledgement can clear
+#: it. The proposal stays immutable and fully readable; REJECT and HOLD stay
+#: available; nothing is written and no threshold moved.
+PDS_REFERENCE_LIMIT_BREACH_RULED = "SELECTED_TARGET_BREACHES_THE_RULED_REFERENCE_LIMIT"
 PDS_UNAVAILABLE = "PORTFOLIO_DECISION_UNAVAILABLE"
 DECISION_STATE_VOCAB = (
     PDS_NO_ACTIVE_BOOK, PDS_NO_PROPOSAL, PDS_NO_MATERIAL_CHANGE, PDS_REVIEW_REQUIRED,
@@ -150,7 +162,8 @@ DECISION_STATE_VOCAB = (
     PDS_HOLD_CURRENT_BOOK, PDS_SUPERSEDED, PDS_SESSION_STALE,
     PDS_SELECTION_IS_NO_CHANGE, PDS_REPAIR_OBLIGATIONS_OPEN,
     PDS_TARGET_SELECTION_REQUIRED, PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE,
-    PDS_RISK_POLICY_REVIEW_REQUIRED, PDS_UNAVAILABLE)
+    PDS_RISK_POLICY_REVIEW_REQUIRED, PDS_REFERENCE_LIMIT_BREACH_RULED,
+    PDS_UNAVAILABLE)
 
 # --------------------------------------------------------------------------- #
 # R69.5 — the RISK-POLICY ACKNOWLEDGEMENT
@@ -950,7 +963,58 @@ def record_decision(*, decision: str, confirm: Optional[str],
         # above is: REJECT and HOLD must stay available on a target that cannot be
         # approved, and a decision recorded earlier stays re-recordable as it was.
         policy_review = selection_policy_review(selection)
-        if policy_review["required"] and not replaying_prior:
+        # --- R82: the operator already RULED, and the ruling refuses this book -- #
+        # This check runs BEFORE the acknowledgement below on purpose. A recorded
+        # JUDGE_AGAINST_THE_BEFORE_UNIVERSE says the cap the breach was raised
+        # against is the cap this frozen book is judged by; an acknowledgement that
+        # the same book breaches that cap cannot then clear it, or the ruling would
+        # be advisory. The refusal is substantive, not procedural: the ruling exists
+        # and the target fails it. Nothing is written, no threshold moved, no
+        # exception was granted, and REJECT / HOLD stay available.
+        ruled = risk_policy_ruling_state(selection=selection,
+                                         decision_dir=decision_dir)
+        if ruled.get("approval_blocked_by_the_ruling") and not replaying_prior:
+            return {**base, "status": PDS_REFERENCE_LIMIT_BREACH_RULED,
+                    "binding": binding, "selection": selection,
+                    "selected_target": selection.get("selected_target"),
+                    "risk_policy_review": policy_review,
+                    "risk_policy_ruling": ruled,
+                    "risk_policy_owner": _st.RISK_POLICY_OWNER,
+                    "declared_policy_changed": False,
+                    "exception_granted": False,
+                    "current_proposal_hash": current_hash,
+                    # R82.1 — this used to say SELECT_A_COMPLIANT_TARGET_OR_REJECT
+                    # while no compliant target existed anywhere in the system. The
+                    # governed review now SOLVES one against the ruled cap and
+                    # publishes it as %s, so the next action names something the
+                    # operator can actually do.
+                    "next_required_action": (
+                        "REVIEW_AND_SELECT_THE_POLICY_COMPLIANT_SUCCESSOR_TARGET"),
+                    "policy_compliant_successor_target": (
+                        TARGET_POLICY_COMPLIANT_REPAIR),
+                    "manual_review_reference": _st.POLICY_REVIEW_REFERENCE_DOC,
+                    "message": (
+                        "The governed risk-policy ruling on record for this frozen "
+                        "book is %s, so the binding per-name cap is %s. %s Nothing "
+                        "was written, no threshold moved and no exception was "
+                        "granted. The proposal decision review re-solves the repair "
+                        "against the ruled cap and publishes the result as the %s "
+                        "target: review it, select it, and approve that selection at "
+                        "this gate. Reject and hold remain available."
+                        % (ruled.get("ruling"), ruled.get("binding_limit"),
+                           ruled.get("detail") or "",
+                           TARGET_POLICY_COMPLIANT_REPAIR))}
+        # --- R82.1: a VERIFIED ruling is the answer the review was waiting for --- #
+        # R69.5 withheld approval "until an operator rules on the policy" and then
+        # accepted only a per-request acknowledgement. A durable ruling recorded
+        # through the governed operator review, bound to this exact frozen book, is
+        # a stronger record of the same decision, so it satisfies the review. It
+        # does NOT approve anything: the operator still has to record the decision
+        # at this gate with its own confirmation token, and every other gate below
+        # still runs. An UNVERIFIED ruling satisfies nothing — the ack path stands.
+        ruling_answers_the_review = bool(ruled.get("satisfies_the_policy_review"))
+        if policy_review["required"] and not replaying_prior and not (
+                ruling_answers_the_review):
             ack_verdict = validate_risk_policy_acknowledgement(
                 policy_review=policy_review,
                 acknowledgement=risk_policy_acknowledgement)
@@ -1056,6 +1120,12 @@ def record_decision(*, decision: str, confirm: Optional[str],
     if revised:
         record_id = record_id + "_r%d" % (int((existing or {}).get("revision", 0)) + 1)
 
+    # R82 — read the standing ruling ONCE, so the record cannot carry an id from one
+    # read and a block from another if the store moved between them.
+    ruling_at_decision = (risk_policy_ruling_state(selection=selection,
+                                                   decision_dir=decision_dir)
+                          if selection is not None else None)
+
     record = {
         "record_id": record_id,
         "owner": OWNER,
@@ -1100,6 +1170,14 @@ def record_decision(*, decision: str, confirm: Optional[str],
             dict(risk_policy_acknowledgement)
             if isinstance(risk_policy_acknowledgement, dict) else None),
         "risk_policy_contract": "R69.5_REFERENCE_LIMIT_RULING_BOUND_TO_THE_FROZEN_BOOK",
+        # --- R82: the DURABLE governed ruling this decision was taken under ------ #
+        # The acknowledgement above lives only in the approve request. The ruling is
+        # an artifact of its own, so a decision records WHICH ruling was standing at
+        # the moment it was taken — including ``NO_RULING_ON_RECORD``, which is the
+        # honest answer for every decision recorded before this lane existed.
+        "risk_policy_ruling_id": (ruling_at_decision or {}).get("ruling_id"),
+        "risk_policy_ruling": ruling_at_decision,
+        "risk_policy_ruling_contract": "R82_RULING_BOUND_TO_ONE_PROPOSAL_AND_TARGET",
         "declared_risk_policy_changed": False,
         "standing_risk_policy_exception_granted": False,
     }
@@ -1140,7 +1218,16 @@ def record_decision(*, decision: str, confirm: Optional[str],
 TARGET_CURRENT = "CURRENT"
 TARGET_MINIMUM_REPAIR = "MINIMUM_REPAIR"
 TARGET_FULL_TARGET = "FULL_TARGET"
-TARGET_VOCAB = (TARGET_CURRENT, TARGET_MINIMUM_REPAIR, TARGET_FULL_TARGET)
+#: R82.1 — the SUCCESSOR target a governed JUDGE ruling produces: the same minimum
+#: repair, re-solved by the same owner against the cap the ruling makes binding. It
+#: is selectable ONLY while the read seam publishes one, which happens only under an
+#: authoritative ruling that reopened an obligation — so it can never be selected on
+#: a book nobody ruled on. Everything downstream of the selection is unchanged:
+#: ``api.rebalance_execution.resolve_target`` already builds any non-full target
+#: from the book frozen with the selection.
+TARGET_POLICY_COMPLIANT_REPAIR = "POLICY_COMPLIANT_REPAIR"
+TARGET_VOCAB = (TARGET_CURRENT, TARGET_MINIMUM_REPAIR, TARGET_FULL_TARGET,
+                TARGET_POLICY_COMPLIANT_REPAIR)
 
 #: A selection is an explicit operator act and carries its own token, distinct
 #: from the approval token so neither can ever be replayed as the other.
@@ -1673,6 +1760,1209 @@ def record_target_selection(*, target: str, confirm: Optional[str],
                 "selected_target_implementation_hash"),
             "position_count": (implementation or {}).get("position_count"),
             "selected_target_owner": _st.CALCULATION_OWNER}
+
+
+# --------------------------------------------------------------------------- #
+# R82 — THE GOVERNED RISK-POLICY RULING
+#
+# R69.5 withheld approval at SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW and left
+# one door through it: a per-request acknowledgement bound to the frozen book,
+# which on acceptance let the approval through. Two consequences followed.
+#
+#   1. Only ACCEPT_AS_IS was reachable. The second course R69.1 put to the operator
+#      — judge the cap against the universe the breach was RAISED against — had no
+#      recordable form, because the only outcome available unblocks the very
+#      approval that ruling refuses.
+#   2. No ruling was DURABLE. The ack lived inside the approval request, so a book
+#      nobody approved carried no ruling at all and the question re-opened on every
+#      read.
+#
+# This lane records the ruling itself: an immutable, append-only governed artifact
+# bound to ONE proposal, ONE selection and ONE frozen book, written through the
+# same store root, the same atomic writer and the same revision idiom as every
+# other governed record here. It is NOT an approval and it is NOT a second
+# decision authority — ``record_decision`` remains the only writer of a portfolio
+# decision, and this lane can only ever make an approval LESS available:
+# ACCEPT_AS_IS unblocks nothing, and the R69.5 acknowledgement gate stands exactly
+# as it stood.
+# --------------------------------------------------------------------------- #
+#: Re-exported from the kernel that defines them. One vocabulary, one owner.
+RULING_VOCAB = _st.RULING_VOCAB
+RULING_AVAILABLE = _st.RULING_AVAILABLE
+RULING_ACCEPT_AS_IS = _st.RULING_ACCEPT_AS_IS
+RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE = _st.RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE
+RULING_ADD_AN_ABSOLUTE_COMPANION_FLOOR = _st.RULING_ADD_AN_ABSOLUTE_COMPANION_FLOOR
+#: Distinct from the approval token AND from the selection token, so no one of the
+#: three can ever be replayed as another.
+RULING_CONFIRM_TOKEN = "CONFIRM_RISK_POLICY_RULING"
+
+RULING_RECORDED = "RULING_RECORDED"
+#: R82.1 — written, but with NO governed effect, because its provenance did not
+#: verify. Never collapsed into RULING_RECORDED: a caller that cannot tell the two
+#: apart would report an unverified artifact as a recorded operator decision.
+RULING_RECORDED_UNVERIFIED = "RULING_RECORDED_WITHOUT_VERIFIED_OPERATOR_PROVENANCE"
+RULING_REUSED = "RULING_REUSED_EXISTING"
+RULING_REVISED = "RULING_REVISED"
+RULING_NOT_RECORDED = "RULING_NOT_RECORDED"
+RULING_NOT_REQUIRED = "NO_RISK_POLICY_REVIEW_TO_RULE_ON"
+RULING_NOT_AVAILABLE = "RULING_NOT_AVAILABLE_IN_THIS_RELEASE"
+RULING_UNKNOWN = "RULING_NOT_IN_VOCABULARY"
+RULING_NO_SELECTION = "NO_GOVERNED_SELECTION_TO_RULE_ON"
+RULING_WRONG_BOOK = "RULING_BOUND_TO_A_DIFFERENT_BOOK"
+RULING_WRONG_LIMIT = "RULING_REFERENCE_LIMIT_MISMATCH"
+RULING_WRONG_INSTRUMENTS = "RULING_INSTRUMENTS_MISMATCH"
+RULING_WRONG_SELECTION = "RULING_BOUND_TO_A_DIFFERENT_SELECTION"
+RULING_NOT_PUBLISHED = ACK_NOT_PUBLISHED
+RULING_STATUS_VOCAB = (
+    RULING_RECORDED, RULING_RECORDED_UNVERIFIED, RULING_REUSED, RULING_REVISED,
+    RULING_NOT_RECORDED,
+    RULING_NOT_REQUIRED, RULING_NOT_AVAILABLE, RULING_UNKNOWN,
+    RULING_NO_SELECTION, RULING_WRONG_BOOK, RULING_WRONG_LIMIT,
+    RULING_WRONG_INSTRUMENTS, RULING_WRONG_SELECTION, RULING_NOT_PUBLISHED)
+
+_RULINGS_FILE = "risk_policy_rulings.json"
+_RULING_INDEX_FILE = "risk_policy_ruling_index.json"
+
+# --------------------------------------------------------------------------- #
+# R82.1 — RULING PROVENANCE: who actually made this ruling?
+#
+# R82 shipped a governed ruling store whose ``ruled_by`` is a free string the
+# CALLER supplies. A record written by a script with ``actor="operator"`` is then
+# byte-indistinguishable from one a human confirmed on a screen, and the store
+# cannot tell an authoritative human ruling from a development artifact. R82's own
+# live record is exactly that: it was written by a direct API call during
+# implementation and it says ``ruled_by: operator``.
+#
+# The correction is general and special-cases no record. A ruling now carries a
+# PROVENANCE block, the writer DERIVES the channel from evidence rather than
+# accepting the caller's word for it, and a ruling whose provenance is not verified
+# has NO governed effect: it is readable audit evidence, it binds nothing, and
+# approval stays withheld exactly as it would with no ruling at all. History is
+# never rewritten — a later verified ruling supersedes an unverified one through
+# the ordinary revision chain.
+#
+# WHAT THE VERIFIED CHANNEL PROVES, precisely, and nothing more: the submission
+# came from a client that had loaded THIS backend process's governed review panel
+# for THIS exact frozen book, echoed the single-use token that read minted, and
+# asserted the operator confirmation. No server-side check at this layer can prove
+# a human moved a mouse, and the record does not claim it does. What it does prove
+# is what the defect needed: a ruling can no longer be conjured by calling the
+# writer directly, because the token is never derivable from the store, the
+# vocabulary or the request — only from a governed read.
+# --------------------------------------------------------------------------- #
+#: Derived, never asserted by the caller.
+RULING_CHANNEL_OPERATOR_UI = "OPERATOR_UI_CONFIRMED"
+RULING_CHANNEL_API_DIRECT = "API_DIRECT_CALL"
+RULING_CHANNEL_ABSENT = "PROVENANCE_NOT_RECORDED"
+RULING_CHANNEL_VOCAB = (RULING_CHANNEL_OPERATOR_UI, RULING_CHANNEL_API_DIRECT,
+                        RULING_CHANNEL_ABSENT)
+#: The ONE channel that carries governed authority.
+RULING_CHANNEL_TRUSTED = (RULING_CHANNEL_OPERATOR_UI,)
+#: What ``ruled_by`` says when the caller named nobody. R82 defaulted it to
+#: "operator", which is how a development call came to be labelled as an operator's
+#: decision. Narration now defaults to silence.
+RULING_ACTOR_UNATTRIBUTED = "ACTOR_NOT_SUPPLIED"
+
+#: What a ruling may be USED for. A record is always readable; only an
+#: authoritative one governs anything.
+RULING_USE_AUTHORITATIVE = "AUTHORITATIVE_OPERATOR_RULING"
+RULING_USE_UNVERIFIED = "UNVERIFIED_REQUIRES_OPERATOR_CONFIRMATION"
+RULING_USE_VOCAB = (RULING_USE_AUTHORITATIVE, RULING_USE_UNVERIFIED)
+
+#: Why a provenance did not verify. Structured, never free text.
+PROV_OK = None
+PROV_MISSING = "NO_PROVENANCE_BLOCK_ON_THE_RECORD"
+PROV_NO_TOKEN = "NO_UI_SUBMISSION_TOKEN_PRESENTED"
+PROV_TOKEN_MISMATCH = "UI_SUBMISSION_TOKEN_DOES_NOT_MATCH_THIS_FROZEN_BOOK"
+#: R82.1.1 - the ceremony verdicts. Each names a DIFFERENT failure, because
+#: "unknown", "already spent" and "bound to another book" are not the same event and
+#: an operator debugging a refused ruling needs to be told which one happened.
+PROV_NO_CONFIRMATION = "NO_GOVERNED_OPERATOR_CONFIRMATION_PRESENTED"
+PROV_CONFIRMATION_UNKNOWN = "OPERATOR_CONFIRMATION_WAS_NEVER_ISSUED_BY_THIS_BACKEND"
+PROV_CONFIRMATION_REPLAYED = "OPERATOR_CONFIRMATION_ALREADY_CONSUMED"
+PROV_CONFIRMATION_EXPIRED = "OPERATOR_CONFIRMATION_EXPIRED"
+PROV_CONFIRMATION_WRONG_BOOK = (
+    "OPERATOR_CONFIRMATION_BOUND_TO_A_DIFFERENT_FROZEN_BOOK")
+PROV_CONFIRMATION_WRONG_RULING = "OPERATOR_CONFIRMATION_BOUND_TO_A_DIFFERENT_RULING"
+PROV_REASON_VOCAB = (PROV_MISSING, PROV_NO_TOKEN, PROV_TOKEN_MISMATCH,
+                     PROV_NO_CONFIRMATION, PROV_CONFIRMATION_UNKNOWN,
+                     PROV_CONFIRMATION_REPLAYED, PROV_CONFIRMATION_EXPIRED,
+                     PROV_CONFIRMATION_WRONG_BOOK, PROV_CONFIRMATION_WRONG_RULING)
+
+#: A per-PROCESS secret. It is minted at import and never persisted, so a
+#: submission token cannot be forged from the store, from the repository or from a
+#: previous run - only obtained from a governed read of this live process.
+_UI_SUBMISSION_SECRET = secrets.token_hex(32)
+
+# --------------------------------------------------------------------------- #
+# R82.1.1 - THE OPERATOR CONFIRMATION CEREMONY
+#
+# R82.1 derived the channel from a book-bound submission token plus a
+# ``confirmed_in_ui`` boolean. The token is a PURE FUNCTION of the frozen identity,
+# so any in-process caller could mint one by calling ``ruling_submission_token``,
+# and the boolean is a caller's claim. Token + claim was therefore not evidence of a
+# confirmation ceremony: it was evidence of knowing the book.
+#
+# The confirmation is now an ARTIFACT THIS PROCESS ISSUES and NOBODY CAN DERIVE. It
+# is minted only by ``open_ruling_confirmation``, lives only in this process's
+# memory, is never persisted, never returned by a read, and is spent the first time
+# it is presented. The ledger - not a boolean, not a surface string, not an actor
+# name - is what says a governed confirmation happened.
+#
+# WHAT THE VERIFIED CHANNEL PROVES, precisely, and nothing more: the ruling
+# submission consumed a single-use confirmation that THIS backend process issued,
+# for THIS exact frozen book and THIS exact ruling, in a ceremony that required the
+# book token a governed read had minted and the typed confirmation phrase, and that
+# had not expired and had never been spent. It does NOT prove a human moved a mouse,
+# and it does not try to: a client that performs every act of the ceremony is
+# treated as the operator, because that is what the ceremony IS. What it does prove
+# is exactly what the defect needed - a ruling can no longer be made authoritative
+# by obtaining the served token and asserting a boolean, because the confirmation is
+# not derivable from the store, the repository, the vocabulary, the request, or any
+# function a caller can call without performing the ceremony itself.
+# --------------------------------------------------------------------------- #
+#: Short-lived on purpose: a confirmation is opened by the act of ruling and spent
+#: moments later. A window long enough to leave lying around is a window long enough
+#: to be reused by something other than the act that opened it.
+RULING_CONFIRMATION_TTL_SECONDS = 180
+#: The ledger is bounded. A caller that opens ceremonies it never spends cannot grow
+#: this process's memory without limit; the oldest unspent entries fall out first.
+_RULING_CONFIRMATION_MAX = 64
+#: PROCESS-LOCAL and never persisted. A restart invalidates every open ceremony,
+#: which is the fail-closed answer: evidence that outlived the process that issued
+#: it would be evidence of nothing.
+_RULING_CONFIRMATIONS: dict = {}
+_RULING_CONFIRMATION_LOCK = threading.Lock()
+
+#: Why a ceremony was refused before any confirmation was issued.
+CEREMONY_OK = None
+CEREMONY_NO_BOOK = "NO_FROZEN_BOOK_TO_CONFIRM_AGAINST"
+CEREMONY_NO_PHRASE = "CONFIRMATION_PHRASE_NOT_PRESENTED"
+CEREMONY_RULING_UNKNOWN = "RULING_NOT_IN_VOCABULARY"
+CEREMONY_RULING_UNAVAILABLE = "RULING_NOT_AVAILABLE_IN_THIS_RELEASE"
+CEREMONY_REFUSAL_VOCAB = (CEREMONY_NO_BOOK, CEREMONY_NO_PHRASE,
+                          PROV_NO_TOKEN, PROV_TOKEN_MISMATCH,
+                          CEREMONY_RULING_UNKNOWN, CEREMONY_RULING_UNAVAILABLE)
+#: Where the ceremony is performed. Published beside the ruling route so a screen
+#: never has to hold a copy of either path.
+RULING_CONFIRMATION_ROUTE = (
+    "/v1/operations/portfolio-decision/risk-policy-ruling/confirmation")
+
+
+def ruling_submission_token(*, selection_id: Optional[str],
+                            selected_target_implementation_hash: Optional[str],
+                            reference_limit: Optional[float]) -> Optional[str]:
+    """The book-bound token a governed READ mints, and what it is NOT.
+
+    It proves that its holder read THIS live process's governed review of THIS exact
+    frozen book: it is salted with a per-process secret, so it cannot be derived
+    from the store, the repository or a previous run.
+
+    It is NOT, on its own, evidence of an operator decision - R82.1 treated it as
+    half of one, and that was the defect. It is a PRECONDITION of opening the
+    confirmation ceremony (``open_ruling_confirmation``) and nothing more. Returns
+    None when there is no frozen book to bind, in which case no ruling is
+    submittable and the write surface offers none.
+    """
+    if not selection_id or not selected_target_implementation_hash:
+        return None
+    payload = "|".join((
+        _UI_SUBMISSION_SECRET, "R82.1-RULING",
+        str(selection_id), str(selected_target_implementation_hash),
+        ("" if reference_limit is None else repr(round(float(reference_limit), 10))),
+    ))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:40]
+
+
+def _confirmation_key(confirmation: Optional[str]) -> Optional[str]:
+    """Ledger entries are keyed by the HASH of the confirmation, never by it.
+
+    Nothing that can be presented as evidence is held in the structure a diagnostic
+    dump, a traceback or a repr would print.
+    """
+    if not isinstance(confirmation, str) or not confirmation:
+        return None
+    return hashlib.sha256(confirmation.encode("utf-8")).hexdigest()
+
+
+def _same_reference_limit(a: Optional[float], b: Optional[float]) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    try:
+        return abs(float(a) - float(b)) <= 1.0e-9
+    except (TypeError, ValueError):
+        return False
+
+
+def _sweep_ruling_confirmations(mono: float) -> None:
+    """Drop everything past its window. The caller holds the lock."""
+    dead = [k for k, v in _RULING_CONFIRMATIONS.items()
+            if mono >= v.get("expires_mono", 0.0)]
+    for k in dead:
+        _RULING_CONFIRMATIONS.pop(k, None)
+    while len(_RULING_CONFIRMATIONS) > _RULING_CONFIRMATION_MAX:
+        oldest = min(_RULING_CONFIRMATIONS.items(),
+                     key=lambda kv: kv[1].get("issued_mono", 0.0))[0]
+        _RULING_CONFIRMATIONS.pop(oldest, None)
+
+
+def open_ruling_confirmation(*, ruling: Optional[str],
+                             confirm: Optional[str],
+                             submission_token: Optional[str],
+                             selection_id: Optional[str],
+                             selected_target_implementation_hash: Optional[str],
+                             reference_limit: Optional[float],
+                             surface: Optional[str] = None,
+                             actor: Optional[str] = None,
+                             now: Optional[datetime] = None) -> dict:
+    """ACT ONE of the governed ceremony: issue ONE single-use operator confirmation.
+
+    This is the ONLY place a confirmation comes into existence. It is minted here,
+    held in this process's memory, and returned to the caller exactly once - it is
+    never stored, never re-derivable and never published by any read.
+
+    The ceremony refuses unless the caller presents, together:
+
+      * the book token a governed READ of this live process minted for this exact
+        frozen book - so a caller that never read the governed review cannot open a
+        ceremony about it;
+      * the typed confirmation phrase - the same explicit act the write demands; and
+      * ONE ruling from the available vocabulary - so the confirmation is bound to
+        the CHOICE, and cannot be carried to a different one.
+
+    It records nothing durable, approves nothing and rules on nothing: opening a
+    ceremony is not a decision, and abandoning one leaves no artifact behind.
+    """
+    ts = _now_iso(now)
+    base = {"owner": OWNER, "phase": "R82.1.1", "issued": False, "refused": True,
+            "confirmation": None, "confirmation_id": None,
+            "ttl_seconds": RULING_CONFIRMATION_TTL_SECONDS,
+            "confirm_token": RULING_CONFIRM_TOKEN,
+            "route": RULING_ROUTE,
+            "confirmation_route": RULING_CONFIRMATION_ROUTE,
+            "refusal_vocabulary": list(CEREMONY_REFUSAL_VOCAB),
+            "issued_at": ts,
+            "is_an_approval": False, "approves_proposal": False,
+            "records_a_ruling": False, "records_a_portfolio_decision": False,
+            "creates_order_plan": False, "creates_orders": False,
+            "creates_fills": False, "executes": False, "deploys_capital": False,
+            "changes_declared_policy": False,
+            "manual_approval_still_required": True}
+
+    want_token = ruling_submission_token(
+        selection_id=selection_id,
+        selected_target_implementation_hash=selected_target_implementation_hash,
+        reference_limit=reference_limit)
+    if not want_token:
+        return {**base, "reason": CEREMONY_NO_BOOK,
+                "message": ("There is no frozen book to confirm a ruling against, "
+                            "so no operator confirmation was issued.")}
+    if confirm != RULING_CONFIRM_TOKEN:
+        return {**base, "reason": CEREMONY_NO_PHRASE,
+                "message": ("The governed confirmation requires the explicit "
+                            "phrase %s." % RULING_CONFIRM_TOKEN)}
+    if not submission_token:
+        return {**base, "reason": PROV_NO_TOKEN,
+                "message": ("A confirmation is issued only to a client that has "
+                            "read this backend's governed review of this frozen "
+                            "book and echoes the token that read minted.")}
+    if not secrets.compare_digest(str(submission_token), want_token):
+        return {**base, "reason": PROV_TOKEN_MISMATCH,
+                "message": ("The submission token names a different frozen book "
+                            "than the one this confirmation would bind. Re-read the "
+                            "governed review and confirm again.")}
+    effect = _st.ruling_effect(ruling)
+    if not effect["known"]:
+        return {**base, "reason": CEREMONY_RULING_UNKNOWN, "ruling": ruling,
+                "message": effect["detail"]}
+    if not effect["available"]:
+        return {**base, "reason": CEREMONY_RULING_UNAVAILABLE, "ruling": ruling,
+                "message": effect["detail"]}
+
+    confirmation = secrets.token_urlsafe(32)
+    confirmation_id = "rconf_%s" % secrets.token_hex(8)
+    mono = time.monotonic()
+    entry = {
+        "confirmation_id": confirmation_id,
+        "ruling": ruling,
+        "selection_id": selection_id,
+        "selected_target_implementation_hash": selected_target_implementation_hash,
+        "reference_limit": reference_limit,
+        "issued_at": ts,
+        "issued_mono": mono,
+        "expires_mono": mono + float(RULING_CONFIRMATION_TTL_SECONDS),
+        "consumed": False,
+        "consumed_at": None,
+        "consumed_outcome": None,
+        "surface": surface,
+        "actor": actor,
+    }
+    with _RULING_CONFIRMATION_LOCK:
+        _sweep_ruling_confirmations(mono)
+        _RULING_CONFIRMATIONS[_confirmation_key(confirmation)] = entry
+    return {**base, "issued": True, "refused": False, "reason": CEREMONY_OK,
+            "confirmation": confirmation,
+            "confirmation_id": confirmation_id,
+            "ruling": ruling,
+            "expires_in_seconds": RULING_CONFIRMATION_TTL_SECONDS,
+            "single_use": True,
+            "issuer": OWNER,
+            "binds": {
+                "ruling": ruling,
+                "selection_id": selection_id,
+                "selected_target_implementation_hash": (
+                    selected_target_implementation_hash),
+                "reference_limit": reference_limit,
+            },
+            "message": ("A single-use operator confirmation was issued for this "
+                        "ruling on this frozen book. It is spent by the ruling "
+                        "submission, expires in %ds, and confirms nothing on its "
+                        "own." % RULING_CONFIRMATION_TTL_SECONDS)}
+
+
+def consume_ruling_confirmation(*, confirmation: Optional[str],
+                                ruling: Optional[str],
+                                selection_id: Optional[str],
+                                selected_target_implementation_hash: Optional[str],
+                                reference_limit: Optional[float],
+                                now: Optional[datetime] = None) -> dict:
+    """ACT TWO: SPEND the confirmation, and say what spending it proved.
+
+    The entry is marked consumed the moment it is presented, BEFORE its bindings are
+    judged. That ordering is deliberate: a confirmation presented against the wrong
+    book or the wrong ruling is spent by that attempt and cannot be re-aimed at the
+    right one. A single-use credential that survives a failed use is not single-use.
+
+    Pure with respect to the durable store - it reads and writes nothing on disk.
+    """
+    ts = _now_iso(now)
+    out = {"verified": False, "reason": PROV_NO_CONFIRMATION,
+           "presented": bool(confirmation), "consumed": False,
+           "confirmation_id": None, "issued_at": None, "consumed_at": None,
+           "ttl_seconds": RULING_CONFIRMATION_TTL_SECONDS,
+           "issuer": OWNER, "single_use": True,
+           "reason_vocabulary": list(PROV_REASON_VOCAB)}
+    key = _confirmation_key(confirmation)
+    if not key:
+        return out
+    mono = time.monotonic()
+    with _RULING_CONFIRMATION_LOCK:
+        # Look up BEFORE sweeping, so an entry that is merely past its window is
+        # refused as EXPIRED rather than as UNKNOWN. The two are different events and
+        # an operator whose confirmation timed out is owed the one that happened.
+        entry = _RULING_CONFIRMATIONS.get(key)
+        if entry is None:
+            _sweep_ruling_confirmations(mono)
+            # Either never issued, or issued and already spent long enough ago to
+            # have fallen out of the window. Both are refusals; neither is a hint.
+            return {**out, "reason": PROV_CONFIRMATION_UNKNOWN}
+        if entry.get("consumed"):
+            return {**out, "reason": PROV_CONFIRMATION_REPLAYED,
+                    "confirmation_id": entry.get("confirmation_id"),
+                    "issued_at": entry.get("issued_at"),
+                    "consumed_at": entry.get("consumed_at"),
+                    "first_use_outcome": entry.get("consumed_outcome")}
+        if mono >= entry.get("expires_mono", 0.0):
+            entry["consumed"] = True
+            entry["consumed_at"] = ts
+            entry["consumed_outcome"] = PROV_CONFIRMATION_EXPIRED
+            _sweep_ruling_confirmations(mono)
+            return {**out, "reason": PROV_CONFIRMATION_EXPIRED, "consumed": True,
+                    "confirmation_id": entry.get("confirmation_id"),
+                    "issued_at": entry.get("issued_at"), "consumed_at": ts}
+        # Spend it first, judge it second.
+        entry["consumed"] = True
+        entry["consumed_at"] = ts
+        same_book = (
+            entry.get("selection_id") == selection_id
+            and entry.get("selected_target_implementation_hash")
+            == selected_target_implementation_hash
+            and _same_reference_limit(entry.get("reference_limit"),
+                                      reference_limit))
+        if not same_book:
+            reason = PROV_CONFIRMATION_WRONG_BOOK
+        elif entry.get("ruling") != ruling:
+            reason = PROV_CONFIRMATION_WRONG_RULING
+        else:
+            reason = PROV_OK
+        entry["consumed_outcome"] = reason
+        return {**out, "verified": reason is PROV_OK, "reason": reason,
+                "consumed": True,
+                "confirmation_id": entry.get("confirmation_id"),
+                "issued_at": entry.get("issued_at"), "consumed_at": ts,
+                "bound_ruling": entry.get("ruling"),
+                "bound_selection_id": entry.get("selection_id"),
+                "bound_selected_target_implementation_hash": entry.get(
+                    "selected_target_implementation_hash"),
+                "bound_reference_limit": entry.get("reference_limit"),
+                "ceremony_surface": entry.get("surface"),
+                "ceremony_actor": entry.get("actor")}
+
+
+def ruling_provenance(*, submission_token: Optional[str] = None,
+                      confirmed_in_ui: Optional[bool] = None,
+                      consumption: Optional[dict] = None,
+                      ruling: Optional[str] = None,
+                      selection_id: Optional[str] = None,
+                      selected_target_implementation_hash: Optional[str] = None,
+                      reference_limit: Optional[float] = None,
+                      surface: Optional[str] = None,
+                      actor: Optional[str] = None) -> dict:
+    """DERIVE the provenance of one ruling submission from its evidence.
+
+    PURE. It spends nothing: ``consumption`` is the verdict
+    ``consume_ruling_confirmation`` already returned, and a caller that presents no
+    consumed confirmation gets an UNVERIFIED provenance by construction. That is why
+    every argument defaults to None - the absence of evidence is the ordinary case,
+    and it has to fail closed without anyone remembering to make it.
+
+    The channel is decided here and is never read from the request. ``actor``,
+    ``surface`` and ``confirmed_in_ui`` are recorded as what the caller CLAIMED and
+    weigh nothing: a caller that could name its own channel - or be believed about
+    the screen it was sitting at - would reproduce the very defect this closes.
+    """
+    want = ruling_submission_token(
+        selection_id=selection_id,
+        selected_target_implementation_hash=selected_target_implementation_hash,
+        reference_limit=reference_limit)
+    token_bound = bool(submission_token and want
+                       and secrets.compare_digest(str(submission_token), want))
+    cons = consumption if isinstance(consumption, dict) else {}
+    ceremony_ok = cons.get("verified") is True
+    if not ceremony_ok:
+        reason = cons.get("reason") or PROV_NO_CONFIRMATION
+    elif not submission_token:
+        reason = PROV_NO_TOKEN
+    elif not token_bound:
+        reason = PROV_TOKEN_MISMATCH
+    else:
+        reason = PROV_OK
+    verified = reason is PROV_OK
+    return {
+        "channel": (RULING_CHANNEL_OPERATOR_UI if verified
+                    else RULING_CHANNEL_API_DIRECT),
+        "channel_vocabulary": list(RULING_CHANNEL_VOCAB),
+        "channel_derived_by": OWNER,
+        "channel_asserted_by_caller": False,
+        "verified": verified,
+        "reason": reason,
+        "reason_vocabulary": list(PROV_REASON_VOCAB),
+        # --- the CEREMONY: the only evidence that carries any weight here ------- #
+        "ceremony": "R82.1.1_SINGLE_USE_OPERATOR_CONFIRMATION",
+        "ceremony_issuer": OWNER,
+        "ceremony_route": RULING_CONFIRMATION_ROUTE,
+        "ceremony_verified": ceremony_ok,
+        "ceremony_reason": cons.get("reason") or PROV_NO_CONFIRMATION,
+        "confirmation_presented": bool(cons.get("presented")),
+        "confirmation_consumed": bool(cons.get("consumed")),
+        "confirmation_id": cons.get("confirmation_id"),
+        "confirmation_issued_at": cons.get("issued_at"),
+        "confirmation_consumed_at": cons.get("consumed_at"),
+        "confirmation_is_single_use": True,
+        "confirmation_is_derivable_by_a_caller": False,
+        "confirmation_ttl_seconds": RULING_CONFIRMATION_TTL_SECONDS,
+        # --- CLAIMS: recorded, never weighed ------------------------------------ #
+        "operator_confirmation_asserted": confirmed_in_ui is True,
+        "asserted_confirmation_is_evidence": False,
+        "surface_is_evidence": False,
+        "actor_is_evidence": False,
+        "submission_token_presented": bool(submission_token),
+        "submission_token_bound_to_this_book": token_bound,
+        "submission_token_alone_is_evidence": False,
+        "bound_ruling": ruling,
+        "bound_selection_id": selection_id,
+        "bound_selected_target_implementation_hash": (
+            selected_target_implementation_hash),
+        "bound_reference_limit": reference_limit,
+        "surface": surface,
+        "actor": actor,
+        "operational_use": (RULING_USE_AUTHORITATIVE if verified
+                            else RULING_USE_UNVERIFIED),
+        "proves": (
+            "This submission spent a single-use operator confirmation that this "
+            "backend process issued for this exact frozen book and this exact "
+            "ruling, in a ceremony that required the token a governed read of this "
+            "process had minted and the typed confirmation phrase. The confirmation "
+            "had not expired and had never been spent before."
+            if verified else
+            "Nothing. This submission spent no operator confirmation issued by this "
+            "backend for this ruling on this frozen book."),
+        "does_not_prove": (
+            "That a specific human being pressed a key. No check at this layer can, "
+            "and this record does not claim it: a client that performs every act of "
+            "the ceremony is treated as the operator. What it does exclude is a "
+            "caller becoming authoritative by obtaining the served token and "
+            "asserting a confirmation, which is what R82.1 allowed."),
+    }
+
+
+def ruling_provenance_state(record: Optional[dict]) -> dict:
+    """Is the ruling on THIS record authoritative for operational use?
+
+    Fails closed on absence, which is the whole point: every ruling written before
+    R82.1 carries no provenance block at all, so none of them governs anything. The
+    record stays readable audit evidence either way. No ruling id is special-cased
+    anywhere in this function.
+    """
+    rec = record if isinstance(record, dict) else {}
+    prov = rec.get("provenance")
+    if not isinstance(prov, dict) or not prov:
+        return {
+            "verified": False, "channel": RULING_CHANNEL_ABSENT,
+            "reason": PROV_MISSING,
+            "operational_use": RULING_USE_UNVERIFIED,
+            "channel_vocabulary": list(RULING_CHANNEL_VOCAB),
+            "use_vocabulary": list(RULING_USE_VOCAB),
+            "readable_as_audit_evidence": True,
+            "supersedable_by_a_verified_ruling": True,
+            "detail": (
+                "This ruling carries no provenance block, so there is no evidence it "
+                "was recorded by an operator through the governed review screen. It "
+                "is kept as readable audit evidence and binds nothing: the binding "
+                "cap is unchanged by it and approval stays withheld until a ruling "
+                "with verified operator provenance is recorded. Recording one "
+                "supersedes this record through the normal governed revision path; "
+                "nothing is deleted or rewritten."),
+        }
+    verified = (prov.get("verified") is True
+                and prov.get("channel") in RULING_CHANNEL_TRUSTED)
+    return {
+        "verified": bool(verified),
+        "channel": prov.get("channel"),
+        "reason": (None if verified else (prov.get("reason") or PROV_MISSING)),
+        "operational_use": (RULING_USE_AUTHORITATIVE if verified
+                            else RULING_USE_UNVERIFIED),
+        "channel_vocabulary": list(RULING_CHANNEL_VOCAB),
+        "use_vocabulary": list(RULING_USE_VOCAB),
+        "readable_as_audit_evidence": True,
+        "supersedable_by_a_verified_ruling": not verified,
+        "surface": prov.get("surface"),
+        "operator_confirmation_asserted": prov.get(
+            "operator_confirmation_asserted"),
+        "detail": (
+            "Recorded by an operator through the governed review screen for this "
+            "exact frozen book." if verified else
+            "This ruling was not submitted through the governed operator review of "
+            "this frozen book (%s), so it binds nothing and is kept as readable "
+            "audit evidence." % (prov.get("reason") or PROV_MISSING)),
+    }
+
+
+def _rulings_path(decision_dir=None) -> Path:
+    return _decision_dir(decision_dir) / _RULINGS_FILE
+
+
+def _ruling_index_path(decision_dir=None) -> Path:
+    return _decision_dir(decision_dir) / _RULING_INDEX_FILE
+
+
+def load_risk_policy_ruling(*, active_book_id: Optional[str],
+                            eligible_market_date: Optional[str],
+                            selected_target_implementation_hash: Optional[str] = None,
+                            decision_dir=None) -> Optional[dict]:
+    """The latest governed risk-policy ruling for an exact (book, session), or None.
+
+    When ``selected_target_implementation_hash`` is given, a ruling recorded against
+    a DIFFERENT frozen book is not returned. That is the whole point of binding it:
+    a ruling is about one book, so a selection revised underneath it leaves the new
+    book unruled rather than inheriting a ruling nobody made about it.
+
+    PURE reader; never raises.
+    """
+    try:
+        index = _load_json(_ruling_index_path(decision_dir)) or {}
+        ptr = index.get(_index_key(active_book_id, eligible_market_date))
+        if not ptr:
+            return None
+        rid = ptr.get("ruling_id")
+        rows = _load_json(_rulings_path(decision_dir)) or []
+        rec = None
+        for r in reversed(rows):
+            if r.get("ruling_id") == rid:
+                rec = r
+                break
+        if rec is None:
+            rec = ptr.get("record")
+        if rec is None:
+            return None
+        if (selected_target_implementation_hash is not None
+                and rec.get("selected_target_implementation_hash")
+                != selected_target_implementation_hash):
+            return None
+        return rec
+    except Exception:  # noqa: BLE001 - a pure read must never crash the caller
+        return None
+
+
+def record_risk_policy_ruling(*, ruling: Optional[str], confirm: Optional[str],
+                              selection: Optional[dict] = None,
+                              expected_selection_id: Optional[str] = None,
+                              expected_selected_target_implementation_hash:
+                                  Optional[str] = None,
+                              expected_reference_limit: Optional[float] = None,
+                              instruments: Optional[list] = None,
+                              actor: Optional[str] = None,
+                              submission_token: Optional[str] = None,
+                              confirmed_in_ui: Optional[bool] = None,
+                              operator_confirmation: Optional[str] = None,
+                              surface: Optional[str] = None,
+                              decision_dir=None,
+                              now: Optional[datetime] = None) -> dict:
+    """Record ONE durable governed ruling on the moving-denominator policy question.
+
+    It is NOT an approval: it records no decision, builds no order plan, creates no
+    order or fill, moves no capital, mutates no proposal and does not touch the
+    frozen selection record or its ``selected_target_implementation_hash``. It also
+    changes no declared threshold and grants no standing exception — the 3/N policy
+    stays exactly as ``engine.holding_opportunity_cost`` declares it, and the ruling
+    binds only the ONE proposal and target it names.
+
+    Fails closed on every identity that could have moved underneath the operator
+    (selection id, frozen book hash, reference limit, instrument set), for the same
+    reason the acknowledgement does: a ruling that names a different book is not a
+    weaker ruling, it is a ruling about something else.
+
+    Idempotent — the same ruling against the same identities writes no second
+    artifact; a DIFFERENT ruling on the same book is preserved as an auditable
+    revision with the superseded id retained.
+
+    R82.1 — every record carries a DERIVED provenance block, and only a ruling whose
+    provenance verifies has governed effect. R82.1.1 — the evidence is
+    ``operator_confirmation``: a single-use confirmation this backend issued through
+    ``open_ruling_confirmation`` for this exact frozen book and this exact ruling,
+    which is SPENT here and cannot be spent twice. ``submission_token`` binds the
+    book; ``confirmed_in_ui``, ``surface`` and ``actor`` are recorded as claims and
+    weigh nothing. Without a confirmation the ruling is still written (so an
+    attempted ruling is auditable) and marked ``UNVERIFIED``, which binds nothing and
+    leaves approval withheld. The channel is derived here from that evidence — a
+    caller can neither declare its own provenance nor mint its own confirmation.
+    """
+    ts = _now_iso(now)
+    base = {"owner": OWNER, "phase": "R82", "recorded": False, "reused": False,
+            "revised": False, "evaluated_at": ts,
+            "ruling_vocabulary": list(RULING_VOCAB),
+            "available_rulings": list(RULING_AVAILABLE),
+            "status_vocabulary": list(RULING_STATUS_VOCAB),
+            "confirm_token": RULING_CONFIRM_TOKEN,
+            "scope": _st.RULING_SCOPE,
+            "provenance_channel_vocabulary": list(RULING_CHANNEL_VOCAB),
+            "provenance_use_vocabulary": list(RULING_USE_VOCAB),
+            "is_an_approval": False, "approves_proposal": False,
+            "records_a_portfolio_decision": False,
+            "creates_order_plan": False, "creates_orders": False,
+            "creates_fills": False, "executes": False, "deploys_capital": False,
+            "mutates_proposal": False, "mutates_selection": False,
+            "changes_declared_policy": False,
+            "grants_standing_exception": False,
+            "creates_absolute_companion_floor": False,
+            "unblocks_approval": False,
+            "decided_by_llm": False,
+            "manual_approval_still_required": True}
+
+    if confirm != RULING_CONFIRM_TOKEN:
+        return {**base, "status": RULING_NOT_RECORDED,
+                "message": ("A risk-policy ruling requires the explicit "
+                            "confirmation token %s." % RULING_CONFIRM_TOKEN)}
+
+    effect = _st.ruling_effect(ruling)
+    if not effect["known"]:
+        return {**base, "status": RULING_UNKNOWN, "ruling": ruling,
+                "message": effect["detail"]}
+    if not effect["available"]:
+        return {**base, "status": RULING_NOT_AVAILABLE, "ruling": ruling,
+                "reason": effect["reason"], "message": effect["detail"]}
+
+    if not selection:
+        return {**base, "status": RULING_NO_SELECTION, "ruling": ruling,
+                "message": ("There is no governed target selection for this book "
+                            "and session, so there is no frozen target to rule on. "
+                            "Select a target first.")}
+
+    review = selection_policy_review(selection)
+    if not review.get("published"):
+        return {**base, "status": RULING_NOT_PUBLISHED, "ruling": ruling,
+                "risk_policy_review": review,
+                "message": review.get("detail") or (
+                    "This selection published no risk-policy verdict, so there is "
+                    "nothing a ruling could bind.")}
+    if not review.get("required"):
+        return {**base, "status": RULING_NOT_REQUIRED, "ruling": ruling,
+                "risk_policy_review": review,
+                "message": ("This target complies with the limit the current book "
+                            "was judged against, so no risk-policy ruling stands "
+                            "between it and the existing approval gates. Nothing "
+                            "was written.")}
+
+    # --- bound identity: the same book, cap and names the operator was shown ---- #
+    sid = selection.get("selection_id")
+    if expected_selection_id is not None and expected_selection_id != sid:
+        return {**base, "status": RULING_WRONG_SELECTION, "ruling": ruling,
+                "expected_selection_id": expected_selection_id,
+                "actual_selection_id": sid,
+                "message": ("The governed selection changed since it was reviewed, "
+                            "so this ruling would bind a target the operator never "
+                            "saw. Re-review before ruling.")}
+    want_hash = review.get("implementation_hash")
+    got_hash = expected_selected_target_implementation_hash
+    if got_hash is not None and got_hash != want_hash:
+        return {**base, "status": RULING_WRONG_BOOK, "ruling": ruling,
+                "expected_selected_target_implementation_hash": want_hash,
+                "ruled_selected_target_implementation_hash": got_hash,
+                "message": ("This ruling names a different frozen book than the "
+                            "selection holds. A ruling is about one book; it is "
+                            "refused rather than carried to another.")}
+    want_limit = review.get("reference_limit")
+    if expected_reference_limit is not None and want_limit is not None and (
+            abs(float(expected_reference_limit) - float(want_limit)) > 1.0e-9):
+        return {**base, "status": RULING_WRONG_LIMIT, "ruling": ruling,
+                "expected_reference_limit": want_limit,
+                "ruled_reference_limit": expected_reference_limit,
+                "message": ("This ruling names a different reference limit than "
+                            "the one this book was judged against.")}
+    want_names = sorted(review.get("instruments") or [])
+    if instruments is not None and sorted(instruments) != want_names:
+        return {**base, "status": RULING_WRONG_INSTRUMENTS, "ruling": ruling,
+                "expected_instruments": want_names,
+                "ruled_instruments": sorted(instruments or []),
+                "message": ("This ruling names a different instrument set than the "
+                            "one in breach against the reference limit.")}
+
+    impl = selection.get("selected_target_implementation") or {}
+    binding_block = selection.get("binding") or {}
+    derived = _st.apply_policy_ruling(
+        risk_contribution=(impl.get("risk_contribution") or {}), ruling=ruling)
+
+    # --- provenance: DERIVED from evidence, never taken from the caller --------- #
+    # The confirmation is SPENT here, after every identity check above has passed,
+    # so a refused ruling never burns the operator's ceremony, and a ruling that
+    # reaches this line can never be re-submitted with the same evidence.
+    consumption = consume_ruling_confirmation(
+        confirmation=operator_confirmation, ruling=ruling, selection_id=sid,
+        selected_target_implementation_hash=want_hash,
+        reference_limit=want_limit, now=now)
+    provenance = ruling_provenance(
+        submission_token=submission_token, confirmed_in_ui=confirmed_in_ui,
+        consumption=consumption, ruling=ruling,
+        selection_id=sid, selected_target_implementation_hash=want_hash,
+        reference_limit=want_limit, surface=surface, actor=actor)
+    verified = bool(provenance["verified"])
+
+    book_id = binding_block.get("active_book_id")
+    session = binding_block.get("eligible_market_date")
+    existing = load_risk_policy_ruling(active_book_id=book_id,
+                                       eligible_market_date=session,
+                                       decision_dir=decision_dir)
+    same_book = bool(existing and existing.get(
+        "selected_target_implementation_hash") == want_hash)
+    # Reuse requires the same ruling AND the same authority. An unverified record
+    # must never absorb a later verified ruling into itself — the verified one has
+    # to reach the store, or the operator's actual decision would be silently
+    # answered with "already on record" by an artifact that governs nothing.
+    existing_verified = (ruling_provenance_state(existing)["verified"]
+                         if existing else False)
+    if (existing and same_book and existing.get("ruling") == ruling
+            and existing_verified == verified):
+        return {**base, "status": RULING_REUSED, "recorded": True, "reused": True,
+                "ruling": ruling, "record": existing,
+                "risk_policy_review": review, "derived": derived,
+                "provenance": provenance,
+                "provenance_verified": verified,
+                "provenance_state": ruling_provenance_state(existing),
+                "message": ("This ruling is already on record against this exact "
+                            "frozen book. No second artifact was written.")}
+
+    revised = bool(existing and same_book)
+    ruling_id = "prul_%s_%s_%s_%s" % (
+        session or "nodate", book_id or "book",
+        str(selection.get("selected_target") or "target").lower(),
+        str(want_hash or "")[:12])
+    if revised:
+        ruling_id += "_r%d" % (int((existing or {}).get("revision", 0)) + 1)
+
+    record = {
+        "ruling_id": ruling_id,
+        "owner": OWNER,
+        "phase": "R82",
+        "artifact_kind": "risk_policy_ruling",
+        "artifact_doc": (
+            "A GOVERNANCE artifact. It records an operator's ruling on the "
+            "moving-denominator risk-contribution question for ONE frozen "
+            "proposal and ONE selected target. It is not an approval, it changes "
+            "no declared threshold and it grants no standing exception."),
+        "ruling": ruling,
+        "ruling_label": effect["detail"],
+        "binds": effect["binds"],
+        "ruled_at": ts,
+        # R82.1 — the ACTOR as the caller named them, which is narration, and the
+        # PROVENANCE, which is evidence. They are separate fields because R82 had
+        # only the first and a record that said "operator" could not be trusted to
+        # mean one. The default is no longer "operator": a caller that names nobody
+        # is now recorded as naming nobody, rather than as the portfolio operator.
+        "ruled_by": actor or RULING_ACTOR_UNATTRIBUTED,
+        "ruled_by_is_evidence": False,
+        "provenance": provenance,
+        "provenance_verified": verified,
+        "provenance_contract": (
+            "R82.1.1_RULING_AUTHORITY_REQUIRES_A_SPENT_GOVERNED_OPERATOR_"
+            "CONFIRMATION"),
+        "governs_this_book": verified,
+        "revision": (int((existing or {}).get("revision", 0)) + 1) if revised else 0,
+        "supersedes_ruling_id": (existing or {}).get("ruling_id") if revised else None,
+        # --- the exact identity this ruling is about --------------------------- #
+        "active_book_id": book_id,
+        "eligible_market_date": session,
+        "proposal_id": binding_block.get("proposal_id"),
+        "proposal_hash": binding_block.get("proposal_hash"),
+        "review_hash": binding_block.get("review_hash"),
+        "selection_id": sid,
+        "selected_target": selection.get("selected_target"),
+        "selected_target_implementation_hash": want_hash,
+        "reference_limit": want_limit,
+        "governed_limit": review.get("governed_limit"),
+        "instruments": want_names,
+        "risk_policy_review_state": review.get("state"),
+        "policy_owner": _st.RISK_POLICY_OWNER,
+        # --- what the ruling MEANS for this book, derived by the kernel -------- #
+        "derived": derived,
+        "binding_limit": derived.get("binding_limit"),
+        "binding_limit_source": derived.get("binding_limit_source"),
+        "reopened_obligations": derived.get("reopened_obligations"),
+        "reopened_obligation_count": derived.get("reopened_obligation_count"),
+        "approval_blocked_by_this_ruling": derived.get(
+            "approval_blocked_by_this_ruling"),
+        "scope": _st.RULING_SCOPE,
+        "confirm_token": RULING_CONFIRM_TOKEN,
+        "manual_review_reference": _st.POLICY_REVIEW_REFERENCE_DOC,
+        "is_an_approval": False,
+        "changes_declared_policy": False,
+        "grants_standing_exception": False,
+        "creates_absolute_companion_floor": False,
+        "unblocks_approval": False,
+        "creates_order_plan": False,
+        "creates_orders": False,
+    }
+
+    rows = _load_json(_rulings_path(decision_dir)) or []
+    if not isinstance(rows, list):
+        rows = []
+    rows.append(record)
+    _atomic_write_json(_rulings_path(decision_dir), rows)
+    index = _load_json(_ruling_index_path(decision_dir)) or {}
+    index[_index_key(book_id, session)] = {
+        "ruling_id": ruling_id, "ruling": ruling,
+        "selection_id": sid,
+        "selected_target": selection.get("selected_target"),
+        "selected_target_implementation_hash": want_hash,
+        "reference_limit": want_limit,
+        "binding_limit": derived.get("binding_limit"),
+        "approval_blocked_by_this_ruling": derived.get(
+            "approval_blocked_by_this_ruling"),
+        "provenance_verified": verified,
+        "ruled_at": ts, "record": record}
+    _atomic_write_json(_ruling_index_path(decision_dir), index)
+    # An unverified write reports UNVERIFIED whether or not it revised something:
+    # "REVISED" on its own would read as a governed decision replacing another.
+    status = (RULING_RECORDED_UNVERIFIED if not verified
+              else (RULING_REVISED if revised else RULING_RECORDED))
+    return {**base, "status": status,
+            "recorded": True, "revised": revised, "ruling": ruling,
+            "ruling_id": ruling_id, "record": record,
+            "risk_policy_review": review, "derived": derived,
+            "provenance": provenance, "provenance_verified": verified,
+            "provenance_state": ruling_provenance_state(record),
+            "governs_this_book": verified,
+            "message": (derived.get("detail") if verified else
+                        ("The ruling was written as audit evidence and GOVERNS "
+                         "NOTHING: %s. Approval stays withheld exactly as it was, "
+                         "the binding cap is unchanged, and a ruling recorded "
+                         "through the governed operator review supersedes this "
+                         "record." % provenance["reason"]))}
+
+
+def risk_policy_ruling_state(*, selection: Optional[dict],
+                             ruling_record: Optional[dict] = None,
+                             decision_dir=None) -> dict:
+    """The ruled state ONE frozen selection carries, for a READ surface.
+
+    Composed, never recomputed: the ruling is read from the governed store and its
+    meaning from ``engine.selected_target.apply_policy_ruling`` over the frozen
+    book's own risk block. The frozen artifact is not modified — this is a layer
+    published beside it, so ``selected_target_implementation_hash`` never moves.
+
+    ``UNRULED`` is the honest state for a book nobody has ruled on, and it is NOT
+    read as permission: the R69.5 gate continues to withhold approval there.
+
+    R82.1 — a ruling with UNVERIFIED provenance reaches the honest FOURTH state:
+    the record is published so the operator can see it, and it binds nothing. It
+    neither blocks approval (that would let a development artifact govern) nor
+    clears the policy review (that would let one grant). Approval therefore stays
+    withheld exactly where it was, which is the only fail-closed answer.
+    """
+    sel = selection or {}
+    impl = sel.get("selected_target_implementation") or {}
+    review = selection_policy_review(sel)
+    want_hash = review.get("implementation_hash")
+    binding_block = sel.get("binding") or {}
+    rec = ruling_record
+    if rec is None and sel:
+        rec = load_risk_policy_ruling(
+            active_book_id=binding_block.get("active_book_id"),
+            eligible_market_date=binding_block.get("eligible_market_date"),
+            selected_target_implementation_hash=want_hash,
+            decision_dir=decision_dir)
+    out = {
+        "owner": OWNER,
+        "policy_owner": _st.RISK_POLICY_OWNER,
+        "calculation_owner": _st.CALCULATION_OWNER,
+        "ruling_vocabulary": list(RULING_VOCAB),
+        "available_rulings": list(RULING_AVAILABLE),
+        "unavailable_rulings": list(_st.RULING_NOT_AVAILABLE_THIS_RELEASE),
+        "unavailable_reason": _st.RULING_UNAVAILABLE_REASON,
+        "confirm_token": RULING_CONFIRM_TOKEN,
+        "risk_policy_review": review,
+        "scope": _st.RULING_SCOPE,
+        "state_vocabulary": list(_st.RULED_STATE_VOCAB),
+        "declared_policy_changed": False,
+        "standing_exception_granted": False,
+        "absolute_companion_floor_created": False,
+        "target_approved_here": False,
+        "provenance_channel_vocabulary": list(RULING_CHANNEL_VOCAB),
+        "provenance_use_vocabulary": list(RULING_USE_VOCAB),
+        "manual_review_reference": _st.POLICY_REVIEW_REFERENCE_DOC,
+    }
+    if not rec:
+        return {**out, "ruled": False, "ruling": None, "ruling_id": None,
+                "state": _st.RULED_UNRULED,
+                "authoritative": False,
+                "provenance_state": None,
+                "satisfies_the_policy_review": False,
+                "approval_blocked_by_the_ruling": False,
+                "binding_limit": None, "binding_limit_source": None,
+                "reopened_obligations": [], "reopened_obligation_count": 0,
+                "treatment": [], "derived": None,
+                "detail": ("No risk-policy ruling is on record for this frozen "
+                           "book. That is not permission: approval stays withheld "
+                           "at %s until one is recorded."
+                           % PDS_RISK_POLICY_REVIEW_REQUIRED)}
+    derived = _st.apply_policy_ruling(
+        risk_contribution=(impl.get("risk_contribution") or {}),
+        ruling=rec.get("ruling"))
+    prov = ruling_provenance_state(rec)
+    if not prov["verified"]:
+        # Present, readable, and without authority. Every governed consequence is
+        # withheld: no binding cap, no reopened obligation, and no satisfaction of
+        # the policy review the R69.5 gate is still waiting on.
+        return {**out, "ruled": True, "authoritative": False,
+                "ruling": rec.get("ruling"),
+                "ruling_id": rec.get("ruling_id"),
+                "ruled_by": rec.get("ruled_by"),
+                "ruled_at": rec.get("ruled_at"),
+                "revision": rec.get("revision"),
+                "selection_id": rec.get("selection_id"),
+                "selected_target": rec.get("selected_target"),
+                "selected_target_implementation_hash": rec.get(
+                    "selected_target_implementation_hash"),
+                "proposal_id": rec.get("proposal_id"),
+                "instruments": list(rec.get("instruments") or []),
+                "reference_limit": rec.get("reference_limit"),
+                "governed_limit": rec.get("governed_limit"),
+                "state": _st.RULED_UNVERIFIED,
+                "provenance_state": prov,
+                "satisfies_the_policy_review": False,
+                "approval_blocked_by_the_ruling": False,
+                "binding_limit": None, "binding_limit_source": None,
+                "reopened_obligations": [], "reopened_obligation_count": 0,
+                "treatment": [],
+                "derived": None,
+                # What it WOULD mean if an operator confirmed it, kept under a name
+                # no governed consumer reads as a verdict.
+                "derived_if_confirmed": derived,
+                "detail": prov["detail"] + (
+                    " Approval stays withheld at %s until a ruling with verified "
+                    "operator provenance is recorded through the review screen."
+                    % PDS_RISK_POLICY_REVIEW_REQUIRED)}
+    return {**out, "ruled": True, "authoritative": True,
+            "provenance_state": prov,
+            # A verified ruling ANSWERS the R69.5 policy review. Whether it then
+            # permits an approval is a different question, decided by the binding
+            # cap below and by every other gate.
+            "satisfies_the_policy_review": not bool(
+                derived.get("approval_blocked_by_this_ruling")),
+            "ruling": rec.get("ruling"),
+            "ruling_id": rec.get("ruling_id"),
+            "ruled_by": rec.get("ruled_by"),
+            "ruled_at": rec.get("ruled_at"),
+            "revision": rec.get("revision"),
+            "supersedes_ruling_id": rec.get("supersedes_ruling_id"),
+            "selection_id": rec.get("selection_id"),
+            "selected_target": rec.get("selected_target"),
+            "selected_target_implementation_hash": rec.get(
+                "selected_target_implementation_hash"),
+            "proposal_id": rec.get("proposal_id"),
+            "proposal_hash": rec.get("proposal_hash"),
+            "instruments": list(rec.get("instruments") or []),
+            "reference_limit": rec.get("reference_limit"),
+            "governed_limit": rec.get("governed_limit"),
+            "state": derived.get("state"),
+            "binds": derived.get("binds"),
+            "binding_limit": derived.get("binding_limit"),
+            "binding_limit_source": derived.get("binding_limit_source"),
+            "reopened_obligations": list(derived.get("reopened_obligations") or []),
+            "reopened_obligation_count": derived.get("reopened_obligation_count"),
+            "obligations_open_on_the_governed_limit": derived.get(
+                "obligations_open_on_the_governed_limit"),
+            "instruments_in_breach_of_the_binding_limit": list(
+                derived.get("instruments_in_breach_of_the_binding_limit") or []),
+            "complies_with_the_binding_limit": derived.get(
+                "complies_with_the_binding_limit"),
+            "approval_blocked_by_the_ruling": bool(
+                derived.get("approval_blocked_by_this_ruling")),
+            "treatment": list(derived.get("treatment") or []),
+            "derived": derived,
+            "detail": derived.get("detail")}
+
+
+# --------------------------------------------------------------------------- #
+# R82.1 — THE OPERATOR DECISION CONTRACT for a write surface.
+#
+# R69.5 printed three English sentences and no control; R82 stated a ruling once it
+# existed and still offered no control. Neither published what a screen needs to
+# BUILD one: which options exist, which are available, what each does, what the
+# submission must bind, and the tokens that make it governed.
+#
+# This is that contract. It is a pure composition over the frozen selection and the
+# governed store: the backend remains the authority for the vocabulary and for every
+# validation, and the browser holds no ruling knowledge of its own.
+# --------------------------------------------------------------------------- #
+RULING_ROUTE = "/v1/operations/portfolio-decision/risk-policy-ruling"
+#: Where the operator stands on the risk-policy question for this frozen book.
+RPD_NOT_APPLICABLE = "NO_RISK_POLICY_QUESTION_ON_THIS_BOOK"
+RPD_REQUIRED = "OPERATOR_RULING_REQUIRED"
+RPD_REQUIRED_PRIOR_UNVERIFIED = "OPERATOR_RULING_REQUIRED_PRIOR_RECORD_UNVERIFIED"
+RPD_TAKEN = "OPERATOR_RULING_ON_RECORD"
+RPD_STATE_VOCAB = (RPD_NOT_APPLICABLE, RPD_REQUIRED,
+                   RPD_REQUIRED_PRIOR_UNVERIFIED, RPD_TAKEN)
+
+
+def risk_policy_decision(*, selection: Optional[dict],
+                         ruling_state: Optional[dict] = None,
+                         decision_dir=None) -> dict:
+    """What the operator must decide about this frozen book, and how to submit it.
+
+    ``required`` is True only while the book owes a ruling that no AUTHORITATIVE
+    record answers. A prior UNVERIFIED record does not answer it and is disclosed
+    beside the controls rather than standing in for a decision nobody made.
+
+    Pure read. It records nothing, approves nothing and mints no durable state: the
+    submission token is re-derived from the frozen identity on every read.
+    """
+    sel = selection or {}
+    ruled = (ruling_state if ruling_state is not None
+             else risk_policy_ruling_state(selection=sel, decision_dir=decision_dir))
+    review = ruled.get("risk_policy_review") or selection_policy_review(sel)
+    binding_block = sel.get("binding") or {}
+    impl_hash = review.get("implementation_hash")
+    authoritative = bool(ruled.get("authoritative"))
+    owed = bool(sel) and bool(review.get("required"))
+    prior_unverified = bool(ruled.get("ruled")) and not authoritative
+
+    if not owed:
+        state, required = RPD_NOT_APPLICABLE, False
+    elif authoritative:
+        state, required = RPD_TAKEN, False
+    elif prior_unverified:
+        state, required = RPD_REQUIRED_PRIOR_UNVERIFIED, True
+    else:
+        state, required = RPD_REQUIRED, True
+
+    token = (ruling_submission_token(
+        selection_id=sel.get("selection_id"),
+        selected_target_implementation_hash=impl_hash,
+        reference_limit=review.get("reference_limit")) if required else None)
+    return {
+        "owner": OWNER,
+        "policy_owner": _st.RISK_POLICY_OWNER,
+        "state": state,
+        "state_vocabulary": list(RPD_STATE_VOCAB),
+        "required": required,
+        "route": RULING_ROUTE,
+        "method": "POST",
+        "confirm_token": RULING_CONFIRM_TOKEN,
+        "submission_token": token,
+        "submission_token_doc": (
+            "Echo this verbatim. It is minted per read and bound to this exact "
+            "frozen book. It is NOT evidence of a decision on its own (R82.1 "
+            "treated it as half of one): it is what lets you OPEN the operator "
+            "confirmation ceremony below."),
+        "operator_confirmation_required": True,
+        # R82.1.1 — the ceremony. A ruling is authoritative only if it spends a
+        # confirmation this backend issued here; nothing published by this read can
+        # substitute for one, which is why no confirmation appears in it.
+        "confirmation_route": RULING_CONFIRMATION_ROUTE,
+        "confirmation_method": "POST",
+        "confirmation_ttl_seconds": RULING_CONFIRMATION_TTL_SECONDS,
+        "confirmation_is_single_use": True,
+        "confirmation_ceremony": "R82.1.1_SINGLE_USE_OPERATOR_CONFIRMATION",
+        "confirmation_doc": (
+            "POST the chosen ruling, the confirmation phrase and the submission "
+            "token to the confirmation route, then send the confirmation it returns "
+            "with the ruling. The confirmation is issued by %s, is bound to that one "
+            "ruling on this one frozen book, expires in %ds and is spent the first "
+            "time it is presented. A ruling submitted without one is kept as "
+            "readable audit evidence and governs nothing." % (
+                OWNER, RULING_CONFIRMATION_TTL_SECONDS)),
+        # The vocabulary and its availability are the KERNEL's, published so a
+        # screen can render the choice without holding a copy of the rule.
+        "options": _st.ruling_options(),
+        "available_rulings": list(RULING_AVAILABLE),
+        "unavailable_rulings": list(_st.RULING_NOT_AVAILABLE_THIS_RELEASE),
+        "unavailable_reason": _st.RULING_UNAVAILABLE_REASON,
+        "scope": _st.RULING_SCOPE,
+        # Everything the submission must name, and everything the screen must show
+        # the operator BEFORE they choose.
+        "binds": {
+            "proposal_id": binding_block.get("proposal_id"),
+            "proposal_hash": binding_block.get("proposal_hash"),
+            "selection_id": sel.get("selection_id"),
+            "selected_target": sel.get("selected_target"),
+            "selected_target_implementation_hash": impl_hash,
+            "reference_limit": review.get("reference_limit"),
+            "governed_limit": review.get("governed_limit"),
+            "instruments": list(review.get("instruments") or []),
+        },
+        "prior_unverified_ruling": ({
+            "ruling_id": ruled.get("ruling_id"),
+            "ruling": ruled.get("ruling"),
+            "ruled_at": ruled.get("ruled_at"),
+            "ruled_by": ruled.get("ruled_by"),
+            "provenance_state": ruled.get("provenance_state"),
+            "governs_anything": False,
+            "detail": ruled.get("detail"),
+        } if prior_unverified else None),
+        "risk_policy_review": review,
+        "approves_nothing": True,
+        "creates_order_plan": False,
+        "creates_orders": False,
+        "changes_declared_policy": False,
+        "manual_approval_still_required": True,
+        "manual_review_reference": _st.POLICY_REVIEW_REFERENCE_DOC,
+        "detail": {
+            RPD_NOT_APPLICABLE: (
+                "This frozen book raises no risk-policy question, so there is "
+                "nothing to rule on."),
+            RPD_REQUIRED: (
+                "Approval is withheld until you record which policy governs this "
+                "frozen book. Recording a ruling approves nothing."),
+            RPD_REQUIRED_PRIOR_UNVERIFIED: (
+                "A prior ruling is on record for this book and its provenance was "
+                "never verified, so it binds nothing and approval stays withheld. "
+                "Your ruling supersedes it through the normal governed revision "
+                "path; the earlier record is kept as audit evidence."),
+            RPD_TAKEN: (
+                "An operator ruling is on record for this frozen book. It is stated "
+                "with the target; there is nothing further to decide here."),
+        }[state],
+    }
 
 
 # --------------------------------------------------------------------------- #

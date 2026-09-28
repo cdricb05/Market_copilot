@@ -33,6 +33,75 @@ historical proposal economic was altered. Both need an operator decision.
 > * See `docs/R69_5_PORTFOLIO_DECISION_INTEGRITY.md` for the full measurement and
 >   the exact governance decision required.
 >
+> **Status after R82 (2026-09-28)**
+>
+> * **Item 1 is RULED for the 2026-09-25 book, and OPEN as an estate policy.**
+>   R69.5 could record only ONE outcome - a bound acknowledgement that let the
+>   approval through, which is `ACCEPT_AS_IS` under a neutral name. The second
+>   course below had no recordable form at all. R82 adds the governed ruling lane
+>   (`POST /v1/operations/portfolio-decision/risk-policy-ruling`, token
+>   `CONFIRM_RISK_POLICY_RULING`), and the operator recorded
+>   **`JUDGE_AGAINST_THE_BEFORE_UNIVERSE`** against proposal
+>   `reap_2026-09-25_alpha_paper_book_1_eaee484fa4a0` / selected target
+>   `MINIMUM_REPAIR` as ruling
+>   `prul_2026-09-25_alpha_paper_book_1_minimum_repair_b099e628c030`.
+> * The binding per-name cap for **that frozen book only** is now the 12.00% the
+>   25-name current book was judged against. AMD (20.33% of portfolio risk at an
+>   unchanged 5.11% weight) and DDOG (21.41% at 4.24%) are OPEN
+>   `RISK_CONTRIBUTION_CAP` obligations again, required action `REDUCE_TO_LIMIT`,
+>   and approval is refused at
+>   `SELECTED_TARGET_BREACHES_THE_RULED_REFERENCE_LIMIT`. A bound R69.5
+>   acknowledgement cannot clear that state.
+> * **A ruling binds ONE proposal and ONE target.** It changed no declared
+>   threshold, granted no standing exception and is not an estate policy: the 3/N
+>   rule is exactly as `engine.holding_opportunity_cost` declares it, and the next
+>   proposal raises the question again and must be ruled on again. Whether the
+>   estate adopts the before-universe basis permanently is still the operator's
+>   open decision.
+> * **The third course below is DECLARED AND REFUSED.**
+>   `ADD_AN_ABSOLUTE_COMPANION_FLOOR` is in the ruling vocabulary so it cannot be
+>   quietly coined elsewhere, and the recorder rejects it: it needs an absolute
+>   threshold X that no owner has set, and setting one inside a ruling recorder
+>   would be inventing governance. It remains a separate policy decision.
+> * See `docs/R82_RISK_POLICY_RULING_WIREFRAME.md` for the panel that states a
+>   recorded ruling and the acceptance criteria it was built against.
+>
+> **Status after R82.1 (2026-09-28)**
+>
+> * **Item 1 is UNRULED again for the 2026-09-25 book, and the decision is now
+>   actually available to the operator.** The R82 ruling above was recorded by a
+>   direct API call during implementation, not by an operator through the review
+>   screen. R82.1 adds derived PROVENANCE to every ruling: a record without the
+>   single-use token a governed read mints for that exact frozen book, plus an
+>   explicit operator confirmation, is `RULING_ON_RECORD_BUT_PROVENANCE_UNVERIFIED`
+>   and **binds nothing**. It neither blocks an approval nor clears one, so
+>   approval stays withheld at `SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW`
+>   exactly as R69.5 left it. The artifact is preserved byte-for-byte as audit
+>   evidence and is disclosed on the panel by id; a genuine ruling supersedes it
+>   through the ordinary revision chain. The rule is general - it names no ruling
+>   id and reaches every record written before R82.1.
+> * **The ruling is made in the UI.** Step 4 of the reallocation panel, *RISK
+>   POLICY DECISION*, renders the three courses from the backend's own vocabulary,
+>   disables the unavailable one, and needs a deliberate choice plus an explicit
+>   confirmation. `ADD_AN_ABSOLUTE_COMPANION_FLOOR` is still declared and still
+>   refused; no absolute threshold was invented.
+> * **JUDGE now continues into a repaired target.** The reopened obligations go
+>   back to `engine.proposal_decision_review.solve_minimum_repair` with the ruled
+>   cap held constant, the portfolio's risk re-measured between rounds by the
+>   canonical covariance owner, and the result published as the
+>   `POLICY_COMPLIANT_REPAIR` successor: AMD 5.11% -> 2.94% (20.33% -> 11.79% of
+>   portfolio risk), DDOG 4.24% -> 2.11% (21.41% -> 11.99%), zero breaches at
+>   12.00%, zero mandatory obligations open. It is offered through the existing
+>   selection lane and approved at the existing gate. If no reachable book complied
+>   it would fail closed with the open breach named.
+> * **ACCEPT_AS_IS is a complete workflow too.** A ruling with verified provenance
+>   answers the risk-policy review, so the review stops blocking - and approves
+>   nothing: the decision still needs its own confirmation at its own gate.
+> * The estate policy question below is STILL OPEN. A ruling binds one proposal and
+>   one target; the next proposal raises it again.
+> * See `docs/R82_1_RISK_POLICY_DECISION_WIREFRAME.md` for the decision screen and
+>   the acceptance criteria it was built against.
+>
 > ---
 >
 > * **Item 2 (a selected MINIMUM_REPAIR has no implementable order plan) is

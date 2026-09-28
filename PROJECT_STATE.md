@@ -5639,3 +5639,246 @@ time") because the refusal lived only inside a ruling file - and it was proposed
 a third time. The census is frozen prose with a generator that overwrites it, so
 amending it is a census-maintainer decision and is left for the operator.
 <!-- END RELEASE 81 TERMS-OF-TRADE PIT CERTIFICATION AND THE WIDTH LAW -->
+
+<!-- BEGIN RELEASE 82 THE GOVERNED RISK-POLICY RULING -->
+## Release 82 - the moving-denominator question is RULED, and a discharged breach comes back - 2026-09-28
+
+### The blocker
+
+The frozen 2026-09-25 proposal `reap_2026-09-25_alpha_paper_book_1_eaee484fa4a0`
+sat at `SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW` with `MINIMUM_REPAIR`
+selected. The canonical review had correctly withheld approval: eleven retention
+exits shrank the covariance universe from 25 names to 14, which raised the
+declared 3/N per-name cap from **12.00% to 21.43%**, and both
+`RISK_CONTRIBUTION_CAP` breaches closed without either breaching name being
+reduced to compliance.
+
+| | current book (N=25) | MINIMUM_REPAIR (N=14) |
+| --- | --- | --- |
+| per-name cap (3/N) | 0.12 | **0.21428571** |
+| AMD weight | 0.051069 | 0.051069 *(unchanged)* |
+| AMD risk contribution | 0.150732 BREACH | 0.203344 "compliant" |
+| DDOG weight | 0.043427 | 0.04237491 *(-0.11pp)* |
+| DDOG risk contribution | 0.152802 BREACH | 0.214065 "compliant" |
+| cap breaches | 2 | **0** |
+
+R69.5 had NAMED that decision and offered exactly ONE recordable outcome: a
+per-request acknowledgement bound to the frozen book which, once accepted, let
+the approval through. So the second course R69.1 put to the operator -
+`JUDGE_AGAINST_THE_BEFORE_UNIVERSE` - **had no recordable form at all**, because
+the only door available unblocks the very approval that ruling refuses. The ack
+was also not durable: it lived inside the approve request, so a book nobody
+approved carried no ruling.
+
+### What R82 adds
+
+A governed RULING lane in the ONE decision owner, `api.portfolio_decision`:
+`POST /v1/operations/portfolio-decision/risk-policy-ruling`, confirmation token
+`CONFIRM_RISK_POLICY_RULING` (distinct from both the approval and the selection
+tokens), writing an immutable append-only artifact bound to one proposal, one
+selection and one frozen book, in the existing decision store root. The meaning
+of a ruling is derived by `engine.selected_target.apply_policy_ruling`, which
+measures nothing: both caps and every breach under either of them come from
+`engine.holding_opportunity_cost`'s own `risk_contribution_breaches`, read off
+the frozen book.
+
+`ADD_AN_ABSOLUTE_COMPANION_FLOOR` is declared in the vocabulary so it cannot be
+quietly coined elsewhere, and REFUSED: it needs an absolute threshold no owner
+has set. That stays a separate policy decision.
+
+### The ruling on record
+
+`prul_2026-09-25_alpha_paper_book_1_minimum_repair_b099e628c030` -
+**`JUDGE_AGAINST_THE_BEFORE_UNIVERSE`**, state
+`RULED_REFERENCE_LIMIT_BINDS_OBLIGATIONS_REOPENED`, binding cap **0.12**
+(`THE_BEFORE_BOOK_LIMIT_HELD_CONSTANT`).
+
+| ticker | weight | risk share | own 21.43% cap | ruled 12.00% cap | obligation |
+| --- | --- | --- | --- | --- | --- |
+| AMD | 5.1069% -> 5.1069% (unchanged) | 15.07% -> 20.33% | complies | BREACH +8.33pp | OPEN, REDUCE_TO_LIMIT |
+| DDOG | 4.3427% -> 4.2375% (-0.11pp) | 15.28% -> 21.41% | complies | BREACH +9.41pp | OPEN, REDUCE_TO_LIMIT |
+
+Obligations open: **0 on the target's own cap, 2 on the ruled cap.** The
+`MINIMUM_REPAIR` economics are untouched by the ruling - 14 positions, 12
+changes, 21.1895% one-way turnover, $52.33 estimated cost, 46.9167% cash, HHI
+0.020788, largest position 5.1069%, volatility 16.9072% invested / 8.9749%
+capital.
+
+### The invariant, enforced at the write gate
+
+`SELECTED_TARGET_BREACHES_THE_RULED_REFERENCE_LIMIT` is a new decision state and
+is checked BEFORE the R69.5 acknowledgement. **A bound acknowledgement cannot
+clear it** - the refusal is substantive (the ruling exists and the target fails
+it), not procedural (nobody has ruled yet). Proved against a byte-copy of the
+live store: the frozen 2026-09-25 book is refused with and without a valid ack,
+and nothing is written in either case. REJECT and HOLD stay available throughout.
+
+**This release adds NO new path to approval.** A recorded `ACCEPT_AS_IS` does not
+substitute for the R69.5 acknowledgement; the ruling lane can only ever make an
+approval less available.
+
+### What was NOT done
+
+The 2026-09-25 cycle was not rerun, the proposal was not recreated, and the
+selected target was not changed. Every pre-existing file in the decision store is
+byte-identical after the write (`decisions.json`, `governed_decisions.json`,
+`governed_index.json`, `index.json`, `target_selections.json`,
+`target_selection_index.json`); only `risk_policy_rulings.json` and
+`risk_policy_ruling_index.json` are new. `selected_target_implementation_hash`
+`b099e628c030...` and `review_hash` are unmoved, because the ruling is published
+BESIDE the frozen book and never inside it. No threshold, basis or obligation
+contract was edited; no exception was granted; nothing was approved and no order
+plan, order or fill exists.
+
+### One UI defect found by the mandated REVIEW step, and fixed
+
+The headline banner read **"1 BREACH DISCHARGED WITHOUT THE POSITION BEING
+REDUCED"** for a book whose own `discharge_attribution` says **two** names closed
+on the limit alone. `discharged_without_reduction` asks only "did the weight
+move?", so DDOG's 0.11-point trim - nowhere near the 12% reference - dropped it
+from the list. The loud number was the narrow one. The banner now counts
+`CLOSED_ONLY_BECAUSE_THE_LIMIT_ROSE` and reads "2 BREACHES DISCHARGED BY THE CAP
+MOVING, NOT BY A REDUCTION", naming which name moved and which did not.
+
+Wireframe first, per CLAUDE.md: `docs/R82_RISK_POLICY_RULING_WIREFRAME.md`
+(SCAN / REVIEW / PLAN / acceptance criteria, 1920x1080). Browser-accepted at
+1920x1080: page scroll height 1080 (no page scrolling), no blank controls, zero
+write controls in the ruled block, no enabled Create Orders or automation
+control, `alert()` / `confirm()` unused.
+
+### Evidence
+
+`tests/test_r82_risk_policy_ruling.py` (45 tests) + 507 impacted regressions
+green; `scripts/audit_architecture.py --strict` exits 0.
+<!-- END RELEASE 82 THE GOVERNED RISK-POLICY RULING -->
+
+<!-- BEGIN RELEASE 82.1 THE HUMAN RISK-POLICY WORKFLOW -->
+## Release 82.1 - the operator could not make the decision the panel demanded, and
+## the ruling led nowhere
+
+R82 made the ruling recordable, durable and bound to one frozen book. It left two
+holes wide enough to walk through, and the release's own live artifact fell into
+the first one.
+
+### 1. A decision surface with no way to decide
+
+R69.5 wrote *"Approval is withheld until an operator rules on the policy"*, listed
+three courses as plain `<li>` text, and shipped **zero** write controls. R82 added
+a panel that STATES a ruling once one exists and still offered no way to make one.
+The only route to the governed writer was a hand-rolled HTTP request - a
+developer's workflow wearing an operator's label. The R82 acceptance report counted
+`writeControlsInRuled = 0` as a **success**; for the un-ruled state it is a
+failure, and the wireframe now says so.
+
+**Step 4 - RISK POLICY DECISION** is that control. Three options rendered from
+`risk_policy_decision.options`, which the backend derives from
+`engine.selected_target.RULING_AVAILABLE`: the browser holds no copy of the
+vocabulary, so it can never offer a ruling the recorder would refuse.
+`ADD_AN_ABSOLUTE_COMPANION_FLOOR` renders with its input `disabled` and an
+`UNAVAILABLE IN THIS RELEASE` badge, and the recorder refuses it if sent anyway.
+The submit control is inert until the operator has BOTH chosen an available policy
+and ticked an explicit confirmation; the submission binds the proposal, the
+selection id, the frozen-book hash, the reference cap and the instrument set. No
+browser dialog: `alert()` / `confirm()` remain unused.
+
+### 2. `ruled_by` was narration, and it said "operator"
+
+The ruling record carried `ruled_by`, a free string the caller supplies, defaulted
+to `"operator"`. A record written by a script was therefore byte-indistinguishable
+from one a human confirmed on a screen - and R82's own live record,
+`prul_2026-09-25_..._b099e628c030`, is exactly that: written by a direct API call
+during implementation, labelled `ruled_by: operator`.
+
+The correction is **general and special-cases no record**. Every ruling now carries
+a PROVENANCE block the decision owner **derives** from evidence - the single-use
+token a governed read minted for that exact frozen book, plus the operator's
+explicit confirmation - and a caller can no longer name its own channel. A ruling
+whose provenance does not verify is written anyway, as readable audit evidence,
+and **binds nothing**: it neither blocks an approval (a development artifact must
+not govern) nor clears one (it must not grant), so approval stays withheld exactly
+where R69.5 left it. `ruled_by` now defaults to `ACTOR_NOT_SUPPLIED`.
+
+The live R82 record therefore reads `RULING_ON_RECORD_BUT_PROVENANCE_UNVERIFIED`.
+It is preserved byte-for-byte, disclosed on the panel by id with
+`UNVERIFIED / AUDIT EVIDENCE ONLY / BINDS NOTHING`, and a genuine UI ruling
+supersedes it through the ordinary revision chain. Nothing is deleted or rewritten.
+
+### 3. JUDGE was a dead end
+
+The gate reopened AMD and DDOG against the 12% cap and answered
+`SELECT_A_COMPLIANT_TARGET_OR_REJECT` while **no compliant target existed anywhere
+in the system**. That is a requirement, not a workflow.
+
+The reopened obligations now go back to the canonical repair owner with the ruled
+cap held constant. `solve_minimum_repair` gained one optional argument,
+`binding_risk_contribution_limit`; everything else is unchanged - the same
+obligations, the same first-order reduction, the same covariance owner re-measuring
+between rounds, the same independent feasibility verifier. There is no second
+optimiser and no second risk engine. Left at `None` - every ordinary read - the
+function and `build_review` return byte-identical payloads, which is what keeps
+`review_hash` and every governed selection ever made stable.
+
+**The round budget turned out to be the binding constraint, and it is an iteration
+budget rather than a threshold.** Against the moving 3/N cap the repair converges
+in ONE round, because exiting names *raises* the cap toward the shares. Against a
+held cap it cannot: reducing a breaching name shrinks the invested base, which
+*raises* every remaining name's share. On the frozen 2026-09-25 book the declared
+budget of 3 stops mid-descent with DDOG at 12.17% - and correctly reports it open.
+`RULED_REPAIR_MAX_ROUNDS = 12` is declared for the ruled solve; it can only ever
+make the book MORE compliant with the cap the ruling names, never less, and an
+exhausted budget still fails closed with the open breach named.
+
+On the frozen 2026-09-25 book the successor converges in 5 measured rounds:
+
+| | selected MINIMUM_REPAIR | POLICY_COMPLIANT_REPAIR |
+|---|---|---|
+| binding per-name cap | 21.43% (3/14) | **12.00% (held)** |
+| AMD weight / risk share | 5.1069% / 20.33% | **2.9410% / 11.79%** |
+| DDOG weight / risk share | 4.2375% / 21.41% | **2.1065% / 11.99%** |
+| positions / changes | 14 / 12 | 14 / 15 |
+| one-way turnover / cost | 21.19% / $52.33 | 23.73% / $58.62 |
+| cash | 46.92% | 52.01% |
+| risk, invested / capital basis | 16.91% / 8.97% | 14.90% / 7.15% |
+| concentration (HHI) / largest | 0.0208 / 5.11% | 0.0171 / 4.24% |
+| binding-cap breaches | 2 (at 12%) | **0** |
+| mandatory obligations open | 2 (at 12%) | **0** |
+
+ANET (3.76% -> 3.57%) and FTNT (4.21% -> 3.62%) were never in breach and are
+trimmed anyway, because reducing AMD and DDOG raises every other name's share.
+That consequence is published per name, not hidden. The **solved** weights are
+never the first-order `indicative_weight_at_reference` figures R69.5 publishes for
+one name in isolation, and a test pins that they differ.
+
+The successor is published BESIDE the review, with its own implementation hash, and
+offered through the **existing** selection lane as a fourth governed target,
+`POLICY_COMPLIANT_REPAIR`. No second selection writer and no second order-plan
+owner: `api.rebalance_execution.resolve_target` already builds any non-full target
+from the book frozen with the selection. The refusal now reads
+`REVIEW_AND_SELECT_THE_POLICY_COMPLIANT_SUCCESSOR_TARGET` and names it.
+
+### 4. ACCEPT_AS_IS became a complete workflow too
+
+R82 refused to let a recorded `ACCEPT_AS_IS` satisfy the R69.5 acknowledgement, on
+the grounds that the release must add no path to approval. Right instinct, wrong
+object: it left an operator able to record a ruling that answered the question and
+still be told to answer the question. A ruling with **verified** provenance is now
+the answer the review was waiting for, so the review stops blocking - and it
+approves nothing. The decision still needs its own token at its own gate, every
+other gate still runs, and no target is built for the sake of building one. An
+unverified `ACCEPT_AS_IS` still answers nothing.
+
+Wireframe first, per CLAUDE.md:
+`docs/R82_1_RISK_POLICY_DECISION_WIREFRAME.md` (SCAN / REVIEW / PLAN / acceptance
+criteria, 1920x1080).
+
+### Evidence
+
+`tests/test_r82_1_risk_policy_workflow.py` (44 tests) +
+`tests/test_r82_risk_policy_ruling.py` (47) + 650 impacted regressions green;
+`scripts/audit_architecture.py --strict` exits 0. Browser-accepted at 1920x1080:
+page scroll height 1080, 6 write controls in the decision step (0 was the defect),
+0 blank controls, `alert()` / `confirm()` unused, zero console errors. Every write
+tested against a hermetic copy of the store; the live decision store is
+byte-identical across all eight files and **no live ruling, selection, approval,
+order plan, order or fill was created**.
+<!-- END RELEASE 82.1 THE HUMAN RISK-POLICY WORKFLOW -->

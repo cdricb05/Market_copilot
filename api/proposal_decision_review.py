@@ -316,11 +316,41 @@ def _governance(*, review: Optional[dict], bound_session: Optional[str],
         sel_block["options"] = opts
         sel_block["selectable_targets"] = []
         sel_block["blocked_by_session_freshness"] = True
+    # R82 — the governed risk-policy RULING this frozen book carries.
+    #
+    # Published as a SIBLING of the selection and never folded into
+    # ``selected_target_implementation``: that block is the frozen book, its hash is
+    # bound by the selection record and by every order plan built from it, and a
+    # ruling recorded afterwards must not move one byte of it. The ruling is a layer
+    # over the frozen book, so the screen can state what the operator decided while
+    # the book itself stays exactly as it was selected.
+    #
+    # ``review_hash`` is computed over ``review`` and is untouched here for the same
+    # reason the freshness reconciliation is kept out of it.
+    ruling = (_pd.risk_policy_ruling_state(selection=selection,
+                                           decision_dir=decision_dir)
+              if selection else None)
+    # R82.1 — the operator DECISION contract: which rulings exist, which are
+    # available, what each one does, what the submission must bind, and the tokens
+    # that make it governed. Published so the screen can offer the decision the
+    # panel has been demanding since R69.5 without holding one rule of its own.
+    decision = (_pd.risk_policy_decision(selection=selection, ruling_state=ruling,
+                                         decision_dir=decision_dir)
+                if selection else None)
+    if selection and ruling:
+        selection = dict(selection)
+        selection["risk_policy_ruling"] = ruling
+        selection["risk_policy_decision"] = decision
     return {
         "freshness": fresh,
         "actionable": bool(fresh["actionable"]),
         "target_selection": sel_block,
         "selection": selection,
+        "risk_policy_ruling": ruling,
+        "risk_policy_decision": decision,
+        "risk_policy_ruling_owner": _pd.OWNER,
+        "risk_policy_ruling_confirm_token": _pd.RULING_CONFIRM_TOKEN,
+        "risk_policy_ruling_route": _pd.RULING_ROUTE,
         "selected_target": (selection or {}).get("selected_target"),
         "selection_id": (selection or {}).get("selection_id"),
         "governance_owner": _pd.OWNER,
@@ -334,7 +364,8 @@ def _envelope(*, status: str, generated_at: str, message: str,
               inputs: Optional[dict] = None,
               governance: Optional[dict] = None,
               selected_targets: Optional[dict] = None,
-              review_hash_value: Optional[str] = None) -> dict:
+              review_hash_value: Optional[str] = None,
+              policy_compliant_successor: Optional[dict] = None) -> dict:
     p = proposal_payload or {}
     art = p.get("artifact") or {}
     return {
@@ -421,6 +452,21 @@ def _envelope(*, status: str, generated_at: str, message: str,
             "it; it reports selectability BEFORE session freshness is applied and must "
             "not be used to decide whether a target may be selected."),
         "selection": (governance or {}).get("selection"),
+        # R82 — the ruling rides the same envelope as the selection it is about, so
+        # a reader never has to ask a second route whether a frozen book was ruled
+        # on. It is identical to ``governance.risk_policy_ruling``.
+        "risk_policy_ruling": (governance or {}).get("risk_policy_ruling"),
+        "risk_policy_ruling_confirm_token": (governance or {}).get(
+            "risk_policy_ruling_confirm_token"),
+        # R82.1 — the operator's OWN step: the decision contract a write surface
+        # renders, and the successor target an authoritative ruling produced. Both
+        # ride the same envelope as the selection they are about, and both sit
+        # OUTSIDE ``review`` for the reason stated above ``selected_targets``.
+        "risk_policy_decision": (governance or {}).get("risk_policy_decision"),
+        "risk_policy_ruling_route": (governance or {}).get(
+            "risk_policy_ruling_route"),
+        "policy_compliant_successor": policy_compliant_successor,
+        "policy_compliant_successor_state_vocabulary": list(SUCCESSOR_STATE_VOCAB),
         "review_policy_version": REVIEW_POLICY_VERSION,
         "repair_scope_version": REPAIR_SCOPE_VERSION,
         "inputs": inputs or {},
@@ -431,6 +477,352 @@ def _envelope(*, status: str, generated_at: str, message: str,
         "business_calculation_owner": False,
         "safety": kernel._safety(),
     }
+
+
+# --------------------------------------------------------------------------- #
+# R82.1 — THE POLICY-COMPLIANT SUCCESSOR TARGET
+#
+# R82 reopened AMD and DDOG against the 12% cap an operator ruled binding, refused
+# the approval, and told the operator to "select a compliant target". No compliant
+# target existed: the only ones on offer were the three the review always publishes,
+# and the ruling had just declared one of them non-compliant. That is a requirement,
+# not a workflow.
+#
+# This composition closes it. It hands the reopened obligations back to the SAME
+# canonical repair owner with the ruled cap held constant, so the successor is
+# solved, not sketched:
+#
+#   * the obligations are ``engine.proposal_decision_review.repair_obligations``'
+#     own, unchanged - the current book's real breaches at the cap the ruling names;
+#   * the weights are solved by ``solve_minimum_repair``, the same first-order
+#     reduction applied round after round, and the portfolio's risk is RE-MEASURED
+#     between rounds by ``engine.reallocation_proposal.portfolio_volatility``,
+#     because reducing one name raises every other name's share;
+#   * the first-order ``indicative_weight_at_reference`` figures R69.5 publishes are
+#     NEVER used as solved weights. They are a sight line for one name in isolation;
+#     the successor is a measured book;
+#   * the resulting book is verified independently by
+#     ``engine.constrained_reallocation.verify_feasibility`` and every mandatory
+#     obligation is re-judged against it;
+#   * it is turned into a governed target representation by the one owner of those,
+#     ``engine.selected_target``, so it carries its own implementation hash and can
+#     be selected and approved through the existing gates with no new writer.
+#
+# There is no second optimiser and no second risk engine here: this module chooses
+# WHICH cap to hand the existing owner, and reads what that owner returns.
+#
+# It is published BESIDE the review, never inside it. ``review_hash`` is computed
+# over ``review`` and every governed selection ever made binds it, so the ordinary
+# review is returned byte-identical whether or not a ruling exists.
+#
+# If the repair cannot reach a compliant book it FAILS CLOSED with the open breach
+# named. Nothing here approves anything or creates an order plan, order or fill.
+# --------------------------------------------------------------------------- #
+SUCCESSOR_SOLVED = "SOLVED_AND_COMPLIANT_AT_THE_RULED_CAP"
+SUCCESSOR_INFEASIBLE = "NO_FEASIBLE_COMPLIANT_TARGET"
+SUCCESSOR_RISK_UNMEASURED = "RISK_NOT_MEASURED_SUCCESSOR_WITHHELD"
+SUCCESSOR_NO_BINDING_LIMIT = "THE_RULING_ESTABLISHED_NO_BINDING_LIMIT"
+SUCCESSOR_STATE_VOCAB = (SUCCESSOR_SOLVED, SUCCESSOR_INFEASIBLE,
+                         SUCCESSOR_RISK_UNMEASURED, SUCCESSOR_NO_BINDING_LIMIT)
+
+
+def _successor_comparison(*, selected: Optional[dict], successor: dict,
+                          instruments: list) -> list:
+    """Per-name before/after for the names the ruling reopened. Read, never derived."""
+    sel_w = ((selected or {}).get("weights") or {})
+    sel_rc = (((selected or {}).get("risk_contribution") or {}).get("after") or {}
+              ).get("contributions") or {}
+    new_w = successor.get("weights") or {}
+    after = (successor.get("risk_contribution") or {}).get("after") or {}
+    new_rc = after.get("contributions") or {}
+    # The cap the successor was judged against, read off the comparison block the
+    # representation owner published. NOT from ``economics``, which carries no
+    # risk_contribution_limit key - reading it there silently yielded None and every
+    # compliance cell rendered as unknown.
+    binding = {"limit": after.get("limit")}
+    rows = []
+    for tk in sorted(set(instruments) | (set(sel_w) ^ set(new_w))
+                     | {t for t in new_w if sel_w.get(t) != new_w.get(t)}):
+        if tk not in sel_w and tk not in new_w:
+            continue
+        rows.append({
+            "ticker": tk,
+            "reopened_by_the_ruling": tk in set(instruments),
+            "weight_selected": sel_w.get(tk),
+            "weight_solved": new_w.get(tk),
+            "risk_contribution_selected": sel_rc.get(tk),
+            "risk_contribution_solved": new_rc.get(tk),
+            "binding_limit": binding.get("limit"),
+            "complies_at_the_binding_limit": (
+                None if new_rc.get(tk) is None or binding.get("limit") is None
+                else bool(float(new_rc[tk]) <= float(binding["limit"]) + 1.0e-12)),
+            "obligation": ("CLOSED_BY_REDUCTION" if tk in set(instruments)
+                           else "NOT_REOPENED_BY_THE_RULING"),
+        })
+    return rows
+
+
+def _policy_compliant_successor(*, ruling: Optional[dict], selection: Optional[dict],
+                                proposal: dict, hoc_assessment: Optional[dict],
+                                outcome_evidence: Optional[dict],
+                                aligned_returns: Optional[dict],
+                                read_state: Optional[str], identity: dict,
+                                proposal_id: Optional[str],
+                                review_hash_value: Optional[str],
+                                active_book_id: Optional[str],
+                                eligible_market_date: Optional[str]) -> Optional[dict]:
+    """The successor target an AUTHORITATIVE ruling requires, or None.
+
+    ``None`` whenever no successor is called for, which is the ordinary case and
+    includes ``ACCEPT_AS_IS``: a ruling that reopens nothing must not cause a target
+    to be built for the sake of building one.
+    """
+    if not ruling or not ruling.get("authoritative"):
+        return None
+    if not ruling.get("reopened_obligation_count"):
+        return None
+    binding_limit = ruling.get("binding_limit")
+    instruments = list(ruling.get("instruments_in_breach_of_the_binding_limit")
+                       or ruling.get("instruments") or [])
+    base = {
+        "target": _pd_target(),
+        "label": "Policy-compliant repair (solved at the ruled cap)",
+        "owner": OWNER,
+        "solved_by": kernel.CALCULATION_OWNER,
+        "representation_owner": _selected_target.CALCULATION_OWNER,
+        "risk_measured_by": "engine.reallocation_proposal.portfolio_volatility",
+        "verified_by": "engine.constrained_reallocation.verify_feasibility",
+        "state_vocabulary": list(SUCCESSOR_STATE_VOCAB),
+        "derived_under": {
+            "ruling_id": ruling.get("ruling_id"),
+            "ruling": ruling.get("ruling"),
+            "binding_limit": binding_limit,
+            "binding_limit_source": ruling.get("binding_limit_source"),
+            "governed_limit": ruling.get("governed_limit"),
+            "reopened_instruments": instruments,
+            "superseded_selection_id": (selection or {}).get("selection_id"),
+            "superseded_target": (selection or {}).get("selected_target"),
+            "superseded_selected_target_implementation_hash": (
+                (selection or {}).get("selected_target_implementation_hash")),
+        },
+        "uses_first_order_indicative_weights": False,
+        "weights_are_solved_and_remeasured": True,
+        "is_a_new_proposal": False,
+        "second_optimiser": False,
+        "second_risk_engine": False,
+        "is_an_approval": False,
+        "creates_order_plan": False,
+        "creates_orders": False,
+        "approves_nothing": True,
+        "manual_approval_still_required": True,
+    }
+    if binding_limit is None:
+        return {**base, "state": SUCCESSOR_NO_BINDING_LIMIT, "available": False,
+                "implementation": None,
+                "detail": ("The ruling on record established no binding per-name "
+                           "cap for this book, so there is no cap to re-solve "
+                           "against. No successor target was built and none is "
+                           "guessed at.")}
+    try:
+        ruled_review = kernel.build_review(
+            proposal=proposal, hoc_assessment=hoc_assessment,
+            outcome_evidence=outcome_evidence, aligned_returns=aligned_returns,
+            read_state=read_state, identity=identity,
+            binding_risk_contribution_limit=float(binding_limit),
+            max_risk_repair_rounds=kernel.RULED_REPAIR_MAX_ROUNDS)
+        impl = _selected_target.build_selected_target(
+            proposal=proposal, review=ruled_review,
+            target=_selected_target.TARGET_MINIMUM_REPAIR,
+            identity={**dict(identity or {}), "proposal_id": proposal_id,
+                      "review_hash": review_hash_value,
+                      "active_book_id": ((identity or {}).get("active_book_id")
+                                         or active_book_id),
+                      "eligible_market_date": (
+                          (identity or {}).get("eligible_market_date")
+                          or eligible_market_date)})
+    except Exception as exc:  # noqa: BLE001 - a pure read never crashes its caller
+        return {**base, "state": SUCCESSOR_INFEASIBLE, "available": False,
+                "implementation": None,
+                "detail": ("The policy-compliant repair could not be solved: %s. "
+                           "No target is published rather than a partial one."
+                           % str(exc)[:200])}
+
+    repair = ruled_review.get("repair") or {}
+    state_block = (ruled_review.get("states") or {}).get(
+        _selected_target.TARGET_MINIMUM_REPAIR) or {}
+    cs = state_block.get("constraint_status") or {}
+    open_obligations = list(cs.get("obligations_remaining") or [])
+    rc_open = list(state_block.get("risk_contribution_breaches") or [])
+    measured = state_block.get("risk_measurement_state") == kernel.RISK_MEASURED
+    converged = bool(repair.get("risk_repair_converged"))
+    # The SAME target name this successor is published under, relabelled on the
+    # block so no consumer has to infer which of the four it is looking at.
+    impl = dict(impl)
+    impl["target"] = _pd_target()
+    impl["label"] = base["label"]
+    impl["derived_under"] = dict(base["derived_under"])
+    impl["solved_target_of"] = _selected_target.TARGET_MINIMUM_REPAIR
+    impl["selected_target_implementation_hash"] = _selected_target.selected_target_hash(
+        impl)
+    solved = bool(measured and converged and not open_obligations and not rc_open
+                  and impl.get("implementable"))
+    if not measured:
+        state = SUCCESSOR_RISK_UNMEASURED
+    elif solved:
+        state = SUCCESSOR_SOLVED
+    else:
+        state = SUCCESSOR_INFEASIBLE
+    econ = impl.get("economics") or {}
+    detail = {
+        SUCCESSOR_SOLVED: (
+            "The repair was re-solved against the %s cap this ruling makes binding "
+            "and reaches a book that breaches it nowhere: %d positions, %s of "
+            "one-way turnover, %s cash, and every mandatory obligation closed. The "
+            "reduction was applied and the portfolio's risk re-measured over %s "
+            "rounds by the canonical covariance owner - these are solved weights, "
+            "not the first-order indicative figures. It is a preview: selecting it "
+            "is a separate governed act and approving it another."
+            % (binding_limit, impl.get("position_count") or 0,
+               econ.get("one_way_turnover"), econ.get("cash_weight"),
+               repair.get("risk_repair_rounds_measured"))),
+        SUCCESSOR_RISK_UNMEASURED: (
+            "The repaired book's risk could not be measured, so no compliant "
+            "successor is asserted. The target is withheld rather than published "
+            "unverified."),
+        SUCCESSOR_INFEASIBLE: (
+            "No book reachable by the governed repair complies with the %s cap this "
+            "ruling makes binding within the declared round budget of %s. The open "
+            "breach is named rather than a compliant target fabricated: %s. Reject "
+            "or hold this proposal, or revise the ruling."
+            % (binding_limit, repair.get("risk_repair_round_budget"),
+               ", ".join("%s at %s" % (b.get("ticker"),
+                                       b.get("risk_contribution_pct"))
+                         for b in rc_open) or
+               ", ".join("%s %s" % (o.get("ticker"), o.get("constraint_code"))
+                         for o in open_obligations) or "unspecified")),
+    }[state]
+    return {
+        **base,
+        "state": state,
+        "available": state == SUCCESSOR_SOLVED,
+        "selectable_target": (_pd_target() if state == SUCCESSOR_SOLVED else None),
+        "implementation": (impl if state == SUCCESSOR_SOLVED else None),
+        "implementation_hash": (impl.get("selected_target_implementation_hash")
+                               if state == SUCCESSOR_SOLVED else None),
+        # Step 9's list, published verbatim from the state the repair owner built.
+        "revised_statistics": {
+            "positions": state_block.get("positions"),
+            "weights": dict(state_block.get("weights") or {}),
+            "changes": state_block.get("changes"),
+            "one_way_turnover": state_block.get("one_way_turnover"),
+            "two_way_turnover": state_block.get("two_way_turnover"),
+            "estimated_cost": state_block.get("estimated_cost"),
+            "cost_basis": state_block.get("cost_basis"),
+            "cash_weight": state_block.get("cash_weight"),
+            "invested_weight": state_block.get("invested_weight"),
+            "portfolio_volatility": state_block.get("portfolio_volatility"),
+            "volatility_basis": state_block.get("volatility_basis"),
+            "portfolio_volatility_capital_basis": state_block.get(
+                "portfolio_volatility_capital_basis"),
+            "volatility_capital_basis": state_block.get("volatility_capital_basis"),
+            "concentration": state_block.get("concentration"),
+            "largest_position": state_block.get("largest_position"),
+            "sector_concentration": state_block.get("sector_concentration"),
+            "allocation_by_asset_class": dict(
+                state_block.get("allocation_by_asset_class") or {}),
+            "risk_contributions": dict(state_block.get("risk_contributions") or {}),
+            "risk_contribution_limit": dict(
+                state_block.get("risk_contribution_limit") or {}),
+            "risk_contribution_breaches": rc_open,
+            "binding_cap_breaches": len(rc_open),
+            "mandatory_obligations_remaining": len(open_obligations),
+            "obligations_remaining": open_obligations,
+            "constraint_status_valid": cs.get("valid"),
+            "risk_measurement_state": state_block.get("risk_measurement_state"),
+            "risk_repair_rounds_measured": repair.get("risk_repair_rounds_measured"),
+            "risk_repair_round_budget": repair.get("risk_repair_round_budget"),
+            "risk_repair_convergence": repair.get("risk_repair_convergence"),
+            "turnover_budget": state_block.get("turnover_budget"),
+            "turnover_budget_exceeded": state_block.get("turnover_budget_exceeded"),
+        },
+        "repair_adjustments": list(state_block.get("repair_adjustments") or []),
+        "comparison": _successor_comparison(
+            selected=((selection or {}).get("selected_target_implementation") or {}),
+            successor=impl, instruments=instruments),
+        "ruled_review_hash": review_hash(ruled_review),
+        "detail": detail,
+    }
+
+
+def _pd_target() -> str:
+    """The successor's governed target name, from the selection writer that owns it."""
+    from paper_trader.api import portfolio_decision as _pd  # lazy: import cycle
+    return _pd.TARGET_POLICY_COMPLIANT_REPAIR
+
+
+def _offer_successor(*, governance: dict, successor: Optional[dict],
+                     actionable: bool) -> dict:
+    """Add the successor to the option list the write gate reads, or leave it alone.
+
+    The option is offered ONLY for a solved, compliant successor on an actionable
+    decision. Selectability stays the BACKEND's: a browser renders this answer and
+    never derives it.
+    """
+    if not successor or successor.get("state") != SUCCESSOR_SOLVED:
+        return governance
+    impl = successor.get("implementation") or {}
+    econ = impl.get("economics") or {}
+    stats = successor.get("revised_statistics") or {}
+    gov = dict(governance)
+    block = dict(gov.get("target_selection") or {})
+    blockers = ([] if actionable else
+                [{"code": kernel.SELECT_BLOCK_NOT_REVIEWABLE,
+                  "detail": "This decision is no longer actionable."}])
+    option = {
+        "target": successor["target"],
+        "label": successor["label"],
+        "recommended": False,
+        "selectable": not blockers,
+        "blockers": blockers,
+        "blocker_codes": sorted({b["code"] for b in blockers}),
+        "positions": impl.get("position_count"),
+        "changes": econ.get("changes"),
+        "one_way_turnover": econ.get("one_way_turnover"),
+        "estimated_cost": econ.get("estimated_cost"),
+        "score": econ.get("score"),
+        "score_improvement_net_of_cost": econ.get("score_improvement_net_of_cost"),
+        "portfolio_volatility": econ.get("portfolio_volatility"),
+        "portfolio_volatility_capital_basis": econ.get(
+            "portfolio_volatility_capital_basis"),
+        "concentration": econ.get("concentration"),
+        "largest_position": econ.get("largest_position"),
+        "cash_weight": econ.get("cash_weight"),
+        "mandatory_obligations_remaining": stats.get(
+            "mandatory_obligations_remaining"),
+        "obligations_remaining": list(stats.get("obligations_remaining") or []),
+        "is_defer": False,
+        "expected_return": econ.get("expected_return"),
+        "expected_return_state": econ.get("expected_return_state"),
+        "score_is_a_percentile_not_a_return": True,
+        "score_converted_to_dollars": False,
+        "score_basis": econ.get("score_basis"),
+        "score_excludes_uninvested_capital": econ.get(
+            "score_excludes_uninvested_capital"),
+        "invested_weight": econ.get("invested_weight"),
+        "evidence_cautions": [],
+        "evidence_caution_codes": [],
+        "solved_under_ruling": (successor.get("derived_under") or {}).get("ruling_id"),
+        "binding_limit": (successor.get("derived_under") or {}).get("binding_limit"),
+    }
+    options = [o for o in (block.get("options") or [])
+               if o.get("target") != option["target"]] + [option]
+    block["options"] = options
+    block["option_order"] = list(block.get("option_order") or []) + [option["target"]]
+    block["selectable_targets"] = sorted(
+        o["target"] for o in options if o.get("selectable"))
+    block["policy_compliant_successor_offered"] = bool(option["selectable"])
+    gov["target_selection"] = block
+    return gov
 
 
 def _selected_targets(*, proposal: dict, review: dict, identity: dict,
@@ -621,10 +1013,31 @@ def load_proposal_decision_review(
         proposal=proposal, review=review, identity=identity,
         proposal_id=art_meta.get("proposal_id"), review_hash_value=rhash,
         active_book_id=book_id, eligible_market_date=eligible)
+    # R82.1 - the successor target an AUTHORITATIVE ruling requires. Built from the
+    # same proposal and the same inputs, by the same repair owner, against the cap
+    # the ruling made binding. ``None`` in every ordinary case, including
+    # ACCEPT_AS_IS: a ruling that reopens no obligation builds no target.
+    successor = _policy_compliant_successor(
+        ruling=governance.get("risk_policy_ruling"),
+        selection=governance.get("selection"),
+        proposal=proposal, hoc_assessment=hoc_assessment,
+        outcome_evidence=outcome_evidence, aligned_returns=aligned_returns,
+        read_state=read_state, identity=identity,
+        proposal_id=art_meta.get("proposal_id"), review_hash_value=rhash,
+        active_book_id=book_id, eligible_market_date=eligible)
+    if successor and successor.get("implementation"):
+        # Offered through the EXISTING selection lane: one more entry in the block
+        # the governed write gate already reads, and one more implementable
+        # representation in the map it already resolves a selection against.
+        selected_targets = dict(selected_targets)
+        selected_targets[successor["target"]] = successor["implementation"]
+        governance = _offer_successor(governance=governance, successor=successor,
+                                     actionable=bool(governance.get("actionable")))
     return _envelope(
         status=STATUS_OK, generated_at=generated_at, proposal_payload=payload,
         review=review, governance=governance,
         selected_targets=selected_targets, review_hash_value=rhash,
+        policy_compliant_successor=successor,
         inputs={
             "proposal_hash": identity.get("proposal_hash"),
             "proposal_read_state": read_state,
@@ -705,4 +1118,6 @@ __all__ = [
     "load_proposal_decision_review", "load_review_summary", "reset_cache",
     "STATUS_IDENTITY_MISMATCH", "REVIEW_STATE_VOCAB", "MEMO_TTL_SECONDS",
     "review_hash",
+    "SUCCESSOR_SOLVED", "SUCCESSOR_INFEASIBLE", "SUCCESSOR_RISK_UNMEASURED",
+    "SUCCESSOR_NO_BINDING_LIMIT", "SUCCESSOR_STATE_VOCAB",
 ]

@@ -3572,6 +3572,53 @@
     .pdr-polt th:nth-child(3), .pdr-polt td:nth-child(3) { width: 190px; }
     .pdr-polopts { margin: 4px 0 8px; padding-left: 18px; }
     .pdr-polopts li { margin: 2px 0; }
+    /* R82 - the RULED state. Still amber and still not red: a ruled book is not a
+       system failure, it is a decision that has been taken and whose consequence is
+       that this target may not be approved. Same left-border weight and the same
+       compact table as the unruled block it replaces, so the card's height budget
+       at 1920x1080 does not move. */
+    .pdr-ruled { border-left-width: 4px; margin-top: 10px; }
+    .pdr-ruled .cc-badge { margin-left: 6px; vertical-align: middle; }
+    .pdr-ruled .pdr-rulemeta { color: var(--label, #7a8fb0); margin: 4px 0 2px; }
+    .pdr-ruled .pdr-verdict { font-weight: 800; margin-top: 6px;
+                              color: var(--warning, #f59e0b); }
+    .pdr-ruled .pdr-scope { color: var(--label, #7a8fb0); margin-top: 4px; }
+    .pdr-ruled .pdr-polt th:nth-child(2),
+    .pdr-ruled .pdr-polt td:nth-child(2) { width: 170px; }
+    .pdr-ruled .pdr-polt th:nth-child(3),
+    .pdr-ruled .pdr-polt td:nth-child(3) { width: 175px; }
+    .pdr-ruled .pdr-polt th:nth-child(4),
+    .pdr-ruled .pdr-polt td:nth-child(4) { width: 110px; }
+    .pdr-ruled .pdr-polt th:nth-child(5),
+    .pdr-ruled .pdr-polt td:nth-child(5) { width: 130px; }
+    .pdr-ruled .pdr-polt td.bad { font-weight: 800; color: var(--warning, #f59e0b); }
+    /* R82.1 - the operator's own RISK POLICY DECISION step. A real write control,
+       which the risk-policy block has never had. */
+    .pdr-rpd { border-left: 4px solid var(--warning, #f59e0b); }
+    .pdr-rpd .pdr-rpd-lead { margin: 6px 0 10px; }
+    .pdr-rpd .pdr-rpd-opt { border: 1px solid var(--border, #24314a);
+      border-radius: 6px; padding: 8px 10px; margin-bottom: 8px;
+      background: rgba(148,163,184,.05); display: flex; gap: 10px;
+      align-items: flex-start; }
+    .pdr-rpd .pdr-rpd-opt.is-off { opacity: .6; }
+    .pdr-rpd .pdr-rpd-opt input { margin-top: 3px; flex: 0 0 auto; }
+    .pdr-rpd .pdr-rpd-opt label { cursor: pointer; }
+    .pdr-rpd .pdr-rpd-opt.is-off label { cursor: not-allowed; }
+    .pdr-rpd .pdr-rpd-t { font-weight: 800; }
+    .pdr-rpd .pdr-rpd-d { color: var(--label, #7a8fb0); margin-top: 3px; }
+    .pdr-rpd .pdr-rpd-na { font-weight: 800;
+      color: var(--warning, #f59e0b); margin-top: 3px; }
+    .pdr-rpd .pdr-rpd-arm { display: flex; gap: 10px; align-items: center;
+      margin: 10px 0 6px; flex-wrap: wrap; }
+    .pdr-rpd .pdr-rpd-binds { color: var(--label, #7a8fb0); margin-top: 6px;
+      word-break: break-all; }
+    .pdr-rpd .pdr-rpd-prior { border: 1px solid rgba(245,158,11,.55);
+      background: rgba(245,158,11,.08); border-radius: 6px; padding: 8px 10px;
+      margin-bottom: 10px; }
+    /* R82.1 - the successor target the ruling produced. */
+    .pdr-succ { border-left: 4px solid var(--ok, #22c55e); }
+    .pdr-succ .pdr-succt { width: 100%; }
+    .pdr-succ .pdr-succt td.ok { color: var(--ok, #22c55e); font-weight: 700; }
     .pdr-rc tr.pdr-refhead td { padding-top: 10px; font-weight: 700;
                                 color: var(--label, #7a8fb0);
                                 border-top: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); }
@@ -29588,7 +29635,7 @@ function _pdrTargetRows(impl) {
    obligations without touching either breaching name, and the screen said
    nothing. Both limits, both risk bases and the concentration are now published
    side by side, and a breach that closed without the position changing is named. */
-function _pdrRiskContribution(risk) {
+function _pdrRiskContribution(risk, ruling) {
   if (!risk || !risk.before || !risk.after) return '';
   var b = risk.before, a = risk.after;
   var n = function (v) {
@@ -29600,16 +29647,32 @@ function _pdrRiskContribution(risk) {
       + '<td' + (hi ? ' class="hi"' : '') + '>' + bv + '</td>'
       + '<td' + (hi ? ' class="hi"' : '') + '>' + av + '</td></tr>';
   };
+  /* R82 - the headline now counts what the attribution block counts.
+     `discharged_without_reduction` asks only "did this name's weight move?", so a
+     token trim drops a name from it entirely: on the 2026-09-25 minimum repair that
+     list holds AMD alone and reads "1 BREACH", while the kernel's own
+     discharge_attribution says BOTH AMD and DDOG closed on the limit alone (DDOG's
+     weight moved 4.34% -> 4.24%, nowhere near the 12% reference). The precise number
+     was published one block away and the loud number was the narrow one. Both are
+     shown now: the count comes from the attribution, and whether each name moved at
+     all is read from the narrower list by NAME - no arithmetic happens here. */
   var dis = risk.discharged_without_reduction || [];
+  var unmoved = {};
+  dis.forEach(function (x) { if (x && x.ticker) unmoved[x.ticker] = true; });
+  var relaxed = (risk.discharge_attribution || []).filter(function (x) {
+    return x && x.code === 'CLOSED_ONLY_BECAUSE_THE_LIMIT_ROSE';
+  });
   var warn = '';
-  if (dis.length) {
-    warn = '<div class="pdr-warn"><b>&#9888; ' + dis.length + ' BREACH'
-      + (dis.length === 1 ? '' : 'ES')
-      + ' DISCHARGED WITHOUT THE POSITION BEING REDUCED</b><br>'
-      + dis.map(function (x) {
+  if (relaxed.length) {
+    warn = '<div class="pdr-warn"><b>&#9888; ' + relaxed.length + ' BREACH'
+      + (relaxed.length === 1 ? '' : 'ES')
+      + ' DISCHARGED BY THE CAP MOVING, NOT BY A REDUCTION</b><br>'
+      + relaxed.map(function (x) {
           return escapeHtml(x.ticker) + ' ' + _pdrPct(x.risk_contribution_before, 2)
             + ' &rarr; ' + _pdrPct(x.risk_contribution_after, 2)
-            + ' of portfolio risk at an unchanged weight of '
+            + ' of portfolio risk '
+            + (unmoved[x.ticker] ? 'at an unchanged weight of '
+                                 : 'after a partial reduction to ')
             + _pdrPct(x.weight_after, 2);
         }).join('; ')
       + '. The per-name cap rose from ' + _pdrPct(b.limit, 2) + ' to '
@@ -29643,7 +29706,7 @@ function _pdrRiskContribution(risk) {
           _pdrPct(a.largest_position, 2), false)
     + row('Cash', _pdrPct(b.cash_weight, 2), _pdrPct(a.cash_weight, 2), false)
     + _pdrReferenceRows(risk)
-    + '</tbody></table>' + warn + _pdrPolicyReview(risk)
+    + '</tbody></table>' + warn + _pdrPolicyReview(risk, ruling)
     + '<div class="pdr-note">Read from the canonical risk owner on both sides and '
     + 'not measured here. No threshold, basis or obligation was changed by this '
     + 'release.</div></div>';
@@ -29678,15 +29741,141 @@ function _pdrReferenceRows(risk) {
 
 /* R69.5 - the manual decision, stated rather than discharged.
 
-   Deliberately NOT a button. A policy ruling that can be cleared by reflex is
-   not a ruling, so the acknowledgement is recorded through the governed API
-   against the exact frozen book, the exact reference limit and the exact
-   instruments. This panel gains no write control of any kind: it names the
-   decision, names who owns the policy, and says plainly that nothing was
-   changed or granted. */
-function _pdrPolicyReview(risk) {
+   R69.5 argued that a policy ruling which can be cleared by reflex is not a
+   ruling, and concluded that this panel should gain no write control at all. The
+   first half is right and the second was wrong: the panel then demanded a decision
+   the operator had no way to make on it, and the only route left was a hand-rolled
+   request. R82.1 puts the control in Step 4 and keeps the first half intact - the
+   submission names the exact frozen book, the exact reference limit and the exact
+   instruments, it needs a deliberate choice plus an explicit confirmation, and the
+   backend refuses anything else. This block still only names the question, names
+   who owns the policy, and says plainly that nothing was changed or granted. */
+/* R82 - the ruling, once it is on record.
+
+   R69.5's panel could only ever ask for a ruling. It had no state to show after
+   one, so an operator who ruled saw either the same demand again or nothing at all:
+   the ruling, the cap it binds and the obligations it reopens were invisible.
+
+   This block states them. Every number is READ from the governed ruling artifact
+   and from the kernel's own derived state - no arithmetic on a cap, a risk share, a
+   weight or an excess happens in this file.
+
+   R82.1 - it renders only for an AUTHORITATIVE ruling, and it carries no write
+   control because there is nothing left to decide here: a decision already taken is
+   stated, not re-offered as a form. The form is Step 4, which appears while the
+   decision is still owed. */
+function _pdrRuledPolicy(risk, ruling) {
+  var ref = (risk && risk.reference_compliance) || {};
+  var blocked = ruling.approval_blocked_by_the_ruling === true;
+  var rows = (ruling.treatment || []).map(function (t) {
+    return '<tr><td class="tk">' + escapeHtml(t.ticker || '') + '</td>'
+      + '<td>' + _pdrPct(t.risk_contribution_before, 2) + ' &rarr; '
+      + _pdrPct(t.risk_contribution_after, 2) + '</td>'
+      + '<td>' + _pdrPct(t.weight_before, 2) + ' &rarr; '
+      + _pdrPct(t.weight_after, 2)
+      + (t.weight_moved === false ? ' (unchanged)' : ' (trimmed)') + '</td>'
+      + '<td>' + (t.compliant_on_governed_limit === true
+                  ? 'complies at ' + _pdrPct(t.governed_limit, 2)
+                  : 'breaches at ' + _pdrPct(t.governed_limit, 2)) + '</td>'
+      + '<td class="bad">' + (t.compliant_on_binding_limit === true
+                              ? 'complies' : 'BREACH +'
+                                + _pdrPct(t.excess_over_binding_limit, 2)) + '</td>'
+      + '<td>' + (t.obligation_open === true
+                  ? 'OPEN &middot; ' + escapeHtml(String(t.required_action || '')
+                                                  .replace(/_/g, ' '))
+                  : 'none') + '</td></tr>';
+  }).join('');
+  return '<div class="pdr-warn pdr-ruled">'
+    + '<b>&#9878; RISK POLICY RULED &mdash; '
+    + escapeHtml(String(ruling.ruling || '').replace(/_/g, ' ')) + '</b> '
+    + '<span class="cc-badge">RULING ON RECORD</span> '
+    + (blocked ? '<span class="cc-badge">REFERENCE CAP BINDS</span> '
+                 + '<span class="cc-badge">APPROVAL UNAVAILABLE</span> ' : '')
+    + '<span class="cc-badge">NO THRESHOLD CHANGED</span> '
+    + '<span class="cc-badge">PREVIEW ONLY</span> '
+    + '<span class="cc-badge">NO ORDERS</span> '
+    + '<span class="cc-badge">MANUAL REVIEW</span>'
+    /* R82.1 - this fell back to displaying "operator" when the record named
+       nobody, which is the same narration defect one layer out: the screen would
+       assert an operator the artifact never recorded. It now shows what the record
+       actually says, and the provenance channel beside it is the evidence. */
+    + '<div class="pdr-rulemeta">Ruled by <b>'
+    + escapeHtml(String(ruling.ruled_by || 'an unnamed caller')) + '</b> ('
+    + escapeHtml(String((ruling.provenance_state || {}).channel || 'channel unknown')
+                 .replace(/_/g, ' ')) + ') &middot; '
+    + escapeHtml(String(ruling.ruled_at || '')) + ' &middot; ruling '
+    + escapeHtml(String(ruling.ruling_id || '')) + '<br>Bound to selection '
+    + escapeHtml(String(ruling.selection_id || '')) + ' &middot; frozen book '
+    + escapeHtml(String(ruling.selected_target_implementation_hash
+                        || '').slice(0, 12)) + '</div>'
+    + 'Binding per-name cap for <b>this</b> frozen book: <b>'
+    + _pdrPct(ruling.binding_limit, 2) + '</b> &mdash; the cap the '
+    + escapeHtml(String((risk.before || {}).n_covariance_names || '?'))
+    + '-name current book was judged against. The target&rsquo;s own 3/N cap, '
+    + _pdrPct(ruling.governed_limit, 2) + ' on '
+    + escapeHtml(String((risk.after || {}).n_covariance_names || '?'))
+    + ' names, stays published and is <b>not</b> the cap this book is judged '
+    + 'against.'
+    + '<table class="pdr-polt"><thead><tr><th>Ticker</th>'
+    + '<th>Share of portfolio risk</th><th>Weight</th><th>Own 3/N cap</th>'
+    + '<th>Ruled cap ' + _pdrPct(ruling.binding_limit, 2) + '</th>'
+    + '<th>Obligation</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + 'Obligations open against the ruled cap: <b>'
+    + escapeHtml(String(ruling.reopened_obligation_count))
+    + '</b> &nbsp;(the frozen target reports '
+    + escapeHtml(String(ruling.obligations_open_on_the_governed_limit))
+    + ' against its own cap).'
+    + '<div class="pdr-verdict">'
+    + (blocked
+       ? 'APPROVAL UNAVAILABLE &mdash; the ruled cap binds and '
+         + escapeHtml(String(ruling.reopened_obligation_count))
+         + ' obligation(s) are open. REJECT and HOLD remain available, as does '
+         + 'selecting a target that complies at '
+         + _pdrPct(ruling.binding_limit, 2) + '.'
+       : 'The ruling opens no obligation on this book. It grants nothing: the '
+         + 'existing approval gates are unchanged.')
+    + '</div>'
+    + '<div class="pdr-scope">' + escapeHtml(String(ruling.scope || ''))
+    + ' Policy owner <b>'
+    + escapeHtml(String(ruling.policy_owner
+                        || 'engine.holding_opportunity_cost'))
+    + '</b>; every share, cap and excess above is measured by that owner and read '
+    + 'here. Reference basis '
+    + escapeHtml(String(ref.basis || 'BEFORE_BOOK_GOVERNED_LIMIT_HELD_CONSTANT'))
+    + ' &middot; background in '
+    + escapeHtml(String(ruling.manual_review_reference
+                        || 'docs/R69_1_POLICY_ITEMS_FOR_MANUAL_REVIEW.md'))
+    + '.</div></div>';
+}
+
+/* R82 - obligations a recorded ruling reopened on this frozen book, or null when no
+   ruling is on record. Read; never counted here.
+
+   R82.1 - AUTHORITATIVE only. An unverified record reopens nothing, so a "2 RULED"
+   badge beside it would assert a consequence the backend explicitly withheld. */
+function _pdrRuledObligations(sel) {
+  var r = sel && sel.risk_policy_ruling;
+  if (!r || r.authoritative !== true) return null;
+  var n = r.reopened_obligation_count;
+  return (n === null || n === undefined || n === 0) ? null : n;
+}
+
+function _pdrPolicyReview(risk, ruling) {
   var pol = risk && risk.policy_review;
   var ref = (risk && risk.reference_compliance) || {};
+  // R82 - a ruling REPLACES the demand for one. Rendered before the `!pol.required`
+  // exit below, so a ruled book still states its ruling even once the question that
+  // raised it reads as answered.
+  //
+  // R82.1 - AUTHORITATIVE, not merely present. A record whose provenance the
+  // backend could not verify binds nothing, and painting "RISK POLICY RULED /
+  // REFERENCE CAP BINDS" over it would tell the operator a development artifact had
+  // governed their book. That case falls through to the demand below and is
+  // disclosed by name in the Step 4 decision block.
+  if (ruling && ruling.authoritative === true && ruling.state
+      && ruling.state !== 'NO_RULING_ON_RECORD') {
+    return _pdrRuledPolicy(risk, ruling);
+  }
   if (!pol) {
     return '<div class="pdr-note"><b>Risk-policy verdict not published.</b> This '
       + 'selection froze its book before R69.5, so whether it complies with the '
@@ -29738,9 +29927,15 @@ function _pdrPolicyReview(risk) {
     + '</b> &middot; background in '
     + escapeHtml(pol.manual_review_reference
                  || 'docs/R69_1_POLICY_ITEMS_FOR_MANUAL_REVIEW.md')
-    + '. The ruling is recorded through the governed decision API, not from this '
-    + 'screen: it must name this exact frozen book, so it cannot be clicked by '
-    + 'reflex and cannot be carried to another target.</div>';
+    /* R82.1 - this used to end "the ruling is recorded through the governed
+       decision API, not from this screen", which described a panel that demanded a
+       decision it gave the operator no way to make. The decision is now Step 4
+       below, and it still names this exact frozen book: the submission binds the
+       proposal, the selection, the frozen-book hash, the reference cap and the
+       instruments, so it cannot be carried to another target. */
+    + '. Record it in <b>Step 4 &mdash; RISK POLICY DECISION</b> below. The '
+    + 'submission binds this exact frozen book, so a ruling cannot be carried to '
+    + 'another target, and recording one approves nothing.</div>';
 }
 
 /* R69.5 - which capital the three states actually range over.
@@ -29793,11 +29988,20 @@ function _pdrSelectedTarget(d) {
     + '<div><div class="k">Est. cost</div><div class="v">' + _pdrUsd(e.estimated_cost) + '</div></div>'
     + '<div><div class="k">Cash</div><div class="v">' + _pdrPct(e.cash_weight) + '</div></div>'
     + '<div><div class="k">Concentration</div><div class="v">' + _pdrNum(e.concentration, 4) + '</div></div>'
-    + '<div title="Mandatory repair obligations this target leaves open."><div class="k">Obligations left</div>'
-    + '<div class="v">' + num(impl.mandatory_obligations_remaining) + '</div></div>'
+    /* R82 - the KPI must not read 0 while the ruled panel below names two open
+       obligations. Both numbers are shown, labelled by the cap each is measured
+       against, and both are read from the backend. */
+    + '<div title="Mandatory repair obligations this target leaves open, on its own '
+    + '3/N cap and (when a risk-policy ruling is on record) on the ruled cap.">'
+    + '<div class="k">Obligations left</div>'
+    + '<div class="v">' + num(impl.mandatory_obligations_remaining)
+    + (_pdrRuledObligations(sel) !== null
+       ? ' <span class="cc-badge">' + escapeHtml(String(_pdrRuledObligations(sel)))
+         + ' RULED</span>' : '')
+    + '</div></div>'
     + '</div>'
     + _pdrTargetRows(impl)
-    + _pdrRiskContribution(impl.risk_contribution)
+    + _pdrRiskContribution(impl.risk_contribution, sel.risk_policy_ruling)
     + '<div class="pdr-idm" style="margin-top:8px;">'
     + 'Target identity <b>'
     + escapeHtml(String(impl.selected_target_implementation_hash || '').slice(0, 16) || '—')
@@ -29807,6 +30011,439 @@ function _pdrSelectedTarget(d) {
     + '<div class="pdr-note">These are the weights an order plan will implement. '
     + 'Nothing here is an order: the order plan is built only after approval and '
     + 'confirmed at a separate gate.</div>'
+    + '</div>';
+}
+
+/* ======================================================================== */
+/* R82.1 - STEP 4: THE RISK POLICY DECISION. The operator's own write control. */
+/*                                                                            */
+/* R69.5 wrote "Approval is withheld until an operator rules on the policy",  */
+/* listed three courses as plain text, and shipped no control of any kind. The */
+/* only way to rule was a hand-rolled HTTP request, which is a developer's     */
+/* workflow wearing an operator's label. R82 then stated a ruling once one     */
+/* existed and still offered no way to make one.                              */
+/*                                                                            */
+/* This is that control. Every option, its plain-English text and its          */
+/* availability are READ from `risk_policy_decision.options`, which the        */
+/* backend derives from the ruling vocabulary - this file holds no copy of the */
+/* rule, so an option the recorder would refuse can never appear here as       */
+/* available. The submission binds the exact proposal, selection, frozen-book  */
+/* hash, reference limit and instrument set the backend published, plus the    */
+/* single-use token that read minted. The backend remains the authority for    */
+/* every validation. No cap, share, weight or excess is derived in this file.  */
+/*                                                                            */
+/* No browser dialog: the confirmation is a deliberate checkbox plus an        */
+/* explicit token, and the outcome is rendered inline where the operator is    */
+/* looking. Ruling is NOT approving - said on the panel, on every option, and  */
+/* enforced by the backend gate.                                              */
+/* ======================================================================== */
+window._pdrRuleUi = window._pdrRuleUi || null;
+
+function _pdrRuleSetUi(ui) {
+  window._pdrRuleUi = ui;
+  var host = document.getElementById('pdr-step4');
+  if (host) host.outerHTML = _pdrRiskPolicyDecision(window._pdrData);
+}
+
+function _pdrRuleClear() {
+  window._pdrRuleUi = null;
+  var host = document.getElementById('pdr-step4');
+  if (host) host.outerHTML = _pdrRiskPolicyDecision(window._pdrData);
+}
+window._pdrRuleClear = _pdrRuleClear;
+
+/* The submit control is inert until the operator has BOTH chosen an available
+   policy and ticked the confirmation. Read straight off the DOM; no state to
+   drift out of step with what is on screen. */
+function _pdrRuleArm() {
+  var picked = document.querySelector('input[name="pdr-rpd-choice"]:checked');
+  var conf = document.getElementById('pdr-rpd-confirm');
+  var btn = document.getElementById('pdr-rpd-go');
+  if (!btn) return;
+  btn.disabled = !(picked && conf && conf.checked);
+}
+window._pdrRuleArm = _pdrRuleArm;
+
+function _pdrRuleResult() {
+  var ui = window._pdrRuleUi;
+  if (!ui) return '';
+  if (ui.phase === 'PENDING') {
+    return '<div class="pdr-stale" style="border-color:rgba(245,158,11,.55);'
+      + 'background:rgba(245,158,11,.08);"><b>&#8987; PENDING &mdash; recording the '
+      + 'ruling ' + escapeHtml(String(ui.ruling || '').replace(/_/g, ' '))
+      + '</b><br>The request has been sent and the backend has not yet answered. '
+      + 'Nothing is persisted until it does.</div>';
+  }
+  if (ui.phase === 'OK') {
+    return '<div class="pdr-stale" style="border-color:rgba(34,197,94,.55);'
+      + 'background:rgba(34,197,94,.08);"><b>&#10004; RULING RECORDED &mdash; '
+      + escapeHtml(String(ui.ruling || '').replace(/_/g, ' ')) + '</b> '
+      + '<span class="cc-badge">NOT AN APPROVAL</span> '
+      + '<span class="cc-badge">NO ORDERS</span><br>'
+      + escapeHtml(ui.detail || '')
+      + (ui.rulingId ? ('<br>Ruling <b>' + escapeHtml(ui.rulingId) + '</b>') : '')
+      + '<div style="margin-top:8px;"><button type="button" class="pdr-cta neutral"'
+      + ' style="margin-top:0;" onclick="_pdrRuleClear()"'
+      + ' title="Dismiss this confirmation. The ruling stays on record.">'
+      + 'Dismiss</button></div></div>';
+  }
+  return '<div class="pdr-stale"><b>&#10008; RULING REFUSED &mdash; '
+    + escapeHtml(ui.code || 'ERROR')
+    + (ui.httpStatus ? (' (HTTP ' + escapeHtml(String(ui.httpStatus)) + ')') : '')
+    + '</b><br>' + escapeHtml(ui.detail || 'The backend refused the ruling.')
+    + '<br><b>Nothing was written.</b> No ruling, decision, order plan, order or '
+    + 'fill was created and the proposal is unchanged.'
+    + (ui.retry ? ('<br>' + escapeHtml(ui.retry)) : '')
+    + '<div style="margin-top:8px;"><button type="button" class="pdr-cta neutral"'
+    + ' style="margin-top:0;" onclick="_pdrRuleClear()"'
+    + ' title="Dismiss this refusal. Nothing was written, so there is nothing to undo.">'
+    + 'Dismiss</button></div></div>';
+}
+
+/* The PRIOR record disclosure. A ruling whose provenance the backend could not
+   verify is shown by name and explicitly binds nothing. It is not deleted and
+   not rewritten: the operator's ruling below supersedes it through the governed
+   revision path. */
+function _pdrRulePrior(dec) {
+  var p = dec && dec.prior_unverified_ruling;
+  if (!p) return '';
+  var ps = p.provenance_state || {};
+  return '<div class="pdr-rpd-prior"><b>&#9432; A PRIOR RULING IS ON RECORD AND ITS '
+    + 'PROVENANCE IS NOT VERIFIED</b> '
+    + '<span class="cc-badge">UNVERIFIED</span> '
+    + '<span class="cc-badge">AUDIT EVIDENCE ONLY</span> '
+    + '<span class="cc-badge">BINDS NOTHING</span><br>'
+    + escapeHtml(String(p.ruling_id || '')) + ' &middot; '
+    + escapeHtml(String(p.ruling || '').replace(/_/g, ' ')) + ' &middot; recorded '
+    + escapeHtml(String(p.ruled_at || '')) + ' by '
+    + escapeHtml(String(p.ruled_by || 'an unnamed caller')) + '<br>'
+    + escapeHtml(String(ps.detail || ''))
+    + '</div>';
+}
+
+function _pdrRiskPolicyDecision(d) {
+  var dec = (d && d.risk_policy_decision) || null;
+  var ui = window._pdrRuleUi;
+  if (!dec) return '';
+  if (!dec.required) {
+    // The decision is taken (or was never owed). Keep only the outcome banner, so
+    // the answer to a press survives the reload that press triggers.
+    if (!ui) return '';
+    return '<div class="pdr-step" id="pdr-step4">'
+      + '<div class="sh"><span>Step 4 &mdash; risk policy decision</span>'
+      + '<span class="cc-badge">MANUAL REVIEW</span>'
+      + '<span class="cc-badge">NO ORDERS</span></div>'
+      + _pdrRuleResult() + '</div>';
+  }
+  var b = dec.binds || {};
+  var opts = (dec.options || []).map(function (o, i) {
+    var off = o.available !== true;
+    var id = 'pdr-rpd-o' + i;
+    return '<div class="pdr-rpd-opt' + (off ? ' is-off' : '') + '">'
+      + '<input type="radio" name="pdr-rpd-choice" id="' + id + '"'
+      + ' value="' + escapeHtml(o.ruling) + '"'
+      + (off ? ' disabled' : ' onchange="_pdrRuleArm()"') + '>'
+      + '<label for="' + id + '">'
+      + '<div class="pdr-rpd-t">' + escapeHtml(o.title || o.ruling) + '</div>'
+      /* The reason code says only "not available in this release", which the
+         heading already says. The WHY is the backend's own detail, rendered in the
+         bullets below, so the badge stays a badge. */
+      + (off ? '<div class="pdr-rpd-na">UNAVAILABLE IN THIS RELEASE</div>' : '')
+      + '<div class="pdr-rpd-d">'
+      + (o.detail || []).map(function (line) {
+          return '&bull; ' + escapeHtml(line);
+        }).join('<br>')
+      + '<br><b>' + (o.does_not_approve === true
+                     ? 'Recording this does NOT approve the proposal. Approval stays '
+                       + 'a separate manual action.'
+                     : '') + '</b>'
+      + (o.builds_a_successor_target === true
+         ? '<br>Paper Trader will solve and publish the policy-compliant successor '
+           + 'target for your review.' : '')
+      + '</div></label></div>';
+  }).join('');
+  return '<div class="pdr-step pdr-rpd" id="pdr-step4">'
+    + '<div class="sh"><span>Step 4 &mdash; RISK POLICY DECISION (yours to make)</span>'
+    + '<span class="cc-badge">&#9878; YOUR DECISION</span>'
+    + '<span class="cc-badge">APPROVAL WITHHELD</span>'
+    + '<span class="cc-badge">NO THRESHOLD CHANGED</span>'
+    + '<span class="cc-badge">CREATES TRADE DECISIONS ONLY</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">MANUAL REVIEW</span></div>'
+    + _pdrRuleResult()
+    + _pdrRulePrior(dec)
+    + '<div class="pdr-rpd-lead">' + escapeHtml(String(dec.detail || '')) + ' The '
+    + 'selected target clears its own <b>' + _pdrPct(b.governed_limit, 2)
+    + '</b> per-name risk cap and does not clear the <b>'
+    + _pdrPct(b.reference_limit, 2) + '</b> cap the current book was judged '
+    + 'against; ' + escapeHtml((b.instruments || []).join(', ') || 'no name')
+    + ' breach at that cap. Choose which policy governs <b>this</b> frozen '
+    + 'decision.</div>'
+    + opts
+    + '<div class="pdr-rpd-arm">'
+    + '<input type="checkbox" id="pdr-rpd-confirm" onchange="_pdrRuleArm()">'
+    + '<label for="pdr-rpd-confirm">I am the portfolio operator and I am recording '
+    + 'this ruling for this frozen book.</label></div>'
+    + '<div class="pdr-rpd-arm">'
+    + '<button type="button" class="pdr-cta" style="margin-top:0;" id="pdr-rpd-go"'
+    + ' disabled onclick="_pdrRecordRuling()"'
+    + ' title="Record the governed risk-policy ruling for this frozen book. It '
+    + 'approves nothing and creates no order plan, order or fill.">'
+    + 'RECORD RISK POLICY RULING</button>'
+    + '<button type="button" class="pdr-cta neutral" style="margin-top:0;"'
+    + ' onclick="_pdrRuleReset()"'
+    + ' title="Clear the selection on this form. Nothing has been sent.">'
+    + 'Clear</button></div>'
+    + '<div class="pdr-rpd-binds">Binds proposal <b>'
+    + escapeHtml(String(b.proposal_id || '&mdash;')) + '</b> &middot; selection <b>'
+    + escapeHtml(String(b.selection_id || '&mdash;')) + '</b> &middot; frozen book <b>'
+    + escapeHtml(String(b.selected_target_implementation_hash || '').slice(0, 16))
+    + '</b> &middot; reference cap <b>' + _pdrPct(b.reference_limit, 2)
+    + '</b> &middot; names <b>'
+    + escapeHtml((b.instruments || []).join(', ') || '&mdash;') + '</b><br>'
+    + escapeHtml(String(dec.scope || '')) + ' Recorded by <b>'
+    + escapeHtml(String(dec.owner || 'api.portfolio_decision')) + '</b> at '
+    + escapeHtml(String(dec.route || '')) + '. Background in '
+    + escapeHtml(String(dec.manual_review_reference || '')) + '.<br>'
+    + 'Recording asks <b>' + escapeHtml(String(dec.owner
+        || 'api.portfolio_decision')) + '</b> for a single-use operator '
+    + 'confirmation at ' + escapeHtml(String(dec.confirmation_route || ''))
+    + ' and spends it on this ruling. It expires in <b>'
+    + escapeHtml(String(dec.confirmation_ttl_seconds || 180)) + 's</b>, is bound to '
+    + 'this book and this choice, and cannot be used twice. A ruling recorded '
+    + 'without one is kept as audit evidence and governs nothing.</div>'
+    + '</div>';
+}
+
+function _pdrRuleReset() {
+  var picked = document.querySelectorAll('input[name="pdr-rpd-choice"]');
+  for (var i = 0; i < picked.length; i += 1) { picked[i].checked = false; }
+  var conf = document.getElementById('pdr-rpd-confirm');
+  if (conf) conf.checked = false;
+  _pdrRuleArm();
+}
+window._pdrRuleReset = _pdrRuleReset;
+
+/* The governed ruling WRITE. Same header contract as every other authenticated
+   call on this screen (R69.1's 401 defect), and its outcome is published to state
+   that outlives the reload this function triggers (R69.2's erased-banner defect). */
+function _pdrRecordRuling() {
+  var d = window._pdrData || {};
+  var dec = d.risk_policy_decision || {};
+  var picked = document.querySelector('input[name="pdr-rpd-choice"]:checked');
+  var conf = document.getElementById('pdr-rpd-confirm');
+  if (!picked || !conf || !conf.checked) {
+    _pdrRuleSetUi({ phase: 'ERROR', code: 'NOT_CONFIRMED', httpStatus: null,
+      detail: 'Choose one available policy and tick the confirmation first.' });
+    return;
+  }
+  var ruling = picked.value;
+  // Defence in depth: the button is only wired for an available option and the
+  // backend fails closed on its own, but this function is reachable by name and
+  // the request it makes is a write. It refuses to even ask.
+  var opt = (dec.options || []).filter(function (o) {
+    return o.ruling === ruling;
+  })[0];
+  if (!opt || opt.available !== true) {
+    _pdrRuleSetUi({ phase: 'ERROR', ruling: ruling, code: 'RULING_NOT_AVAILABLE',
+      httpStatus: null,
+      detail: (String((opt || {}).unavailable_detail
+                      || 'The backend does not offer this ruling.')),
+      retry: 'Choose one of the available policies.' });
+    return;
+  }
+  if (window._pdrRuleInFlight) return;            // no double submission
+  window._pdrRuleInFlight = true;
+  _pdrRuleSetUi({ phase: 'PENDING', ruling: ruling });
+  var b = dec.binds || {};
+  var phrase = (dec.confirm_token || 'CONFIRM_RISK_POLICY_RULING');
+  /* R82.1.1 ACT ONE - open the governed operator-confirmation ceremony. The
+     backend issues the single-use confirmation that makes a ruling authoritative;
+     this screen cannot manufacture one, and saying the operator confirmed is not a
+     substitute for spending one. */
+  return fetch(dec.confirmation_route
+      || '/v1/operations/portfolio-decision/risk-policy-ruling/confirmation', {
+    method: 'POST',
+    headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ruling: ruling,
+      confirmation: phrase,
+      submission_token: dec.submission_token || null,
+      surface: 'portfolio-manager/reallocation',
+      requested_by: 'manual_ui'
+    })
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; })
+      .then(function (j) { return { httpOk: res.ok, httpStatus: res.status, j: j }; });
+  }).then(function (c) {
+    var cj = c.j || {};
+    var cd = cj.detail || {};
+    if (!c.httpOk || !cj.confirmation) {
+      /* Shaped like a refused write so the one outcome renderer below handles it:
+         nothing was recorded, and the reason the backend gave is shown verbatim. */
+      return { httpOk: false, httpStatus: c.httpStatus, j: {
+        status: (cd.reason || 'OPERATOR_CONFIRMATION_NOT_ISSUED'),
+        message: (cd.message || cj.message
+                  || 'The backend issued no operator confirmation for this ruling, '
+                     + 'so nothing was recorded.') } };
+    }
+    /* ACT TWO - SPEND it. The confirmation is single-use and short-lived, so it
+       goes straight through and is never kept on this page. */
+    return fetch(dec.route || '/v1/operations/portfolio-decision/risk-policy-ruling', {
+      method: 'POST',
+      headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ruling: ruling,
+        confirmation: phrase,
+        expected_selection_id: b.selection_id || null,
+        expected_selected_target_implementation_hash:
+          b.selected_target_implementation_hash || null,
+        expected_reference_limit: b.reference_limit,
+        instruments: b.instruments || null,
+        submission_token: dec.submission_token || null,
+        operator_confirmation: cj.confirmation,
+        operator_confirmed: true,
+        surface: 'portfolio-manager/reallocation',
+        requested_by: 'manual_ui'
+      })
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; })
+        .then(function (j) {
+          return { httpOk: res.ok, httpStatus: res.status, j: j };
+        });
+    });
+  }).then(function (r) {
+    window._pdrRuleInFlight = false;
+    var j = r.j || {};
+    if (j.recorded && j.provenance_verified === true) {
+      _pdrRuleSetUi({ phase: 'OK', ruling: ruling, rulingId: j.ruling_id,
+                      detail: (j.message || 'The ruling is on record.') });
+    } else {
+      _pdrRuleSetUi({
+        phase: 'ERROR', ruling: ruling,
+        code: (j.status || (r.httpOk ? 'REFUSED' : ('HTTP_' + r.httpStatus))),
+        httpStatus: r.httpStatus,
+        detail: (j.message || j.detail || 'The backend refused the ruling.'),
+        retry: ((r.httpStatus === 401 || r.httpStatus === 403)
+          ? 'This browser is not authenticated. Enter the API key in the header and '
+            + 'press Connect, then record the ruling again.'
+          : 'Press Refresh to re-read the review, then rule again.')
+      });
+    }
+    return _pdrLoad();
+  }).catch(function (e) {
+    window._pdrRuleInFlight = false;
+    _pdrRuleSetUi({
+      phase: 'ERROR', ruling: ruling, code: 'CLIENT_ERROR', httpStatus: null,
+      detail: ('The ruling request could not be completed: '
+               + ((e && e.message) || 'unknown client error') + '.'),
+      retry: 'Check that the backend is running, then rule again.' });
+  });
+}
+window._pdrRecordRuling = _pdrRecordRuling;
+
+/* ======================================================================== */
+/* R82.1 - STEP 5: THE POLICY-COMPLIANT SUCCESSOR TARGET.                     */
+/*                                                                            */
+/* R82's ruled panel ended at "select a target that complies at 12.00%" and    */
+/* no such target existed anywhere in the system. The backend now re-solves    */
+/* the repair against the ruled cap with the same repair owner and the same    */
+/* covariance owner, and publishes the result here. Every number below is READ */
+/* from `policy_compliant_successor.revised_statistics`; the first-order       */
+/* indicative figures R69.5 publishes are never shown as solved weights, and   */
+/* the block says which owner solved and which owner measured.                 */
+/* ======================================================================== */
+function _pdrSuccessorTarget(d) {
+  var s = (d && d.policy_compliant_successor) || null;
+  if (!s) return '';
+  var du = s.derived_under || {};
+  var st = s.revised_statistics || {};
+  var num = function (v) {
+    return (v === null || v === undefined) ? '&mdash;' : escapeHtml(String(v));
+  };
+  if (s.state !== 'SOLVED_AND_COMPLIANT_AT_THE_RULED_CAP') {
+    return '<div class="pdr-step is-bad" id="pdr-step5">'
+      + '<div class="sh"><span>Step 5 &mdash; policy-compliant successor target</span>'
+      + '<span class="cc-badge">NO COMPLIANT TARGET</span>'
+      + '<span class="cc-badge">APPROVAL UNAVAILABLE</span>'
+      + '<span class="cc-badge">NO ORDERS</span>'
+      + '<span class="cc-badge">MANUAL REVIEW</span></div>'
+      + '<div class="pdr-res-t">&#10008; '
+      + escapeHtml(String(s.state || '').replace(/_/g, ' ')) + '</div>'
+      + '<div class="pdr-note">' + escapeHtml(String(s.detail || '')) + '</div>'
+      + '</div>';
+  }
+  var opt = (((d.target_selection || {}).options) || []).filter(function (o) {
+    return o.target === s.selectable_target;
+  })[0];
+  var rows = (s.comparison || []).map(function (c) {
+    return '<tr><td class="tk">' + escapeHtml(c.ticker || '') + '</td>'
+      + '<td>' + (c.reopened_by_the_ruling === true
+                  ? '<b>reopened by the ruling</b>'
+                  : 'moved as a consequence') + '</td>'
+      + '<td>' + _pdrPct(c.weight_selected, 2) + ' &rarr; '
+      + _pdrPct(c.weight_solved, 2) + '</td>'
+      + '<td>' + _pdrPct(c.risk_contribution_selected, 2) + ' &rarr; '
+      + _pdrPct(c.risk_contribution_solved, 2) + '</td>'
+      + '<td class="' + (c.complies_at_the_binding_limit === true ? 'ok' : '') + '">'
+      + (c.complies_at_the_binding_limit === true
+         ? 'complies at ' + _pdrPct(c.binding_limit, 2)
+         : 'BREACH') + '</td></tr>';
+  }).join('');
+  return '<div class="pdr-step pdr-succ" id="pdr-step5">'
+    + '<div class="sh"><span>Step 5 &mdash; policy-compliant successor target '
+    + '(solved at the ruled cap)</span>'
+    + '<span class="cc-badge">SOLVED AND REMEASURED</span>'
+    + '<span class="cc-badge">PREVIEW ONLY</span>'
+    + '<span class="cc-badge">NOT APPROVED</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">MANUAL REVIEW</span></div>'
+    + '<div class="pdr-ev">'
+    + '<div><div class="k">Positions</div><div class="v">' + num(st.positions) + '</div></div>'
+    + '<div><div class="k">Changes</div><div class="v">' + num(st.changes) + '</div></div>'
+    + '<div><div class="k">Turnover</div><div class="v">' + _pdrPct(st.one_way_turnover) + '</div></div>'
+    + '<div><div class="k">Est. cost</div><div class="v">' + _pdrUsd(st.estimated_cost) + '</div></div>'
+    + '<div><div class="k">Cash</div><div class="v">' + _pdrPct(st.cash_weight) + '</div></div>'
+    + '<div><div class="k">Concentration</div><div class="v">' + _pdrNum(st.concentration, 4) + '</div></div>'
+    + '<div title="Mandatory repair obligations this solved target leaves open, '
+    + 'judged against the cap the ruling makes binding.">'
+    + '<div class="k">Obligations left</div><div class="v">'
+    + num(st.mandatory_obligations_remaining) + '</div></div>'
+    + '<div><div class="k">Cap breaches</div><div class="v">'
+    + num(st.binding_cap_breaches) + '</div></div>'
+    + '</div>'
+    + '<table class="pdr-polt pdr-succt"><thead><tr><th>Ticker</th><th>Why it moved</th>'
+    + '<th>Weight selected &rarr; solved</th>'
+    + '<th>Share of portfolio risk</th><th>Ruled cap '
+    + _pdrPct(du.binding_limit, 2) + '</th></tr></thead><tbody>' + rows
+    + '</tbody></table>'
+    + '<div class="pdr-note">' + escapeHtml(String(s.detail || '')) + '</div>'
+    + '<div class="pdr-idm">Risk, invested basis <b>'
+    + _pdrPct(st.portfolio_volatility, 2) + '</b> &middot; on total capital <b>'
+    + _pdrPct(st.portfolio_volatility_capital_basis, 2) + '</b> &middot; largest '
+    + 'position <b>' + _pdrPct(st.largest_position, 2) + '</b> &middot; sector '
+    + 'concentration <b>' + _pdrPct(st.sector_concentration, 2) + '</b><br>'
+    + 'Solved by <b>' + escapeHtml(String(s.solved_by || '')) + '</b> &middot; risk '
+    + 're-measured by <b>' + escapeHtml(String(s.risk_measured_by || ''))
+    + '</b> over <b>' + num(st.risk_repair_rounds_measured) + '</b> rounds ('
+    + escapeHtml(String(st.risk_repair_convergence || '')) + ', budget '
+    + num(st.risk_repair_round_budget) + ') &middot; verified by <b>'
+    + escapeHtml(String(s.verified_by || '')) + '</b><br>Target identity <b>'
+    + escapeHtml(String(s.implementation_hash || '').slice(0, 16))
+    + '</b> &middot; solved under ruling <b>'
+    + escapeHtml(String(du.ruling_id || '')) + '</b> &middot; supersedes selection <b>'
+    + escapeHtml(String(du.superseded_selection_id || '')) + '</b></div>'
+    + (opt && opt.selectable
+       ? ('<button type="button" class="pdr-cta" style="margin-top:10px;"'
+          + ' onclick="_pdrSelect(\'' + escapeHtml(s.selectable_target) + '\')"'
+          + ' title="Record this solved target as the governed selection. Selecting '
+          + 'is not approving: the Approve gate stays a separate manual action.">'
+          + 'SELECT THIS TARGET</button>')
+       : '<div class="pdr-note">The backend does not currently offer this target '
+         + 'for selection.</div>')
+    + '<div class="pdr-note">Selecting is not approving. Nothing here is an order: '
+    + 'the order plan is built only after approval and confirmed at a separate '
+    + 'gate.</div>'
     + '</div>';
 }
 
@@ -30312,6 +30949,11 @@ function _pdrRender(d, err) {
     // the operator selected, frozen with the choice. It renders ONLY once a
     // selection exists, so a first screen without one is unchanged in height.
     + _pdrSelectedTarget(d)
+    // R82.1 - STEP 4, the operator's own risk-policy decision, and STEP 5, the
+    // successor target a JUDGE ruling produced. Both render ONLY when the backend
+    // publishes them, so a book that owes no ruling keeps this panel's height.
+    + _pdrRiskPolicyDecision(d)
+    + _pdrSuccessorTarget(d)
     + _pdrMore('Why this review path', ''
         + '<div class="pdr-verdict" data-v="' + escapeHtml(v.verdict || '') + '">'
         + escapeHtml((v.verdict || '—') + ' · ' + (v.label || '')) + '</div>'

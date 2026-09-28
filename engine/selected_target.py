@@ -508,6 +508,365 @@ def policy_review_state(*, reference: dict, attribution: list,
     }
 
 
+# --------------------------------------------------------------------------- #
+# R82 - the governed RULING on the moving denominator
+#
+# R69.5 NAMED the decision and withheld approval until an operator recorded one.
+# It could record exactly ONE outcome: a bound acknowledgement that, once
+# accepted, let the approval through. That is ACCEPT_AS_IS under a neutral name,
+# and it left the second course R69.1 put to the operator - judge the cap against
+# the universe the breach was RAISED against - unrecordable, because the only door
+# available unblocks the very approval that ruling refuses.
+#
+# This block is that vocabulary, and the derived state a recorded ruling produces
+# over ONE frozen book. It invents NO threshold:
+# JUDGE_AGAINST_THE_BEFORE_UNIVERSE binds a limit
+# ``engine.holding_opportunity_cost`` already published for the before-book, and
+# every breach under it was measured by that same owner's own
+# ``risk_contribution_breaches`` inside ``reference_limit_compliance``. The
+# declared 3/N policy is untouched; a ruling is scoped to the exact frozen
+# proposal and selected target it names and never to the estate; and nothing here
+# can make an approval MORE available than it was before the ruling.
+# --------------------------------------------------------------------------- #
+RULING_ACCEPT_AS_IS = "ACCEPT_AS_IS"
+RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE = "JUDGE_AGAINST_THE_BEFORE_UNIVERSE"
+#: Declared so it cannot be quietly coined elsewhere, and REFUSED for now: an
+#: absolute companion floor needs a threshold X that no owner has set, and setting
+#: one here would be inventing governance inside a ruling recorder. It stays a
+#: separate policy decision.
+RULING_ADD_AN_ABSOLUTE_COMPANION_FLOOR = "ADD_AN_ABSOLUTE_COMPANION_FLOOR"
+RULING_VOCAB = (RULING_ACCEPT_AS_IS, RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE,
+                RULING_ADD_AN_ABSOLUTE_COMPANION_FLOOR)
+RULING_NOT_AVAILABLE_THIS_RELEASE = (RULING_ADD_AN_ABSOLUTE_COMPANION_FLOOR,)
+RULING_AVAILABLE = tuple(r for r in RULING_VOCAB
+                         if r not in RULING_NOT_AVAILABLE_THIS_RELEASE)
+RULING_UNAVAILABLE_REASON = (
+    "ADD_AN_ABSOLUTE_COMPANION_FLOOR requires an absolute per-name risk threshold "
+    "that no owner declares. Recording it here would invent that threshold inside "
+    "a ruling recorder, so it is refused and remains a separate policy decision.")
+
+#: WHICH cap a ruling makes binding for the book it names. Both are limits the
+#: canonical risk owner already published; neither is new.
+BINDS_GOVERNED_LIMIT = "THE_TARGETS_OWN_3_OVER_N_LIMIT"
+BINDS_REFERENCE_LIMIT = "THE_BEFORE_BOOK_LIMIT_HELD_CONSTANT"
+
+#: How ONE name is treated once the ruling is on record.
+TREATMENT_OBLIGATION_REOPENED = "OBLIGATION_REOPENED_AGAINST_THE_RULED_CAP"
+TREATMENT_COMPLIANT_AT_RULED_CAP = "COMPLIANT_AT_THE_RULED_CAP"
+TREATMENT_UNAFFECTED = "UNAFFECTED_BY_THE_RULING"
+
+#: The ruled state a frozen book carries. ``UNRULED`` is the honest third value:
+#: no ruling has been recorded, which is not the same as a ruling that permits.
+RULED_UNRULED = "NO_RULING_ON_RECORD"
+RULED_REFERENCE_BINDS = "RULED_REFERENCE_LIMIT_BINDS_OBLIGATIONS_REOPENED"
+RULED_REFERENCE_SATISFIED = "RULED_REFERENCE_LIMIT_BINDS_AND_IS_SATISFIED"
+RULED_GOVERNED_STANDS = "RULED_GOVERNED_LIMIT_STANDS"
+#: R82.1 - a ruling artifact EXISTS for this book and carries no verified operator
+#: provenance, so it is readable audit evidence and binds nothing. Distinct from
+#: ``UNRULED`` because the operator must be told the record is there, and distinct
+#: from every binding state because an unverified record may not govern anything.
+RULED_UNVERIFIED = "RULING_ON_RECORD_BUT_PROVENANCE_UNVERIFIED"
+RULED_STATE_VOCAB = (RULED_UNRULED, RULED_UNVERIFIED, RULED_REFERENCE_BINDS,
+                     RULED_REFERENCE_SATISFIED, RULED_GOVERNED_STANDS)
+
+# --------------------------------------------------------------------------- #
+# R82.1 - the ruling vocabulary IN PLAIN ENGLISH, published as data.
+#
+# R69.5 shipped the three courses as prose in ``POLICY_REVIEW_OPTIONS`` - one
+# English sentence each, with no machine-readable availability and no statement of
+# what choosing one does NOT do. A screen cannot build an operator control from
+# that, and the screen it did build had no control at all.
+#
+# This is the same three courses as structured data: what the ruling means, what it
+# does to the book, and - said once per option, because it is the thing an operator
+# most needs to know - that recording it does not approve anything.
+# --------------------------------------------------------------------------- #
+RULING_PLAIN_ENGLISH = {
+    RULING_ACCEPT_AS_IS: {
+        "title": "Accept as is - keep the target's own dynamic 3/N cap",
+        "detail": [
+            "The per-name risk-contribution cap stays the declared 3/N over the "
+            "covariance universe of the book being judged, which is the policy "
+            "exactly as engine.holding_opportunity_cost declares it.",
+            "The cap is a relative-concentration rule, and a repair that exits "
+            "names genuinely holds a smaller universe. No name is reduced and no "
+            "successor target is built.",
+            "Every name the selected target holds stays exactly as it was selected.",
+        ],
+        "does_not_approve": True,
+        "builds_a_successor_target": False,
+        "reopens_obligations": False,
+    },
+    RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE: {
+        "title": ("Judge against the before universe - the cap the current book was "
+                  "held to binds this decision"),
+        "detail": [
+            "A risk-contribution breach raised under the pre-repair covariance "
+            "universe must be repaired by REDUCING the breaching name. Shrinking "
+            "the universe around it does not discharge the obligation.",
+            "Every name in breach of that held cap reopens as a mandatory "
+            "RISK_CONTRIBUTION_CAP obligation with required action REDUCE.",
+            "Paper Trader then re-solves the repair against the held cap, using the "
+            "same repair owner and the same covariance owner, and publishes the "
+            "policy-compliant successor target for review.",
+        ],
+        "does_not_approve": True,
+        "builds_a_successor_target": True,
+        "reopens_obligations": True,
+    },
+    RULING_ADD_AN_ABSOLUTE_COMPANION_FLOOR: {
+        "title": "Add an absolute companion floor - no name above X% of portfolio risk",
+        "detail": [
+            "Shown for completeness because R69.1 put it to the operator. It is "
+            "UNAVAILABLE in this release.",
+            RULING_UNAVAILABLE_REASON,
+            "It remains a separate policy decision and cannot be recorded here.",
+        ],
+        "does_not_approve": True,
+        "builds_a_successor_target": False,
+        "reopens_obligations": False,
+    },
+}
+
+
+def ruling_options() -> list:
+    """The three courses as ORDERED, machine-readable options for a write surface.
+
+    The availability of each one is the vocabulary's own, so a screen can never
+    offer a ruling the recorder would refuse, and never hide one the recorder would
+    accept. Pure; no I/O.
+    """
+    out = []
+    for r in RULING_VOCAB:
+        text = RULING_PLAIN_ENGLISH.get(r) or {}
+        effect = ruling_effect(r)
+        out.append({
+            "ruling": r,
+            "title": text.get("title") or r.replace("_", " ").title(),
+            "detail": list(text.get("detail") or []),
+            "available": bool(effect["available"]),
+            "unavailable_reason": (None if effect["available"] else effect["reason"]),
+            "unavailable_detail": (None if effect["available"] else effect["detail"]),
+            "binds": effect["binds"],
+            "does_not_approve": True,
+            "builds_a_successor_target": bool(text.get("builds_a_successor_target")),
+            "reopens_obligations": bool(text.get("reopens_obligations")),
+        })
+    return out
+
+
+#: The scope sentence, carried as DATA so the gate, the API and the screen quote
+#: one sentence rather than three paraphrases.
+RULING_SCOPE = (
+    "This ruling binds the ONE frozen proposal and the ONE selected target it "
+    "names. It changes no declared threshold, grants no standing exception, "
+    "creates no absolute companion floor, approves nothing and can never make an "
+    "approval more available than it was before the ruling was recorded.")
+
+
+def ruling_effect(ruling: Optional[str]) -> dict:
+    """What ONE ruling token does. Pure lookup; refuses an unknown or held token."""
+    r = ruling if isinstance(ruling, str) else None
+    if r not in RULING_VOCAB:
+        return {"ruling": r, "known": False, "available": False,
+                "vocabulary": list(RULING_VOCAB),
+                "available_vocabulary": list(RULING_AVAILABLE),
+                "binds": None, "reason": "RULING_NOT_IN_VOCABULARY",
+                "detail": ("Unknown ruling %r. One of %s is required."
+                           % (r, ", ".join(RULING_AVAILABLE)))}
+    if r in RULING_NOT_AVAILABLE_THIS_RELEASE:
+        return {"ruling": r, "known": True, "available": False,
+                "vocabulary": list(RULING_VOCAB),
+                "available_vocabulary": list(RULING_AVAILABLE),
+                "binds": None, "reason": "RULING_NOT_AVAILABLE_IN_THIS_RELEASE",
+                "detail": RULING_UNAVAILABLE_REASON}
+    binds = (BINDS_REFERENCE_LIMIT
+             if r == RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE
+             else BINDS_GOVERNED_LIMIT)
+    return {"ruling": r, "known": True, "available": True,
+            "vocabulary": list(RULING_VOCAB),
+            "available_vocabulary": list(RULING_AVAILABLE),
+            "binds": binds, "reason": None,
+            # Stated once, here, so no caller has to infer it: a ruling is a
+            # constraint on approval, never a licence for one. ACCEPT_AS_IS
+            # leaves the R69.5 acknowledgement gate exactly as it stands.
+            "unblocks_approval": False,
+            "detail": ("The per-name risk-contribution cap binding this frozen "
+                       "book is %s." % binds)}
+
+
+def apply_policy_ruling(*, risk_contribution: Optional[dict],
+                        ruling: Optional[str]) -> dict:
+    """The derived state a recorded ruling produces over ONE frozen book.
+
+    NOTHING is measured here and no threshold is invented. Both caps and every
+    breach under either of them were produced by ``engine.holding_opportunity_cost``
+    and are merely READ off the frozen ``risk_contribution`` block:
+
+    * ``JUDGE_AGAINST_THE_BEFORE_UNIVERSE`` makes ``reference_compliance``'s own
+      ``reference_limit`` the binding cap, so every row that block already lists as
+      a breach becomes an OPEN mandatory repair obligation on this book. A breach
+      that existed under the frozen pre-repair covariance universe therefore cannot
+      be discharged by the universe shrinking around it.
+    * ``ACCEPT_AS_IS`` leaves the target's own 3/N cap binding - the state the
+      system was already in - and reopens nothing.
+
+    ``max_valid_weight`` is the FIRST-ORDER indicative figure
+    ``reference_limit_compliance`` already published, reused verbatim and labelled
+    as such: solving a per-name reduction moves every other name's share, and that
+    is the optimiser's job, not this kernel's.
+    """
+    rc = risk_contribution if isinstance(risk_contribution, dict) else {}
+    ref = rc.get("reference_compliance") or {}
+    after = rc.get("after") or {}
+    governed = _f(after.get("limit"))
+    effect = ruling_effect(ruling)
+    base = {
+        "owner": CALCULATION_OWNER,
+        "policy_owner": RISK_POLICY_OWNER,
+        "measured_here": False,
+        "measured_by": RISK_POLICY_OWNER,
+        "ruling": effect["ruling"],
+        "ruling_known": effect["known"],
+        "ruling_available": effect["available"],
+        "ruling_vocabulary": list(RULING_VOCAB),
+        "available_rulings": list(RULING_AVAILABLE),
+        "binds": effect["binds"],
+        "governed_limit": _r(governed, 8),
+        "reference_limit": ref.get("reference_limit"),
+        "declared_policy_changed": False,
+        "standing_exception_granted": False,
+        "absolute_companion_floor_created": False,
+        "new_threshold_invented": False,
+        "unblocks_approval": False,
+        "target_approved_here": False,
+        "creates_order_plan": False,
+        "creates_orders": False,
+        "scope": RULING_SCOPE,
+        "state_vocabulary": list(RULED_STATE_VOCAB),
+        "manual_review_reference": POLICY_REVIEW_REFERENCE_DOC,
+    }
+    if not effect["available"]:
+        return {**base, "state": RULED_UNRULED, "applied": False,
+                "binding_limit": _r(governed, 8),
+                "binding_limit_source": BINDS_GOVERNED_LIMIT,
+                "reopened_obligations": [], "reopened_obligation_count": 0,
+                "obligations_open_after_ruling": None,
+                "instruments_in_breach_of_the_binding_limit": [],
+                "complies_with_the_binding_limit": None,
+                "approval_blocked_by_this_ruling": False,
+                "treatment": [],
+                "reason": effect["reason"], "detail": effect["detail"]}
+
+    judged = effect["ruling"] == RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE
+    ref_available = ref.get("state") == "AVAILABLE"
+    binding = (_f(ref.get("reference_limit")) if (judged and ref_available)
+               else governed)
+    rows = list(ref.get("breaches") or []) if (judged and ref_available) else []
+
+    # The obligation rows. Every field is read, and the tier, reason code,
+    # constraint code and required action are the canonical owners' own tokens -
+    # no private vocabulary is forked for a ruled obligation.
+    obligations, treatment = [], []
+    for b in rows:
+        tk = b.get("ticker")
+        obligations.append({
+            "instrument_id": tk, "ticker": tk,
+            "tier": _hoc.OBLIGATION_TIER_HARD,
+            "obligation_type": _hoc.OBLIGATION_TIER_HARD,
+            "reason_code": _hoc.OBLIGATION_REASON_MANDATORY,
+            "constraint_code": _cr.C_RISK_CONTRIBUTION,
+            "required_action": _hoc.REQUIRED_ACTION_REDUCE,
+            "source_owner": RISK_POLICY_OWNER,
+            "reopened_by_ruling": RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE,
+            "risk_contribution": b.get("risk_contribution"),
+            "binding_limit": _r(binding, 8),
+            "excess_over_binding_limit": b.get("excess_over_reference"),
+            "current_weight": b.get("weight_after"),
+            "max_valid_weight": b.get("indicative_weight_at_reference"),
+            "max_valid_weight_basis": b.get("indicative_basis"),
+            "solved": False,
+            "detail": (
+                "%s carries %s of portfolio risk against the %s cap this ruling "
+                "makes binding. The breach existed under the frozen pre-repair "
+                "covariance universe and the ruling refuses to discharge it by "
+                "shrinking that universe, so it must be repaired by reducing the "
+                "name." % (tk, b.get("risk_contribution"),
+                           ref.get("reference_limit"))),
+        })
+        treatment.append({
+            "ticker": tk,
+            "code": TREATMENT_OBLIGATION_REOPENED,
+            "risk_contribution_before": b.get("risk_contribution_before"),
+            "risk_contribution_after": b.get("risk_contribution"),
+            "weight_before": b.get("weight_before"),
+            "weight_after": b.get("weight_after"),
+            "weight_moved": b.get("weight_moved"),
+            "compliant_on_governed_limit": b.get("compliant_on_governed_limit"),
+            "compliant_on_binding_limit": False,
+            "binding_limit": _r(binding, 8),
+            "governed_limit": _r(governed, 8),
+            "excess_over_binding_limit": b.get("excess_over_reference"),
+            "required_action": _hoc.REQUIRED_ACTION_REDUCE,
+            "obligation_open": True,
+            "opened_by_this_target": (
+                b.get("code") == REFERENCE_BREACH_OPENED),
+        })
+
+    if judged and not ref_available:
+        # The reference was never computable for this book, so the ruling has
+        # nothing to bind. It is recorded and says so; it does not fall back to the
+        # relaxed cap, which would read as permission.
+        return {**base, "state": RULED_UNRULED, "applied": False,
+                "binding_limit": None,
+                "binding_limit_source": BINDS_REFERENCE_LIMIT,
+                "reopened_obligations": [], "reopened_obligation_count": 0,
+                "obligations_open_after_ruling": None,
+                "instruments_in_breach_of_the_binding_limit": [],
+                "complies_with_the_binding_limit": None,
+                "approval_blocked_by_this_ruling": False, "treatment": [],
+                "reason": REFERENCE_UNAVAILABLE,
+                "detail": ("This book published no reference limit on one side, so "
+                           "the ruled cap cannot be established. The ruling is "
+                           "recorded and binds nothing; the target is neither "
+                           "compliant nor in breach against it.")}
+
+    if judged:
+        state = RULED_REFERENCE_BINDS if obligations else RULED_REFERENCE_SATISFIED
+    else:
+        state = RULED_GOVERNED_STANDS
+    instruments = sorted({o["ticker"] for o in obligations if o.get("ticker")})
+    return {
+        **base,
+        "state": state, "applied": True,
+        "binding_limit": _r(binding, 8),
+        "binding_limit_source": effect["binds"],
+        "binding_limit_is_a_new_threshold": False,
+        "reopened_obligations": obligations,
+        "reopened_obligation_count": len(obligations),
+        # The frozen book's OWN count, read from the artifact, kept beside the
+        # ruled count so the two are never confused for one another.
+        "obligations_open_on_the_governed_limit": (after.get("breach_count")),
+        "obligations_open_after_ruling": len(obligations),
+        "instruments_in_breach_of_the_binding_limit": instruments,
+        "complies_with_the_binding_limit": not obligations,
+        "approval_blocked_by_this_ruling": bool(obligations),
+        "treatment": treatment,
+        "reason": None,
+        "detail": (
+            ("%d obligation(s) (%s) are OPEN against the %s cap this ruling makes "
+             "binding for this frozen book. The target satisfies its own %s cap and "
+             "that cap is not the one this book is judged against, so approval is "
+             "not available. Reject, hold, or select a target that complies at %s."
+             % (len(obligations), ", ".join(instruments), binding, governed,
+                binding))
+            if obligations else
+            ("No name breaches the %s cap this ruling makes binding, so the ruling "
+             "opens no obligation. It grants nothing: the existing approval gates "
+             "are unchanged." % binding)),
+    }
+
+
 def risk_contribution_comparison(*, before_state: dict, after_state: dict,
                                  policy: dict) -> dict:
     """Before vs after, read from the two states. NOTHING is measured here.
@@ -847,6 +1206,16 @@ __all__ = [
     "CLOSED_BY_LIMIT_RELAXATION", "STILL_IN_BREACH", "REFERENCE_BREACH_OPENED",
     "POLICY_REVIEW_NOT_REQUIRED", "POLICY_REVIEW_REQUIRED", "POLICY_REVIEW_VOCAB",
     "POLICY_REVIEW_ACK_TOKEN", "POLICY_REVIEW_OPTIONS", "POLICY_REVIEW_REFERENCE_DOC",
+    "RULING_ACCEPT_AS_IS", "RULING_JUDGE_AGAINST_THE_BEFORE_UNIVERSE",
+    "RULING_ADD_AN_ABSOLUTE_COMPANION_FLOOR", "RULING_VOCAB",
+    "RULING_AVAILABLE", "RULING_NOT_AVAILABLE_THIS_RELEASE",
+    "RULING_UNAVAILABLE_REASON", "RULING_SCOPE",
+    "BINDS_GOVERNED_LIMIT", "BINDS_REFERENCE_LIMIT",
+    "TREATMENT_OBLIGATION_REOPENED", "TREATMENT_COMPLIANT_AT_RULED_CAP",
+    "TREATMENT_UNAFFECTED", "RULED_UNRULED", "RULED_REFERENCE_BINDS",
+    "RULED_REFERENCE_SATISFIED", "RULED_GOVERNED_STANDS", "RULED_STATE_VOCAB",
+    "RULED_UNVERIFIED", "RULING_PLAIN_ENGLISH", "ruling_options",
+    "ruling_effect", "apply_policy_ruling",
     "reference_limit_compliance", "discharge_attribution", "policy_review_state",
     "project_allocations", "projected_full_target_allocations",
     "risk_contribution_comparison", "selected_target_hash",
