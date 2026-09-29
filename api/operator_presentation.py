@@ -858,6 +858,30 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
         action = _next_action(NA_REVIEW_REALLOCATION, available=True,
                               destination="portfolio-manager/reallocation")
         tone = "warn"
+    # R83 — A COMPLETE TARGET WITHHELD ON A PORTFOLIO LIMIT IS NOT A QUIET HOLD.
+    #
+    # The branch below collapses NO_CHANGE and CHANGE_WITHHELD into one green
+    # "HOLD CURRENT PORTFOLIO" with tone ok and NO ACTION NOW. For NO_CHANGE, and for
+    # a change that simply failed its economic hurdle, that is true: the question is
+    # closed and nothing is owed. For a COMPLETE TARGET refused by a MANDATORY
+    # portfolio limit it is not. The limit breach is unresolved, three other surfaces
+    # (the reallocation card, the reassessment card and the proposal decision review)
+    # all name reviewing that limit as the outstanding act, and this hero answered
+    # "no action now" in green beside them.
+    #
+    # Narrowed to the published flag, so the economic-hurdle withholding keeps its
+    # existing words exactly. This raises no execution affordance: the action is
+    # NAVIGATION to the surface that already shows the verdict.
+    elif cpd_state == _CPD_WITHHELD and bool(
+            cpd.get("complete_target_withheld_on_portfolio_limits")):
+        state = PD_HOLD
+        headline = "PORTFOLIO CHANGE WITHHELD — PORTFOLIO LIMIT REVIEW REQUIRED"
+        explanation = cpd.get("no_proposal_reason") or (
+            "A complete target was built and refused by a governed portfolio limit; "
+            "the limit itself is what needs review.")
+        action = _next_action(NA_REVIEW_REALLOCATION, available=True,
+                              destination="portfolio-manager/reallocation")
+        tone = "warn"
     elif cpd_state in (_CPD_NO_CHANGE, _CPD_WITHHELD) or (cpd_state == _CPD_RECORDED and pd_state == _PDS_REJECTED):
         state = PD_HOLD
         headline = "HOLD CURRENT PORTFOLIO"

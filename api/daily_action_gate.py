@@ -1531,7 +1531,14 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
                # learn whether the target it is about to expose is compliant.
                "reallocation_full_target_reviewable",
                "reallocation_mandatory_repair_code",
-               "reallocation_mandatory_obligations_open"):
+               "reallocation_mandatory_obligations_open",
+               # R83 — the TERMINAL governed withheld verdict. It travels the same
+               # shared path for the same reason the R47 outcome does: without it the
+               # workflow owner sees only the ABSENCE of an artifact and re-derives
+               # "no proposal yet", which is what published a futile
+               # RUN_DAILY_RESEARCH_CYCLE over a settled portfolio-limit breach on
+               # 2026-09-28. The gate copies; it never decides.
+               "reallocation_governed_withheld_outcome"):
         result[_k] = rp.get(_k)
     # Slice 7 (Phase 29H) is LANDED: the reallocation proposal exists and remains
     # REVIEW ONLY — it is a research proposal that confirms no target and creates no

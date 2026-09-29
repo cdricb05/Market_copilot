@@ -482,12 +482,53 @@ def load_governed_manifest_reference(*, eligible_market_date: Optional[str],
             "state": state,
             "governed": bool(state in _COMPLETED),
             "eligible_market_date": str(eligible_market_date)[:10],
+            # R83 — the book the governed run was bound to. A consumer that resolves a
+            # TERMINAL outcome from this reference must be able to prove the reference
+            # describes ITS book; without the field it could only assume it.
+            "active_book_id": run.get("active_book_id"),
             "portfolio_reassessment_id": run.get("portfolio_reassessment_id"),
             "portfolio_reassessment_hash": run.get("portfolio_reassessment_hash"),
             "portfolio_reassessment_state": run.get("portfolio_reassessment_state"),
             "reallocation_proposal_id": run.get("reallocation_proposal_id"),
             "reallocation_proposal_hash": run.get("reallocation_proposal_hash"),
             "reallocation_proposal_state": run.get("reallocation_proposal_state"),
+            # R83 — THE TERMINAL REALLOCATION VERDICT, forwarded VERBATIM.
+            #
+            # A WITHHELD reallocation is a COMPLETED governed outcome that by the
+            # proposal owner's own persistence contract is NEVER written as an
+            # artifact (STATE_WITHHELD_NOT_PERSISTABLE). The run manifest is therefore
+            # the ONLY durable record of it, and until R83 no read owner consulted it:
+            # every read of a withheld session collapsed to NOT_RUN ("it never
+            # happened") and told the operator to run a cycle that would withhold
+            # again for the same arithmetic reason.
+            #
+            # These are pass-through manifest fields. Nothing here is derived,
+            # recomputed or re-judged; ``api.reallocation_proposal`` remains the
+            # calculation owner and this remains a compact pure file read.
+            "reallocation_proposal_withheld": run.get("reallocation_proposal_withheld"),
+            "reallocation_proposal_approvable": run.get(
+                "reallocation_proposal_approvable"),
+            "reallocation_governed_outcome_complete": run.get(
+                "reallocation_governed_outcome_complete"),
+            "reallocation_withheld_codes": run.get("reallocation_withheld_codes"),
+            "reallocation_withheld_reasons": run.get("reallocation_withheld_reasons"),
+            "reallocation_withheld_reason_detail": run.get(
+                "reallocation_withheld_reason_detail"),
+            "reallocation_withheld_breaching_tickers": run.get(
+                "reallocation_withheld_breaching_tickers"),
+            "reallocation_withheld_risk_contribution_breaches": run.get(
+                "reallocation_withheld_risk_contribution_breaches"),
+            "reallocation_outstanding_governance_requirement": run.get(
+                "reallocation_outstanding_governance_requirement"),
+            "reallocation_proposed_holding_count": run.get(
+                "reallocation_proposed_holding_count"),
+            "reallocation_action_counts": run.get("reallocation_action_counts"),
+            "reallocation_one_way_turnover": run.get("reallocation_one_way_turnover"),
+            "reallocation_estimated_transaction_cost": run.get(
+                "reallocation_estimated_transaction_cost"),
+            "reallocation_score_improvement": run.get("reallocation_score_improvement"),
+            "reallocation_score_improvement_net_of_cost": run.get(
+                "reallocation_score_improvement_net_of_cost"),
             "completed_at": run.get("completed_at"),
             "owner": "api.daily_research_cycle",
         }

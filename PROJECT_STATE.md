@@ -1,6 +1,49 @@
 # PROJECT_STATE
-- **Last updated:** 2026-09-27
-- **Updated by phase:** **R79_AUTONOMOUS_LOOP_AND_FORWARD_CONTRACT_INTEGRITY -
+- **Last updated:** 2026-09-28
+- **Updated by phase:** **R82.2_PRE_RULING_APPROVAL_STATE - FOUR SURFACES OF ONE
+  PANEL DISAGREED ABOUT WHETHER APPROVAL WAS THE OPERATOR'S CURRENT ACT (single
+  agent, Windows PowerShell only, live checkout on `stage19-controlled-rebalance`
+  over `87f1be8`; NOT COMMITTED, NOT PUSHED).**
+
+  **What was wrong.** Against the frozen 2026-09-25 `MINIMUM_REPAIR`, one paint of
+  the Proposal decision review said `RISK POLICY REVIEW REQUIRED` / `APPROVAL
+  WITHHELD` in Step 3, asked for the unresolved `RISK POLICY DECISION` in Step 4,
+  reported `NEXT REQUIRED ACTION: APPROVE SELECTED TARGET` in the status bar, and
+  offered an armed `APPROVE MINIMUM REPAIR` button in Step 2.
+
+  The backend was right throughout. `api.portfolio_decision` had refused that
+  approval at `SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW` since R69.5 - on the
+  WRITE path, inside `record_decision`. It never published that refusal on a READ,
+  so two browser surfaces each took a SUBSET of the gate's inputs and called the
+  result a verdict: `_pdrStatusBar` fell through to `actionable && a selection
+  exists` (freshness names an action only when the SESSION has moved on, so on a
+  current session the fallback always won), and `_pdrApproveBlock` treated session
+  freshness plus `implementable !== false` as sufficient to arm the control.
+
+  **What landed.** ONE gate, published. `risk_policy_approval_gate` holds the
+  ordered risk-policy answer and is consumed by BOTH the write path and the new
+  read projection `selected_target_approval_gate`, which mirrors the APPROVE
+  branch of `record_decision` term for term: session freshness -> selection
+  present -> selection identity -> CURRENT -> implementable -> ruling refuses the
+  book -> ruling owed and unanswered -> available. It composes verdicts the
+  existing owners already produced and derives no cap, share, weight or excess.
+  `api.proposal_decision_review` publishes it as `approval_gate` beside the
+  selection, the ruling and the decision; `derive_decision_state` consumes it on
+  the contract it already gives session freshness (an absent verdict is "no
+  information"; a supplied one can only REMOVE approvability), so the cockpit's
+  Approval line cannot contradict the panel either. The browser now renders the
+  verdict and derives none of it: the status bar reads `approval_gate` for both
+  the Approval and Next-required-action cells, and a withheld gate renders a
+  visibly DISABLED `APPROVE <TARGET>` control carrying the backend's own status,
+  detail sentence and next act. `_pdrApprove` refuses to even ask.
+
+  Nothing here rules, approves, orders or executes. The frozen proposal, the
+  frozen selection and `review_hash` are byte-identical, the live governed store
+  is byte-identical, and the prior UNVERIFIED ruling still binds nothing.
+  Regression: `tests/test_r82_2_pre_ruling_approval_state.py` (21 tests). Wireframe:
+  `docs/R82_2_PRE_RULING_APPROVAL_STATE_WIREFRAME.md`.
+
+- **Preceding phase:** **R79_AUTONOMOUS_LOOP_AND_FORWARD_CONTRACT_INTEGRITY -
   THE LOOP LOOKED ALIVE FOR NINETEEN DAYS, AND TWO CALENDARS DISAGREED (single
   agent, Windows PowerShell only, live checkout on `stage19-controlled-rebalance`
   over `97ca932`; landed as `d948f12`, `af07f2f`, `03843e6`, `5a9e167`,

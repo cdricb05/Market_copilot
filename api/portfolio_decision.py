@@ -211,6 +211,63 @@ NEXT_ACTION_RUN_PORTFOLIO_CYCLE = "RUN_PORTFOLIO_CYCLE"
 SESSION_AUTHORITY_OWNER = "api.workflow_state"
 SESSION_CALENDAR_OWNER = "engine.market_session"
 
+# --------------------------------------------------------------------------- #
+# R82.2 — THE NEXT REQUIRED ACTION, spelled ONCE.
+#
+# Until this release the two literals below marked with "(R82/R82.1)" were typed
+# inline inside ``record_decision``'s refusal payloads and existed nowhere a read
+# surface could find them, while the browser invented its own answer from
+# ``actionable && a selection exists``. On 2026-09-28 the live panel therefore said
+# NEXT REQUIRED ACTION = APPROVE SELECTED TARGET and offered an armed APPROVE
+# MINIMUM REPAIR control in the same paint as APPROVAL WITHHELD and "Step 4 — RISK
+# POLICY DECISION (yours to make)".
+#
+# These are that vocabulary. Every one of them is a word the WRITE path already
+# uses or would use, and the read projection below hands the same word to the
+# screen, so a surface can name the operator's next act without holding a rule.
+# --------------------------------------------------------------------------- #
+#: No governed selection exists for this session yet.
+NEXT_ACTION_SELECT_A_TARGET = "SELECT_A_TARGET"
+#: A selection exists and it is bound to a proposal this read no longer serves.
+NEXT_ACTION_SELECT_AGAINST_THE_CURRENT_REVIEW = (
+    "SELECT_A_TARGET_AGAINST_THE_CURRENT_REVIEW")
+#: (R69.2) the selected target carries no implementable book.
+NEXT_ACTION_SELECT_AN_IMPLEMENTABLE_TARGET = "SELECT_AN_IMPLEMENTABLE_TARGET"
+#: The governed selection is CURRENT: there is no target to approve.
+NEXT_ACTION_RECORD_THE_NO_CHANGE_DECISION = "RECORD_THE_NO_CHANGE_DECISION"
+#: (R82) the frozen book owes an operator risk-policy ruling that no AUTHORITATIVE
+#: record answers. Approval is withheld until one exists.
+NEXT_ACTION_RECORD_RISK_POLICY_RULING = "RECORD_RISK_POLICY_RULING"
+#: (R82.1) a verified ruling refuses this frozen book, and the governed review has
+#: solved the compliant successor the operator should review and select instead.
+NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR = (
+    "REVIEW_AND_SELECT_THE_POLICY_COMPLIANT_SUCCESSOR_TARGET")
+#: Every gate is clear. This is the ONLY word that may arm an approval affordance.
+NEXT_ACTION_APPROVE_SELECTED_TARGET = "APPROVE_SELECTED_TARGET"
+NEXT_ACTION_VOCAB = (
+    NEXT_ACTION_RUN_PORTFOLIO_CYCLE, NEXT_ACTION_SELECT_A_TARGET,
+    NEXT_ACTION_SELECT_AGAINST_THE_CURRENT_REVIEW,
+    NEXT_ACTION_SELECT_AN_IMPLEMENTABLE_TARGET,
+    NEXT_ACTION_RECORD_THE_NO_CHANGE_DECISION,
+    NEXT_ACTION_RECORD_RISK_POLICY_RULING,
+    NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR,
+    NEXT_ACTION_APPROVE_SELECTED_TARGET)
+#: The operator-facing wording of each action, owned HERE. A browser that turned a
+#: code into prose would be holding an interpretation of workflow state, which is
+#: exactly what this release removes from it.
+NEXT_ACTION_LABELS = {
+    NEXT_ACTION_RUN_PORTFOLIO_CYCLE: "Run portfolio cycle",
+    NEXT_ACTION_SELECT_A_TARGET: "Select a target",
+    NEXT_ACTION_SELECT_AGAINST_THE_CURRENT_REVIEW: (
+        "Select a target against the current review"),
+    NEXT_ACTION_SELECT_AN_IMPLEMENTABLE_TARGET: "Select an implementable target",
+    NEXT_ACTION_RECORD_THE_NO_CHANGE_DECISION: "Record the no-change decision",
+    NEXT_ACTION_RECORD_RISK_POLICY_RULING: "Risk policy decision",
+    NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR: (
+        "Review and select the policy-compliant successor"),
+    NEXT_ACTION_APPROVE_SELECTED_TARGET: "Approve selected target",
+}
+
 
 def latest_eligible_session(*, workflow_state: Optional[dict] = None,
                             loader: Optional[Callable] = None) -> Optional[str]:
@@ -973,7 +1030,14 @@ def record_decision(*, decision: str, confirm: Optional[str],
         # exception was granted, and REJECT / HOLD stay available.
         ruled = risk_policy_ruling_state(selection=selection,
                                          decision_dir=decision_dir)
-        if ruled.get("approval_blocked_by_the_ruling") and not replaying_prior:
+        # R82.2 — the ORDER and the words of the two risk-policy refusals below are
+        # no longer typed here. They come from risk_policy_approval_gate, which the
+        # READ projection consumes too, so the panel can never present approval as
+        # available in a state this gate would refuse.
+        policy_gate = risk_policy_approval_gate(policy_review=policy_review,
+                                                ruling_state=ruled)
+        if policy_gate["status"] == PDS_REFERENCE_LIMIT_BREACH_RULED \
+                and not replaying_prior:
             return {**base, "status": PDS_REFERENCE_LIMIT_BREACH_RULED,
                     "binding": binding, "selection": selection,
                     "selected_target": selection.get("selected_target"),
@@ -988,8 +1052,8 @@ def record_decision(*, decision: str, confirm: Optional[str],
                     # governed review now SOLVES one against the ruled cap and
                     # publishes it as %s, so the next action names something the
                     # operator can actually do.
-                    "next_required_action": (
-                        "REVIEW_AND_SELECT_THE_POLICY_COMPLIANT_SUCCESSOR_TARGET"),
+                    "next_required_action": policy_gate["next_required_action"],
+                    "approval_gate": policy_gate,
                     "policy_compliant_successor_target": (
                         TARGET_POLICY_COMPLIANT_REPAIR),
                     "manual_review_reference": _st.POLICY_REVIEW_REFERENCE_DOC,
@@ -1012,9 +1076,8 @@ def record_decision(*, decision: str, confirm: Optional[str],
         # does NOT approve anything: the operator still has to record the decision
         # at this gate with its own confirmation token, and every other gate below
         # still runs. An UNVERIFIED ruling satisfies nothing — the ack path stands.
-        ruling_answers_the_review = bool(ruled.get("satisfies_the_policy_review"))
-        if policy_review["required"] and not replaying_prior and not (
-                ruling_answers_the_review):
+        if policy_gate["status"] == PDS_RISK_POLICY_REVIEW_REQUIRED \
+                and not replaying_prior:
             ack_verdict = validate_risk_policy_acknowledgement(
                 policy_review=policy_review,
                 acknowledgement=risk_policy_acknowledgement)
@@ -1028,7 +1091,9 @@ def record_decision(*, decision: str, confirm: Optional[str],
                         "declared_policy_changed": False,
                         "exception_granted": False,
                         "current_proposal_hash": current_hash,
-                        "next_required_action": "RECORD_RISK_POLICY_RULING",
+                        "next_required_action": policy_gate[
+                            "next_required_action"],
+                        "approval_gate": policy_gate,
                         "manual_review_reference": _st.POLICY_REVIEW_REFERENCE_DOC,
                         "message": (
                             "The selected %s is valid against its OWN per-name risk "
@@ -2965,6 +3030,244 @@ def risk_policy_decision(*, selection: Optional[dict],
     }
 
 
+# =========================================================================== #
+# R82.2 — THE APPROVAL GATE, PUBLISHED ON A READ.
+#
+# The authority this publishes is not new. ``record_decision`` has ruled on exactly
+# this question since R63, and R69.2/R69.5/R82/R82.1 each added a term to it. What
+# never existed was a READ of that ruling, so every surface that needed to know
+# whether approval was the operator's current act had to guess — and the browser's
+# guess was ``the session is actionable and a target is selected``.
+#
+# On 2026-09-28, against the frozen 2026-09-25 MINIMUM_REPAIR, that guess produced a
+# panel which said APPROVAL WITHHELD in Step 3, asked for a RISK POLICY DECISION in
+# Step 4, and in the same paint reported NEXT REQUIRED ACTION = APPROVE SELECTED
+# TARGET beside an armed APPROVE MINIMUM REPAIR button.
+#
+# The two functions below are that read. They are PURE COMPOSITIONS over verdicts
+# the existing owners already produced:
+#
+#   * ``selection_policy_review``    — does this frozen book owe a ruling?
+#   * ``risk_policy_ruling_state``   — does a ruling answer it, and does the ruling
+#                                      itself refuse the book?
+#   * ``decision_freshness``         — is the bound session still actionable?
+#   * ``recorded_selection_implementability`` — can this book become an order plan?
+#
+# No cap, share, weight, excess, turnover or cost is derived here, no threshold is
+# read, and nothing is written. There is no second gate order either: the WRITE path
+# consumes ``risk_policy_approval_gate`` for its own two risk-policy refusals, so the
+# read and the write cannot drift into disagreement by editing one of them.
+# =========================================================================== #
+#: The gate's own verdict word when nothing withholds approval. It is the canonical
+#: manual-review state, reused: a proposal whose every gate is clear is a proposal
+#: awaiting the operator's manual decision, which is what that state has always meant.
+AG_AVAILABLE = PDS_REVIEW_REQUIRED
+#: Ordered, most-specific-first, and identical to the order ``record_decision``
+#: evaluates. Published so a surface can state WHERE in the gate it is standing.
+APPROVAL_GATE_STATUS_VOCAB = (
+    AG_AVAILABLE, PDS_SESSION_STALE, PDS_TARGET_SELECTION_REQUIRED, PDS_STALE,
+    PDS_SELECTION_IS_NO_CHANGE, PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE,
+    PDS_REFERENCE_LIMIT_BREACH_RULED, PDS_RISK_POLICY_REVIEW_REQUIRED)
+
+
+def risk_policy_approval_gate(*, policy_review: Optional[dict],
+                              ruling_state: Optional[dict]) -> dict:
+    """Does the RISK-POLICY layer withhold approval of this frozen book, and why?
+
+    ONE ordered answer, consumed by BOTH the approval write path in
+    :func:`record_decision` and the read projection in
+    :func:`selected_target_approval_gate`. Pure; no io; decides no economics.
+
+    The order matters and is the write path's own. A recorded
+    ``JUDGE_AGAINST_THE_BEFORE_UNIVERSE`` is a SUBSTANTIVE refusal - the ruling
+    exists and the target fails it - so it outranks "nobody has ruled yet", which is
+    a procedural one. Reversing them would let an acknowledgement clear a breach an
+    operator had already ruled binding.
+
+    An UNVERIFIED ruling reaches neither branch as an answer: R82.1 publishes
+    ``satisfies_the_policy_review = False`` and
+    ``approval_blocked_by_the_ruling = False`` for it, so it falls to the second
+    branch exactly as an unruled book does. That is the only fail-closed reading: it
+    neither governs nor grants.
+    """
+    review = policy_review or {}
+    ruled = ruling_state or {}
+    owed = bool(review.get("required"))
+    answered = bool(ruled.get("satisfies_the_policy_review"))
+    if ruled.get("approval_blocked_by_the_ruling"):
+        return {
+            "withholds_approval": True,
+            "status": PDS_REFERENCE_LIMIT_BREACH_RULED,
+            "next_required_action": (
+                NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR),
+            "policy_compliant_successor_target": TARGET_POLICY_COMPLIANT_REPAIR,
+            "ruling_owed": owed, "ruling_answers_the_review": answered,
+            "prior_ruling_unverified": bool(ruled.get("ruled")
+                                            and not ruled.get("authoritative")),
+            "policy_owner": _st.RISK_POLICY_OWNER, "owner": OWNER,
+            "detail": (
+                "The governed risk-policy ruling on record for this frozen book "
+                "refuses it: %s Approval is withheld. The governed review solves "
+                "the compliant successor and publishes it as %s; review it, select "
+                "it, and approve that selection instead. Reject and hold remain "
+                "available." % (ruled.get("detail") or "",
+                                TARGET_POLICY_COMPLIANT_REPAIR)),
+        }
+    if owed and not answered:
+        return {
+            "withholds_approval": True,
+            "status": PDS_RISK_POLICY_REVIEW_REQUIRED,
+            "next_required_action": NEXT_ACTION_RECORD_RISK_POLICY_RULING,
+            "policy_compliant_successor_target": None,
+            "ruling_owed": True, "ruling_answers_the_review": False,
+            "prior_ruling_unverified": bool(ruled.get("ruled")
+                                            and not ruled.get("authoritative")),
+            "policy_owner": _st.RISK_POLICY_OWNER, "owner": OWNER,
+            "detail": (
+                "This frozen book owes an operator risk-policy ruling and no "
+                "ruling with verified operator provenance answers it, so approval "
+                "is withheld. Recording a ruling approves nothing; approval stays "
+                "a separate manual act at its own gate."),
+        }
+    return {
+        "withholds_approval": False, "status": None,
+        "next_required_action": None,
+        "policy_compliant_successor_target": None,
+        "ruling_owed": owed, "ruling_answers_the_review": answered,
+        "prior_ruling_unverified": False,
+        "policy_owner": _st.RISK_POLICY_OWNER, "owner": OWNER,
+        "detail": ("The risk-policy layer withholds nothing about this frozen "
+                   "book." if not owed else
+                   "A ruling with verified operator provenance answers the "
+                   "risk-policy review for this frozen book. It is not an "
+                   "approval: every ordinary approval gate still applies."),
+    }
+
+
+def selected_target_approval_gate(*, selection: Optional[dict],
+                                  freshness: Optional[dict] = None,
+                                  ruling_state: Optional[dict] = None,
+                                  policy_review: Optional[dict] = None,
+                                  current_proposal_hash: Optional[str] = None,
+                                  decision_dir=None) -> dict:
+    """Is approval the operator's CURRENT act on this frozen selection, or not?
+
+    The read counterpart of the APPROVE branch of :func:`record_decision`, evaluated
+    in that branch's own order. It is the ONE thing a surface must consume before it
+    renders an approval affordance or names a next required action: a control that
+    leads to a refusal three gates later is exactly the misleading Approve button
+    this project forbids.
+
+    Fail-closed on identity. When ``current_proposal_hash`` is supplied and the
+    selection is bound to a different proposal, approval is unavailable - the write
+    path refuses that approval as ``PROPOSAL_STALE``, and a read that offered it
+    would be advertising a decision on a book nobody reviewed.
+
+    It writes nothing, approves nothing, creates no order plan and moves no
+    threshold. ``decision_dir`` is only ever used to READ the governed ruling.
+    """
+    sel = selection or None
+    fresh = freshness or None
+    review = (policy_review if policy_review is not None
+              else (selection_policy_review(sel) if sel else None))
+    ruled = ruling_state
+    if ruled is None and sel:
+        ruled = risk_policy_ruling_state(selection=sel, decision_dir=decision_dir)
+    policy = risk_policy_approval_gate(policy_review=review, ruling_state=ruled)
+
+    selected_target = (sel or {}).get("selected_target")
+    bound_hash = ((sel or {}).get("binding") or {}).get("proposal_hash")
+    impl_verdict = recorded_selection_implementability(sel) if sel else None
+
+    def _out(status, action, detail, **extra) -> dict:
+        return {
+            "owner": OWNER,
+            "gate_owner": OWNER,
+            "available": status == AG_AVAILABLE,
+            "status": status,
+            "status_vocabulary": list(APPROVAL_GATE_STATUS_VOCAB),
+            "next_required_action": action,
+            "next_required_action_label": NEXT_ACTION_LABELS.get(action),
+            "next_required_action_vocabulary": list(NEXT_ACTION_VOCAB),
+            # What a surface must say where it would otherwise have offered the
+            # approval it is not offering. Published so the words are the gate's.
+            "approval_state_label": ("APPROVAL AVAILABLE"
+                                     if status == AG_AVAILABLE
+                                     else "APPROVAL WITHHELD"),
+            "approval_withheld_because": (None if status == AG_AVAILABLE else status),
+            "detail": detail,
+            "selected_target": selected_target,
+            "selection_id": (sel or {}).get("selection_id"),
+            "selected_target_implementation_hash": (
+                (sel or {}).get("selected_target_implementation_hash")),
+            "risk_policy": policy,
+            "risk_policy_withholds_approval": bool(policy["withholds_approval"]),
+            "session_actionable": (None if not fresh
+                                   else bool(fresh.get("approval_allowed"))),
+            "confirm_required_token": CONFIRM_TOKEN,
+            "approval_route": "POST /v1/operations/portfolio-decision/record",
+            "reject_and_hold_remain_available": True,
+            "is_an_approval": False, "approves_anything": False,
+            "creates_order_plan": False, "creates_orders": False,
+            "creates_fills": False, "writes_nothing": True,
+            **extra,
+        }
+
+    # 1. Session freshness. First, exactly as on the write path: a proposal bound to
+    #    a session the workflow has moved past is evidence, never a live decision.
+    if fresh is not None and not fresh.get("approval_allowed"):
+        return _out(PDS_SESSION_STALE,
+                    (fresh.get("next_required_action")
+                     or NEXT_ACTION_RUN_PORTFOLIO_CYCLE),
+                    (fresh.get("detail")
+                     or "This proposal is bound to a session the workflow has "
+                        "moved past. It stays fully readable and is no longer a "
+                        "decision anyone may act on."))
+    # 2. A NEW approval must name the target it approves (R69.2).
+    if not sel:
+        return _out(PDS_TARGET_SELECTION_REQUIRED, NEXT_ACTION_SELECT_A_TARGET,
+                    "No governed target selection exists for this session, so "
+                    "there is nothing to approve. Select a target first; "
+                    "selecting is not approving.")
+    # 3. Identity. Fail closed on a selection bound to another proposal.
+    if (current_proposal_hash is not None and bound_hash is not None
+            and bound_hash != current_proposal_hash):
+        return _out(PDS_STALE, NEXT_ACTION_SELECT_AGAINST_THE_CURRENT_REVIEW,
+                    "The governed selection on file is bound to a different "
+                    "proposal than the one being read, so it cannot be approved "
+                    "here. Nothing is written and the records stay immutable; "
+                    "select a target against the current review.",
+                    selection_bound_proposal_hash=bound_hash,
+                    current_proposal_hash=current_proposal_hash)
+    # 4. CURRENT is a no-change decision, not a target.
+    if selected_target == TARGET_CURRENT:
+        return _out(PDS_SELECTION_IS_NO_CHANGE,
+                    NEXT_ACTION_RECORD_THE_NO_CHANGE_DECISION,
+                    "The governed selection for this session is CURRENT (keep the "
+                    "book unchanged). There is no target to approve; the no-change "
+                    "decision is the outcome.")
+    # 5. A target with no implementable book can never become an order plan (R69.2).
+    if impl_verdict and not impl_verdict.get("implementable"):
+        return _out(PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE,
+                    NEXT_ACTION_SELECT_AN_IMPLEMENTABLE_TARGET,
+                    impl_verdict.get("detail")
+                    or "This selection carries no implementable book, so no order "
+                       "plan could ever honour it.",
+                    not_implementable_reason=impl_verdict.get("reason"))
+    # 6 and 7. The risk-policy layer, in its own owner's order.
+    if policy["withholds_approval"]:
+        return _out(policy["status"], policy["next_required_action"],
+                    policy["detail"],
+                    policy_compliant_successor_target=policy[
+                        "policy_compliant_successor_target"])
+    # 8. Every gate this owner enforces is clear. Approval is the operator's act,
+    #    and it is still a MANUAL one that creates no order and no fill.
+    return _out(AG_AVAILABLE, NEXT_ACTION_APPROVE_SELECTED_TARGET,
+                "Every gate this owner enforces is clear for the frozen book on "
+                "file. Approval remains a manual operator act: it records the "
+                "decision and creates no order plan, order or fill.")
+
+
 # --------------------------------------------------------------------------- #
 # Decision-state derivation (the separate portfolio-decision review lane)
 # --------------------------------------------------------------------------- #
@@ -2993,9 +3296,23 @@ def _session_blocks_approval(freshness: Optional[dict]) -> bool:
     return not bool(freshness.get("approval_allowed"))
 
 
+def _gate_blocks_approval(approval_gate: Optional[dict]) -> bool:
+    """R82.2 — True only when an approval-gate verdict was SUPPLIED and it withholds.
+
+    Deliberately the same contract ``_session_blocks_approval`` gives the session
+    term beside it: an absent gate is "no information", not "no". A caller that
+    supplies none sees the pre-R82.2 answer, and the write path fails closed on its
+    own regardless.
+    """
+    if not approval_gate:
+        return False
+    return not bool(approval_gate.get("available"))
+
+
 def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
                           decision_record: Optional[dict],
-                          freshness: Optional[dict] = None) -> dict:
+                          freshness: Optional[dict] = None,
+                          approval_gate: Optional[dict] = None) -> dict:
     """Compose the SEPARATE portfolio-decision review state from (a) the current proposal
     and (b) the latest recorded decision. Pure; no io.
 
@@ -3032,6 +3349,24 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
 
     if not has_active_book:
         state = PDS_NO_ACTIVE_BOOK
+    # R83 — A WITHHELD VERDICT OUTRANKS "NO PROPOSAL".
+    #
+    # ``available`` means one thing: a PERSISTED proposal artifact exists. A withheld
+    # complete target never has one, by the proposal owner's own persistence contract —
+    # so PDS_CHANGE_WITHHELD sat behind a term that a withheld verdict can never
+    # satisfy, and every withheld session collapsed to PDS_NO_PROPOSAL. That is the
+    # same unreachable-state defect as the read state one layer below, and it is what
+    # kept the reassessment card offering REVIEW PORTFOLIO PROPOSAL over a change the
+    # governed owner had already refused (its suppression keys on this very state).
+    #
+    # A withholding is a POSITIVE governed answer, not an absence. The branch is
+    # deliberately narrowed to ``and not available`` so it adds exactly ONE newly
+    # reachable path and leaves every pre-existing precedence — stale, superseded, the
+    # persisted-artifact withhold below — byte-identical. It can only ever REMOVE
+    # approvability: PDS_CHANGE_WITHHELD is absent from APPROVABLE_DECISION_STATES, so
+    # nothing becomes approvable by reaching it.
+    elif withheld and not available:
+        state = PDS_CHANGE_WITHHELD
     elif not available:
         state = PDS_NO_PROPOSAL
     elif ca_stale:
@@ -3160,16 +3495,28 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         # Like the session term beside it, only an explicit False removes
         # approvability: None is "the gate supplied no verdict", not "no", and
         # the write path is what fails closed on an unverifiable proposal.
+        # R82.2 adds the SELECTED-TARGET approval gate on the same terms: a surface
+        # that renders an Approve affordance from this field must not offer one while
+        # the risk-policy review (or any other gate the write path enforces on the
+        # frozen selection) withholds it.
         "approvable": bool(available and materiality["material"] and not ca_stale
                            and not superseded and not withheld
                            and not hold_current_book
                            and summ.get(
                                "reallocation_full_target_reviewable") is not False
-                           and not _session_blocks_approval(freshness)),
+                           and not _session_blocks_approval(freshness)
+                           and not _gate_blocks_approval(approval_gate)),
         "freshness": dict(freshness or {}),
         "session_actionable": (None if not freshness
                                else bool(freshness.get("approval_allowed"))),
-        "next_required_action": (freshness or {}).get("next_required_action"),
+        # R82.2 — the gate's own word wins, because it is the more specific answer:
+        # it knows about the frozen selection and the risk-policy ruling, and the
+        # session term is already one of its own inputs.
+        "approval_gate": (dict(approval_gate) if approval_gate else None),
+        "approval_gate_owner": OWNER,
+        "next_required_action": ((approval_gate or {}).get("next_required_action")
+                                 or (freshness or {}).get("next_required_action")),
+        "next_required_action_vocabulary": list(NEXT_ACTION_VOCAB),
         "owner": OWNER,
         "confirm_required_token": CONFIRM_TOKEN,
         "decision_vocabulary": list(DECISION_VOCAB),
@@ -3361,10 +3708,32 @@ def load_portfolio_decision(*, portfolio_state: Optional[dict] = None,
         fresh = decision_freshness(
             bound_session=eligible, latest_session=latest_eligible_session())
 
+    # R82.2 — the SELECTED-TARGET approval gate, resolved on the same terms as the
+    # freshness verdict above: the PRODUCTION-DEFAULT read asks the gate, while an
+    # injected hermetic world stays a constructed world. Like freshness it can only
+    # ever REMOVE approvability, and the write path fails closed independently.
+    #
+    # Without it this lane reported `approvable: True` for the frozen 2026-09-25
+    # MINIMUM_REPAIR while api.portfolio_decision's own write path was refusing that
+    # approval at SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW.
+    gate = None
+    if _loaded_summary_default and active_book_id:
+        try:
+            gate = selected_target_approval_gate(
+                selection=load_target_selection(
+                    active_book_id=active_book_id, eligible_market_date=eligible,
+                    decision_dir=decision_dir),
+                freshness=fresh,
+                current_proposal_hash=proposal_summary.get(
+                    "reallocation_proposal_hash"),
+                decision_dir=decision_dir)
+        except Exception:  # noqa: BLE001 - degrade-safe: a read never crashes here
+            gate = None
+
     lane = derive_decision_state(has_active_book=bool(active_book_id),
                                  proposal_summary=proposal_summary,
                                  decision_record=decision_record,
-                                 freshness=fresh)
+                                 freshness=fresh, approval_gate=gate)
 
     order_plan_preview = None
     if lane["portfolio_decision_state"] == PDS_APPROVED:
@@ -6586,4 +6955,18 @@ __all__ = [
     # R61 — the ONE standing-authority resolver, shared by the gate and the read.
     "resolve_standing_governed_decision", "PROJECTION_RETIRED_BY_LEDGER_ROW",
     "INTRADAY_ONLY_LATENCY_STAGES",
+    # R82.2 — the ONE approval gate, published on a read. The write path in
+    # record_decision consumes risk_policy_approval_gate for its own two
+    # risk-policy refusals, so no surface can present approval as available in a
+    # state this owner would refuse.
+    "risk_policy_approval_gate", "selected_target_approval_gate",
+    "AG_AVAILABLE", "APPROVAL_GATE_STATUS_VOCAB", "NEXT_ACTION_VOCAB",
+    "NEXT_ACTION_LABELS",
+    "NEXT_ACTION_RUN_PORTFOLIO_CYCLE", "NEXT_ACTION_SELECT_A_TARGET",
+    "NEXT_ACTION_SELECT_AGAINST_THE_CURRENT_REVIEW",
+    "NEXT_ACTION_SELECT_AN_IMPLEMENTABLE_TARGET",
+    "NEXT_ACTION_RECORD_THE_NO_CHANGE_DECISION",
+    "NEXT_ACTION_RECORD_RISK_POLICY_RULING",
+    "NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR",
+    "NEXT_ACTION_APPROVE_SELECTED_TARGET",
 ]

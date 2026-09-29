@@ -610,7 +610,8 @@ def test_r55_1_changes_no_operator_action_policy():
     # neither the vocabulary nor its rank order.
     assert ws.OPERATOR_ACTION_PRIORITY[0] == ws.OP_ACTION_BLOCKED
     assert ws.OPERATOR_ACTION_PRIORITY[-1] == ws.OP_ACTION_MONITOR
-    assert len(ws.OPERATOR_ACTIONS) == 7
+    # R83.1 added exactly one code (the governed withheld-limit review).
+    assert len(ws.OPERATOR_ACTIONS) == 8
 
 
 def test_the_acceptance_row_vocabulary_is_unchanged():

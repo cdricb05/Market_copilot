@@ -3472,7 +3472,9 @@
        STEP 1 (choose) and STEP 2 (the authoritative backend answer), and everything
        that is evidence rather than action is collapsed. At 1920x1080 both steps are
        above the fold. */
-    .pdr-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 8px 0 10px;
+    /* R82.2 - six cells: the fifth is APPROVAL, the backend's own availability
+       verdict, so the bar can never name an action the gate withholds. */
+    .pdr-bar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 8px 0 10px;
                border: 1px solid var(--cc-border-soft, rgba(122,143,176,.16)); border-radius: 8px; padding: 9px 12px; }
     .pdr-bar .c { min-width: 0; }
     .pdr-bar .k { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--label, #7a8fb0); font-weight: 800; }
@@ -3508,6 +3510,20 @@
     .pdr-more > summary:hover { color: var(--text-accent, #a8b8d8); }
     @media (max-width: 1500px) { .pdr-bar { grid-template-columns: repeat(3, 1fr); } }
     @media (max-width: 1000px) { .pdr-bar { grid-template-columns: 1fr; } }
+
+    /* ---------- R82.2 - APPROVAL WITHHELD, where the button used to be --------- */
+    /* The approve affordance is not silently dropped: the operator is told, in the
+       decision owner's own words, that approval is unavailable and which act comes
+       first. The control stays visible and inert so the workflow reads as a
+       sequence rather than as a missing feature. */
+    .pdr-agate { margin-top: 10px; border-left: 4px solid var(--warning, #f59e0b);
+                 background: rgba(245,158,11,.08); border-radius: 0 6px 6px 0;
+                 padding: 9px 12px; font-size: 11.5px; line-height: 1.55; }
+    .pdr-agate b { color: var(--warning, #f59e0b); }
+    .pdr-agate .pdr-agate-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                                 font-size: 10.5px; overflow-wrap: anywhere; }
+    .pdr-agate .cc-badge { margin-left: 6px; vertical-align: middle; }
+    .pdr-agate .pdr-agate-next { margin-top: 6px; font-weight: 800; }
 
     /* ---------- R69.2 STEP 3 - the exact target the operator selected -------- */
     /* The weights themselves were never on screen: the panel showed per-state
@@ -29557,20 +29573,80 @@ function _pdrApproveCta(target) {
     + '<div id="pdr-approve-arm"></div>';
 }
 
-/* Release 69.2 - the APPROVE control is offered ONLY for a target that can
-   actually become an order plan.
+/* R82.2 - APPROVAL WITHHELD, stated where the armed button would have stood.
 
-   The backend decides it, in two places that agree by construction: the frozen
-   selection publishes `implementable` + `not_implementable_reason`, and
-   api.portfolio_decision refuses the approval of a target that carries no
-   implementable book. This READS that verdict and adds no rule of its own. A
-   button that leads to a refusal three gates later is exactly the misleading
-   Approve button this project forbids. */
+   The control is rendered DISABLED rather than dropped, with the decision owner's
+   own blocking status, its own detail sentence and its own next required action.
+   Dropping it silently would leave an operator looking for a feature; arming it
+   would offer an approval the write path refuses. Neither the status, the sentence
+   nor the next act is worded here. */
+function _pdrApproveWithheld(g, target) {
+  var t = String(target || '').replace(/_/g, ' ').toUpperCase();
+  var nextLabel = g.next_required_action_label
+    ? String(g.next_required_action_label)
+    : String(g.next_required_action || '').replace(/_/g, ' ');
+  return '<div class="pdr-agate" id="pdr-approve-withheld">'
+    + '<b>&#9888; ' + escapeHtml(String(g.approval_state_label
+                                        || 'APPROVAL WITHHELD')) + '</b>'
+    + '<span class="cc-badge">APPROVAL UNAVAILABLE</span>'
+    + '<span class="cc-badge">NO ORDERS</span>'
+    + '<span class="cc-badge">MANUAL REVIEW</span><br>'
+    + '<span class="pdr-agate-code">'
+    + escapeHtml(String(g.approval_withheld_because || g.status || ''))
+    + '</span><br>'
+    + escapeHtml(String(g.detail || ''))
+    + (nextLabel
+       ? ('<div class="pdr-agate-next">Next required action: '
+          + escapeHtml(nextLabel.toUpperCase()) + '</div>')
+       : '')
+    + '<div style="margin-top:8px;">'
+    + '<button type="button" class="pdr-cta" id="pdr-approve-cta" disabled'
+    + ' title="Approval is withheld by ' + escapeHtml(String(g.owner
+        || 'api.portfolio_decision')) + '. This control is inert until that gate'
+    + ' reports approval available.">'
+    + 'APPROVE ' + escapeHtml(t) + '</button></div>'
+    + '<div class="pdr-note" style="margin-top:6px;">Withheld by <b>'
+    + escapeHtml(String(g.owner || 'api.portfolio_decision'))
+    + '</b>. This screen renders that verdict and derives none of it. Nothing was '
+    + 'written: no decision, approval, order plan, order or fill exists, and reject '
+    + 'and hold remain available.</div>'
+    + '</div>';
+}
+
+/* Release 69.2 / R82.2 - the APPROVE control is offered ONLY when the ONE backend
+   approval gate says approval is available.
+
+   R69.2 read two of the gate's inputs - session freshness and the frozen
+   selection's `implementable` - and treated them as the verdict. They are not: the
+   same owner also withholds approval on a mandatory-repair obligation, on a
+   selection bound to another proposal, on a CURRENT selection and, since R69.5 /
+   R82, on an unanswered risk-policy review. On 2026-09-28 that gap armed
+   APPROVE MINIMUM REPAIR for a frozen book whose approval
+   api.portfolio_decision was refusing.
+
+   `approval_gate` is the whole verdict, ordered by the owner that enforces it. This
+   READS it and adds no rule of its own. A button that leads to a refusal three
+   gates later is exactly the misleading Approve button this project forbids. */
 function _pdrApproveBlock(d, sel) {
+  var g = (d && d.approval_gate) || null;
   var f = (d && d.freshness) || {};
-  if (f.actionable === false) return '';
   var t = sel && sel.selected_target;
   if (!t) return '';
+  /* A historical proposal keeps its single explanation at the top of the panel
+     (_pdrStaleExplainer). This is a placement choice, not an availability one: the
+     gate can never report `available` for a session the workflow has moved past. */
+  if (f.actionable === false) return '';
+  /* Fail closed on an absent gate: no affordance, and the reason is stated. */
+  if (!g) {
+    return '<div class="pdr-agate"><b>&#9888; APPROVAL STATE UNKNOWN</b>'
+      + '<span class="cc-badge">NO ORDERS</span>'
+      + '<span class="cc-badge">MANUAL REVIEW</span><br>'
+      + 'The backend published no approval gate on this read, so no approval '
+      + 'control is offered. Press Refresh; nothing has been written.</div>';
+  }
+  if (g.available === true) return _pdrApproveCta(t);
+  /* The two states that are not withholding so much as describing the selection
+     keep their own plain-English answer, which says more than the gate code. */
   if (t === 'CURRENT') {
     return '<div class="pdr-note">This selection is <b>keep the current book</b>. '
       + 'There is no target to approve and no order plan to build; the no-change '
@@ -29584,7 +29660,7 @@ function _pdrApproveBlock(d, sel) {
            + 'ever honour it. No approval control is offered.')
       + '</div>';
   }
-  return _pdrApproveCta(t);
+  return _pdrApproveWithheld(g, t);
 }
 
 /* Release 69.2 - STEP 3: the exact book the operator selected.
@@ -29635,7 +29711,7 @@ function _pdrTargetRows(impl) {
    obligations without touching either breaching name, and the screen said
    nothing. Both limits, both risk bases and the concentration are now published
    side by side, and a breach that closed without the position changing is named. */
-function _pdrRiskContribution(risk, ruling) {
+function _pdrRiskContribution(risk, ruling, gate) {
   if (!risk || !risk.before || !risk.after) return '';
   var b = risk.before, a = risk.after;
   var n = function (v) {
@@ -29706,7 +29782,7 @@ function _pdrRiskContribution(risk, ruling) {
           _pdrPct(a.largest_position, 2), false)
     + row('Cash', _pdrPct(b.cash_weight, 2), _pdrPct(a.cash_weight, 2), false)
     + _pdrReferenceRows(risk)
-    + '</tbody></table>' + warn + _pdrPolicyReview(risk, ruling)
+    + '</tbody></table>' + warn + _pdrPolicyReview(risk, ruling, gate)
     + '<div class="pdr-note">Read from the canonical risk owner on both sides and '
     + 'not measured here. No threshold, basis or obligation was changed by this '
     + 'release.</div></div>';
@@ -29860,7 +29936,7 @@ function _pdrRuledObligations(sel) {
   return (n === null || n === undefined || n === 0) ? null : n;
 }
 
-function _pdrPolicyReview(risk, ruling) {
+function _pdrPolicyReview(risk, ruling, gate) {
   var pol = risk && risk.policy_review;
   var ref = (risk && risk.reference_compliance) || {};
   // R82 - a ruling REPLACES the demand for one. Rendered before the `!pol.required`
@@ -29900,11 +29976,23 @@ function _pdrPolicyReview(risk, ruling) {
                   : moved ? 'reduced, still above the reference'
                           : 'weight unchanged') + '</td></tr>';
   }).join('');
+  /* R82.2 - this block has said APPROVAL WITHHELD since R69.5 and it was right.
+     What it could not do was name the gate that withholds it, so the status bar and
+     the Step 2 control were free to disagree with it. It now prints the decision
+     owner's own blocking status, which is the SAME string those two surfaces print,
+     so a screenshot of the panel proves the four agree. */
+  var gateLine = (gate && gate.available !== true && gate.approval_withheld_because)
+    ? ('<span class="pdr-agate-code">'
+       + escapeHtml(String(gate.approval_withheld_because)) + ' &middot; '
+       + escapeHtml(String(gate.owner || 'api.portfolio_decision'))
+       + '</span><br>')
+    : '';
   return '<div class="pdr-warn pdr-policy">'
     + '<b>&#9888; RISK POLICY REVIEW REQUIRED</b> '
     + '<span class="cc-badge">APPROVAL WITHHELD</span> '
     + '<span class="cc-badge">NO THRESHOLD CHANGED</span> '
     + '<span class="cc-badge">MANUAL REVIEW</span><br>'
+    + gateLine
     + 'This target clears its own per-name cap only because that cap rose from '
     + _pdrPct(ref.reference_limit, 2) + ' to ' + _pdrPct(ref.governed_limit, 2)
     + ' when the covariance universe changed. Held at '
@@ -30001,7 +30089,8 @@ function _pdrSelectedTarget(d) {
     + '</div></div>'
     + '</div>'
     + _pdrTargetRows(impl)
-    + _pdrRiskContribution(impl.risk_contribution, sel.risk_policy_ruling)
+    + _pdrRiskContribution(impl.risk_contribution, sel.risk_policy_ruling,
+                           (d && d.approval_gate) || null)
     + '<div class="pdr-idm" style="margin-top:8px;">'
     + 'Target identity <b>'
     + escapeHtml(String(impl.selected_target_implementation_hash || '').slice(0, 16) || '—')
@@ -30612,6 +30701,7 @@ function _pdrApproveResult() {
     + '</b><br>' + escapeHtml(ui.detail || 'The backend refused the approval.')
     + '<br><b>Nothing was written.</b> No decision, order plan, order or fill was '
     + 'created and the proposal is unchanged.'
+    + (ui.retry ? ('<br>' + escapeHtml(ui.retry)) : '')
     + '<div style="margin-top:8px;"><button type="button" class="pdr-cta neutral"'
     + ' style="margin-top:0;" onclick="_pdrApproveClear()"'
     + ' title="Dismiss this refusal. Nothing was written, so there is nothing to undo.">'
@@ -30624,6 +30714,24 @@ function _pdrApprove(target) {
     _pdrApproveSetUi({ phase: (cls === 'ok' ? 'OK' : 'ERROR'), target: target,
                        status: title, detail: body });
   };
+  /* R82.2 - defence in depth, exactly as _pdrSelect and _pdrRecordRuling have it.
+     The control is only armed when the backend gate reports approval available, but
+     this function is reachable by name as window._pdrApprove and the request it
+     makes is a WRITE. It re-reads the gate and refuses to even ask. */
+  var gate = d.approval_gate || null;
+  if (!gate || gate.available !== true) {
+    _pdrApproveSetUi({
+      phase: 'ERROR', target: target, httpStatus: null,
+      code: ((gate && (gate.approval_withheld_because || gate.status))
+             || 'APPROVAL_GATE_NOT_PUBLISHED'),
+      detail: ((gate && gate.detail)
+               || 'The backend published no approval gate on this read, so this '
+                + 'screen will not ask for an approval.'),
+      retry: ((gate && gate.next_required_action_label)
+              ? ('Next required action: ' + gate.next_required_action_label + '.')
+              : 'Press Refresh to re-read the review.') });
+    return;
+  }
   if (window._pdrApproveInFlight) return;
   window._pdrApproveInFlight = true;
   _pdrApproveSetUi({ phase: 'PENDING', target: target });
@@ -30708,8 +30816,18 @@ function _pdrStatusBar(d, err) {
                            || (d && d.review_state)
                            || (err ? ('READ FAILED - ' + (err.code || 'UNKNOWN')) : 'unknown'));
   var statusS = (d && d.proposal_id) ? escapeHtml(d.proposal_id) : '';
+  /* R83 - the TERMINAL governed withheld verdict. A settled verdict is KNOWN: saying
+     UNKNOWN about it, and then naming REFRESH THE REVIEW as the next act, told the
+     operator to reload a page over an answer the backend had already measured and
+     published. Both cells read this field verbatim. */
+  var wh = (d && d.governed_withheld_outcome) || null;
   var actV, actC, actS;
-  if (!known) { actV = 'UNKNOWN'; actC = 'warn'; actS = 'the review could not be read'; }
+  if (wh) {
+    actV = 'NOT ACTIONABLE'; actC = 'bad';
+    actS = escapeHtml('complete target withheld — '
+                      + ((wh.withheld_codes || []).join(', ') || 'a governed portfolio limit'));
+  }
+  else if (!known) { actV = 'UNKNOWN'; actC = 'warn'; actS = 'the review could not be read'; }
   else if (actionable) { actV = 'ACTIONABLE'; actC = 'ok'; actS = 'a target may be selected'; }
   else {
     actV = 'NOT ACTIONABLE'; actC = 'bad';
@@ -30717,17 +30835,65 @@ function _pdrStatusBar(d, err) {
   }
   var selV = sel ? escapeHtml(String(sel.selected_target || '').replace(/_/g, ' ')) : 'none';
   var selS = sel ? escapeHtml(sel.selection_id || '') : 'no target selected yet';
-  var nextV = f.next_required_action
-    ? escapeHtml(String(f.next_required_action).replace(/_/g, ' '))
-    : (known
-        ? (actionable ? (sel ? 'APPROVE SELECTED TARGET' : 'CHOOSE A TARGET') : 'RUN PORTFOLIO CYCLE')
-        : 'REFRESH THE REVIEW');
+  /* R82.2 - APPROVAL and NEXT REQUIRED ACTION are the BACKEND's, in full.
+
+     They used to be this file's. `freshness` names an action only when the SESSION
+     has moved on, so on a current session the chain below always fell through to
+     `actionable ? (sel ? 'APPROVE SELECTED TARGET' : ...)`. On 2026-09-28, against
+     the frozen 2026-09-25 MINIMUM_REPAIR, that printed NEXT REQUIRED ACTION =
+     APPROVE SELECTED TARGET beside an armed APPROVE MINIMUM REPAIR button - in the
+     same paint as Step 3's APPROVAL WITHHELD and Step 4's demand for a ruling,
+     because api.portfolio_decision was withholding the approval at
+     SELECTED_TARGET_REQUIRES_RISK_POLICY_REVIEW and nothing published that.
+
+     `approval_gate` is that verdict, published by the decision owner. Both cells
+     read it verbatim. When the backend supplies no gate the cells say so: a stated
+     unknown is the only honest fallback, and inventing an action is what broke. */
+  var g = (d && d.approval_gate) || null;
+  var apV, apC, apS;
+  if (wh) {
+    /* R83 - there is no approval to give: no proposal exists, because the owner ruled
+       rather than because it never ran. That is a WITHHELD approval with a reason, not
+       an unknown one. */
+    apV = 'WITHHELD'; apC = 'bad';
+    apS = escapeHtml(String(wh.approval_withheld_because
+                            || 'COMPLETE_TARGET_WITHHELD_ON_PORTFOLIO_LIMITS'));
+  } else if (!g) {
+    apV = 'UNKNOWN'; apC = 'warn';
+    apS = 'the backend published no approval gate on this read';
+  } else if (g.available === true) {
+    apV = 'AVAILABLE'; apC = 'ok';
+    apS = 'every gate the decision owner enforces is clear';
+  } else {
+    apV = 'WITHHELD'; apC = 'bad';
+    apS = escapeHtml(String(g.approval_withheld_because || g.status || ''));
+  }
+  var nextV, nextS;
+  if (g && g.next_required_action) {
+    nextV = escapeHtml(String(g.next_required_action_label
+                              || String(g.next_required_action).replace(/_/g, ' ')
+                             ).toUpperCase());
+    nextS = escapeHtml(String(g.next_required_action)) + ' · backend';
+  } else if (wh && wh.next_required_action) {
+    /* R83 - a terminal WITHHELD verdict names its own next act, and it is the
+       backend's word exactly as the gate's is. Before this branch existed the cell
+       fell through to REFRESH THE REVIEW, which is not an action over a settled
+       ruling. The bar still invents nothing. */
+    nextV = escapeHtml(String(wh.next_required_action_label
+                              || String(wh.next_required_action).replace(/_/g, ' ')
+                             ).toUpperCase());
+    nextS = escapeHtml(String(wh.next_required_action)) + ' · backend';
+  } else {
+    nextV = known ? 'NOT PUBLISHED' : 'REFRESH THE REVIEW';
+    nextS = known ? 'the backend named no next action on this read' : '';
+  }
   return '<div class="pdr-bar">'
     + cell('Session', sessV, '', sessS)
     + cell('Proposal status', statusV, '', statusS)
     + cell('Current actionability', actV, actC, actS)
     + cell('Selected target', selV, sel ? 'ok' : '', selS)
-    + cell('Next required action', nextV, 'warn', '')
+    + cell('Approval', apV, apC, apS)
+    + cell('Next required action', nextV, apC === 'ok' ? 'ok' : 'warn', nextS)
     + '</div>';
 }
 
@@ -30809,6 +30975,22 @@ function _pdrRender(d, err) {
           + 'the browser stopped waiting. Use Refresh.'
         : 'The review endpoint could not be read.';
       detail = err.detail || '';
+    } else if (d && d.status === 'NO_PROPOSAL' && d.governed_withheld_outcome) {
+      /* R83 - WHY there is nothing to review. "There is no standing proposal" is true
+         and was the only thing this panel could say, so a settled governed ruling and
+         a cycle that never ran looked identical. The reason is the backend's. */
+      var _w = d.governed_withheld_outcome;
+      headline = 'The governed cycle for this session RULED: it built a complete '
+        + 'alternative portfolio over '
+        + (_w.proposed_holding_count === null || _w.proposed_holding_count === undefined
+            ? 'the eligible' : _w.proposed_holding_count)
+        + ' holdings, re-optimised it under the breached limit and WITHHELD it ('
+        + ((_w.withheld_codes || []).join(', ') || 'a governed portfolio limit')
+        + ((_w.withheld_breaching_tickers || []).length
+            ? ' — ' + _w.withheld_breaching_tickers.join(', ') : '')
+        + '). There is therefore no proposal to review and nothing to approve. '
+        + 'Re-running the cycle would reach the same verdict; the portfolio limit '
+        + 'itself is what needs review.';
     } else if (d && d.status === 'NO_PROPOSAL') {
       headline = 'There is no standing reallocation proposal to review for the '
         + 'active book and eligible session.';
@@ -31089,6 +31271,10 @@ function _r47Render(d) {
   var adjustments = d.constraint_adjustments || [];
   var ap = d.approval || {};
   var ex = d.execution || {};
+  /* R83 - the TERMINAL governed withheld verdict, published by
+     api.reallocation_proposal. The browser renders it and derives no code, no limit,
+     no excess and no ticker from it. */
+  var wh = d.governed_withheld_outcome || null;
   var words = function (c) {
     var s = String(c === null || c === undefined ? '' : c).replace(/_/g, ' ').toLowerCase();
     return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
@@ -31109,6 +31295,17 @@ function _r47Render(d) {
     line = 'A true blocker stops the decision: ' + ((verdict.reason_codes || []).map(words).join(', ') || 'see the decision above') + '.'; toneArr = redTone;
   } else if (hc.historical) {
     line = 'No governed target was generated for the historical session ' + (hc.session_date || '') + '. Nothing is fabricated; the next eligible portfolio cycle solves a fresh target.'; toneArr = quietTone;
+  } else if (wh) {
+    /* R83 - a COMPLETE target was built, priced and WITHHELD on a governed portfolio
+       limit. This branch exists because the quiet fallback below said "no current
+       reallocation target exists", which on 2026-09-28 was false twice over: a target
+       over 20 holdings WAS solved and priced, and it cleared its economics before the
+       per-name risk-contribution cap refused it. Every value here is the backend's. */
+    line = 'A complete target was built and priced for ' + (d.eligible_market_date || 'the eligible session')
+      + ' and WITHHELD by a governed portfolio limit: ' + escapeHtml((wh.withheld_codes || []).map(words).join(', ') || 'a portfolio limit')
+      + ((wh.withheld_breaching_tickers || []).length ? ' (' + escapeHtml(wh.withheld_breaching_tickers.join(', ')) + ')' : '')
+      + '. Nothing is approvable and re-running the cycle would reach the same verdict.';
+    toneArr = amberTone;
   } else {
     line = 'No current reallocation target exists for ' + (d.eligible_market_date || 'the eligible session') + '.'; toneArr = quietTone;
   }
@@ -31171,8 +31368,25 @@ function _r47Render(d) {
       : (outcome === 'TRUE_BLOCKER'
           ? 'A true blocker stops the decision, so no target can be trusted.'
           : 'No governed target exists for this session yet. Nothing is fabricated.');
-    bestCol = '<div class="r47-col is-best"><div class="h"><span>Best feasible target</span></div>'
-      + emptyState('NO CURRENT FEASIBLE TARGET', why) + '</div>';
+    /* R83 - the feasible set is EMPTY because the owner PROVED it empty, which is a
+       different fact from never having looked. Name the limit, the names and the
+       measured breach, all from the backend's verdict. */
+    var whTitle = 'NO CURRENT FEASIBLE TARGET';
+    if (wh) {
+      whTitle = 'COMPLETE TARGET WITHHELD ON PORTFOLIO LIMITS';
+      var brch = (wh.withheld_risk_contribution_breaches || []).map(function (b) {
+        return b.ticker + ' ' + b.risk_contribution_pct + ' vs limit ' + b.limit;
+      }).join('; ');
+      why = 'A complete target over ' + (nil(wh.proposed_holding_count) ? 'the eligible' : wh.proposed_holding_count)
+        + ' holdings was built and re-optimised under the breached limit, and it STILL breaches '
+        + ((wh.withheld_codes || []).join(', ') || 'a governed portfolio limit')
+        + (brch ? ' — ' + brch : '')
+        + '. The feasible set is empty and the owner failed closed, so no proposal is persisted and nothing is approvable. '
+        + (wh.outstanding_governance_requirement || '');
+    }
+    bestCol = '<div class="r47-col is-best"><div class="h"><span>Best feasible target</span>'
+      + (wh ? '<span>withheld</span>' : '') + '</div>'
+      + emptyState(whTitle, why) + '</div>';
   }
   var idealN = Object.keys(ideal.weights || {}).length;
   var idealLine = idealN
@@ -31198,12 +31412,39 @@ function _r47Render(d) {
       + _r47Chip('Mandatory exits', (sw.mandatory_exits || []).join(', ') || 'none', 'Held names outside the eligible universe. Their exit is a constraint, not a bet.')
       + _r47Chip('Expected return', words(sw.expected_return_state) || '—', 'No validated forecast model exists, so a dollar expected return is never fabricated.');
     _setHtml('r47-economics', chips);
+  } else if (wh) {
+    /* R83 - a withheld target WAS priced. Its economics are real and are precisely
+       what justifies reviewing the limit, so they are shown beside a hard
+       non-approvable verdict — never as an offer. */
+    _setHtml('r47-economics',
+      _r47Chip('Verdict', 'WITHHELD', 'A complete target was built and refused by a governed portfolio limit (backend).')
+      + _r47Chip('Withheld by', (wh.withheld_codes || []).join(', ') || '—', 'The governed limit that refused the change (backend).')
+      + _r47Chip('Breaching names', (wh.withheld_breaching_tickers || []).join(', ') || '—', 'The names whose risk contribution exceeds the cap in the COMPLETE TARGET (backend).')
+      + _r47Chip('Improvement net of cost', _r47Num(wh.score_improvement_net_of_cost, 6), 'What the withheld target would have bought after cost. It cleared its economics; a risk limit refused it (backend).')
+      + _r47Chip('One-way turnover', pct(wh.one_way_turnover), 'Portfolio distance the withheld target would have travelled (backend).')
+      + _r47Chip('Est. cost', nil(wh.estimated_transaction_cost) ? '—' : _obMoney(wh.estimated_transaction_cost), 'Modelled transition cost of the withheld target (backend).')
+      + _r47Chip('Proposed holdings', nil(wh.proposed_holding_count) ? '—' : String(wh.proposed_holding_count), 'Size of the complete target that was judged (backend).')
+      + _r47Chip('Approvable', 'NO', 'A withheld complete target is never approvable and no artifact is persisted (backend).')
+      + _r47Chip('Re-running the cycle', 'CHANGES NOTHING', 'The verdict is deterministic; the limit itself is what needs review (backend).'));
   } else {
     _setHtml('r47-economics', '<span class="r47-quiet">No switching economics: no feasible target was priced for this session.</span>');
   }
 
   // --- approval + execution, in words (the raw states live under Audit) ------- #
-  var apSub = ap.approvable === true ? 'manual approval available — review under Reallocation' : 'nothing awaits approval';
+  /* R82.2 - "nothing awaits approval" was wrong for a book that was awaiting a
+     risk-policy ruling. The decision owner's own gate now says which act comes
+     first; this reads it verbatim and falls back to the old words only when the
+     backend publishes no gate at all. */
+  var apGate = ap.approval_gate || null;
+  var apSub;
+  if (ap.approvable === true) {
+    apSub = 'manual approval available — review under Reallocation';
+  } else if (apGate && apGate.next_required_action_label) {
+    apSub = 'approval withheld — next required action: '
+            + apGate.next_required_action_label;
+  } else {
+    apSub = 'nothing awaits approval';
+  }
   var exTxt = ex.message || words(ex.rebalance_state) || '—';
   var exSub = nil(ex.n_orders) ? 'no order plan' : (ex.n_orders + ' order(s) in the plan');
   _setHtml('r47-governance', '<div class="r47-gov">'
@@ -31823,10 +32064,33 @@ function _opRenderReallocationView(p) {
     });
     changes = '<div class="pmr-groups">' + ghtml + '</div>';
   } else {
-    changes = '<div class="pmr-empty"><b>' + (hc.historical ? 'NO GOVERNED TARGET FOR THIS HISTORICAL SESSION' : 'NO CURRENT REALLOCATION TARGET') + '</b>'
-      + _opEsc(hc.historical ? ('No changes exist to review for ' + (hc.session_date || 'this session') + '; nothing is fabricated. ' + (hc.next_eligible_action || ''))
-          : (d.state === 'HOLD' ? 'The feasible alternative did not clear the switching hurdle after cost, so no change is proposed.'
-                                : 'No feasible target exists for the eligible session. Nothing is fabricated.')) + '</div>';
+    /* R83 - a WITHHELD complete target is not an absent one. The old fallback said
+       "No feasible target exists for the eligible session", which reads as "nothing
+       was ever solved"; the owner HAD solved one and PROVEN the feasible set empty.
+       Every value below is the backend's verdict, rendered verbatim. */
+    var whR = r47.governed_withheld_outcome || null;
+    var emptyTitle = hc.historical ? 'NO GOVERNED TARGET FOR THIS HISTORICAL SESSION'
+      : (whR ? 'COMPLETE TARGET WITHHELD ON PORTFOLIO LIMITS' : 'NO CURRENT REALLOCATION TARGET');
+    var emptyBody;
+    if (hc.historical) {
+      emptyBody = 'No changes exist to review for ' + (hc.session_date || 'this session')
+        + '; nothing is fabricated. ' + (hc.next_eligible_action || '');
+    } else if (whR) {
+      emptyBody = 'A complete target over '
+        + (whR.proposed_holding_count === null || whR.proposed_holding_count === undefined
+            ? 'the eligible' : whR.proposed_holding_count)
+        + ' holdings was built, priced and re-optimised under the breached limit, and it '
+        + 'STILL breaches ' + ((whR.withheld_codes || []).join(', ') || 'a governed portfolio limit')
+        + ((whR.withheld_breaching_tickers || []).length
+            ? ' (' + whR.withheld_breaching_tickers.join(', ') + ')' : '')
+        + '. No proposal artifact is persisted, no change is reviewable and nothing is '
+        + 'approvable. ' + (whR.outstanding_governance_requirement || '');
+    } else if (d.state === 'HOLD') {
+      emptyBody = 'The feasible alternative did not clear the switching hurdle after cost, so no change is proposed.';
+    } else {
+      emptyBody = 'No feasible target exists for the eligible session. Nothing is fabricated.';
+    }
+    changes = '<div class="pmr-empty"><b>' + emptyTitle + '</b>' + _opEsc(emptyBody) + '</div>';
   }
 
   var target;
@@ -32345,6 +32609,7 @@ var _R55_ACTION_TONE = {
   RUN_PORTFOLIO_CYCLE: 'tone-warn',
   RESUME_RESEARCH_CYCLE: 'tone-warn',
   REVIEW_PORTFOLIO_PROPOSAL: 'tone-warn',
+  REVIEW_THE_WITHHELDING_PORTFOLIO_LIMIT: 'tone-warn',
   BLOCKED: 'tone-bad'
 };
 var _R55_DECISION_TONE = {

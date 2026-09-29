@@ -286,6 +286,7 @@ def _governance(*, review: Optional[dict], bound_session: Optional[str],
                 active_book_id: Optional[str],
                 latest_session: Optional[str] = None,
                 workflow_state: Optional[dict] = None,
+                proposal_hash: Optional[str] = None,
                 decision_dir=None) -> dict:
     """R63 — the governance layer over a review: is this decision still actionable,
     and which target (if any) has the operator already selected?
@@ -341,6 +342,22 @@ def _governance(*, review: Optional[dict], bound_session: Optional[str],
         selection = dict(selection)
         selection["risk_policy_ruling"] = ruling
         selection["risk_policy_decision"] = decision
+    # R82.2 — THE APPROVAL GATE. The decision owner's own ordered answer to "is
+    # approval the operator's current act on this frozen selection?", published here
+    # so every surface on this screen reads ONE verdict.
+    #
+    # Before this release nothing published it. The status bar derived its own next
+    # action from `actionable && a selection exists`, and the Step 2 approve control
+    # from `actionable && implementable`, so on 2026-09-28 the panel offered an armed
+    # APPROVE MINIMUM REPAIR and reported NEXT REQUIRED ACTION = APPROVE SELECTED
+    # TARGET in the same paint as APPROVAL WITHHELD and Step 4's demand for a ruling.
+    #
+    # It is a SIBLING of the selection, the ruling and the decision, outside
+    # ``review`` for the reason stated above ``selected_targets``: ``review_hash`` is
+    # computed over ``review`` and every governed selection ever made binds it.
+    approval_gate = _pd.selected_target_approval_gate(
+        selection=selection, freshness=fresh, ruling_state=ruling,
+        current_proposal_hash=proposal_hash, decision_dir=decision_dir)
     return {
         "freshness": fresh,
         "actionable": bool(fresh["actionable"]),
@@ -348,6 +365,8 @@ def _governance(*, review: Optional[dict], bound_session: Optional[str],
         "selection": selection,
         "risk_policy_ruling": ruling,
         "risk_policy_decision": decision,
+        "approval_gate": approval_gate,
+        "approval_gate_owner": _pd.OWNER,
         "risk_policy_ruling_owner": _pd.OWNER,
         "risk_policy_ruling_confirm_token": _pd.RULING_CONFIRM_TOKEN,
         "risk_policy_ruling_route": _pd.RULING_ROUTE,
@@ -465,6 +484,31 @@ def _envelope(*, status: str, generated_at: str, message: str,
         "risk_policy_decision": (governance or {}).get("risk_policy_decision"),
         "risk_policy_ruling_route": (governance or {}).get(
             "risk_policy_ruling_route"),
+        # R82.2 — the ONE authoritative answer to "is approval the operator's current
+        # act?", identical to ``governance.approval_gate``. Every approval affordance
+        # and every next-required-action label on this screen reads THIS field; a
+        # surface that derives either from freshness, selectability or
+        # implementability alone is reading three of the gate's inputs and calling
+        # the result a verdict.
+        "approval_gate": (governance or {}).get("approval_gate"),
+        "approval_gate_owner": (governance or {}).get("approval_gate_owner"),
+        "approval_available": bool(
+            ((governance or {}).get("approval_gate") or {}).get("available")),
+        # R83 — THE TERMINAL GOVERNED OUTCOME, when the reason there is nothing to
+        # review is that the proposal owner RULED rather than that it never ran.
+        #
+        # ``status`` stays NO_PROPOSAL and ``review_state`` stays PROPOSAL_ABSENT on
+        # purpose: for a withheld session those ARE the correct answers, and the
+        # governed cycle's own coherence check (proposal_review_verification, R74)
+        # asserts exactly that pair. What was missing was never the status — it was
+        # the REASON and the next act. A withheld verdict is settled, so "refresh the
+        # review" is not an action, it is a loop.
+        "governed_withheld_outcome": (proposal_payload or {}).get(
+            "governed_withheld_outcome"),
+        "next_required_action": (
+            ((governance or {}).get("approval_gate") or {}).get("next_required_action")
+            or ((proposal_payload or {}).get("governed_withheld_outcome")
+                or {}).get("next_required_action")),
         "policy_compliant_successor": policy_compliant_successor,
         "policy_compliant_successor_state_vocabulary": list(SUCCESSOR_STATE_VOCAB),
         "review_policy_version": REVIEW_POLICY_VERSION,
@@ -950,6 +994,30 @@ def load_proposal_decision_review(
                          "than adjudicating one proposal and labelling it another. "
                          "Nothing is fabricated."
                          % (art_meta.get("proposal_id") or "unknown")))
+        # R83 — say WHY there is nothing to review. "read state NOT_RUN" was the only
+        # reason this route could ever give, and on 2026-09-28 it was false: the owner
+        # had built a complete target and withheld it on a measured portfolio limit.
+        wh = (payload or {}).get("governed_withheld_outcome") or {}
+        if wh:
+            return _envelope(
+                status=STATUS_NO_PROPOSAL, generated_at=generated_at,
+                proposal_payload=payload,
+                message=(
+                    "There is no reallocation proposal to review because the governed "
+                    "cycle for this session RULED: it built a complete alternative "
+                    "portfolio over %s holdings, re-optimised it under the breached "
+                    "limit and WITHHELD it (%s%s). That is a completed governed "
+                    "decision, so no artifact is persisted, no target is selectable "
+                    "and no approval exists to give. Running the cycle again would "
+                    "reach the same verdict; the portfolio limit itself is what needs "
+                    "review. Nothing is fabricated."
+                    % (wh.get("proposed_holding_count")
+                       if wh.get("proposed_holding_count") is not None else "the eligible",
+                       ", ".join(wh.get("withheld_codes")
+                                 or wh.get("withheld_reasons") or [])
+                       or "a governed portfolio limit",
+                       (" — %s" % ", ".join(wh.get("withheld_breaching_tickers") or []))
+                       if wh.get("withheld_breaching_tickers") else "")))
         return _envelope(
             status=STATUS_NO_PROPOSAL, generated_at=generated_at,
             proposal_payload=payload,
@@ -1003,7 +1071,8 @@ def load_proposal_decision_review(
     governance = _governance(
         review=review, bound_session=(identity.get("eligible_market_date") or eligible),
         active_book_id=book_id, latest_session=latest_session,
-        workflow_state=workflow_state, decision_dir=decision_dir)
+        workflow_state=workflow_state,
+        proposal_hash=identity.get("proposal_hash"), decision_dir=decision_dir)
     # R69.2 - the three implementable target representations. The review hash is
     # computed ONCE and travels into both the blocks (which bind it) and the
     # envelope, so the identity a selection freezes is provably the identity the

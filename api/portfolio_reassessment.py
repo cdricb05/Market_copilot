@@ -2115,6 +2115,10 @@ def build_presentation(*, state: str, reassessment: Optional[dict],
     else:
         base["execution_precedence"] = False
         base["execution_precedence_reason"] = None
+    # R83 — the two fields are published on EVERY path, so a consumer never has to
+    # tell "not withheld" apart from "this payload predates the field".
+    base["proposal_exists"] = None
+    base["requested_proposal_was_withheld"] = False
     if decision_settled:
         settled_label = _DECISION_SETTLED_LANE_STATES[lane_state]
         base["primary_action"] = None
@@ -2123,6 +2127,22 @@ def build_presentation(*, state: str, reassessment: Optional[dict],
                         "owner: %s" % settled_label)
         base["next_action"] = "No action required — the governed decision stands"
         base["severity"] = "SUCCESS"
+        # R83 — TWO of the three settled outcomes really are benign: a HOLD and a
+        # NO_MATERIAL_CHANGE are decisions that close the question, so "no action
+        # required" and SUCCESS are true of them. A WITHHELD change is not. It leaves a
+        # MANDATORY portfolio limit unresolved, which is the one thing on this card that
+        # needs a person, and the title still announced PORTFOLIO PROPOSAL READY over it
+        # — a proposal-existence claim for a session where no proposal exists and none
+        # can. The reassessment's own ``state`` is untouched: PROPOSAL_READY is its
+        # honest verdict (it DID ask for a target). Only the words that describe the
+        # DOWNSTREAM result change.
+        if lane_state == "CHANGE_CANDIDATE_WITHHELD":
+            base["title"] = "PORTFOLIO CHANGE WITHHELD — PROPOSAL NOT PRODUCED"
+            base["next_action"] = ("REVIEW THE PORTFOLIO LIMIT THAT WITHHELD THE "
+                                   "CHANGE")
+            base["severity"] = "ATTENTION"
+            base["proposal_exists"] = False
+            base["requested_proposal_was_withheld"] = True
         base["decision_settled"] = True
         base["settled_decision_state"] = lane_state
         base["settled_decision_owner"] = "api.portfolio_decision"

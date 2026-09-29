@@ -725,7 +725,11 @@ UI = Path(__file__).resolve().parents[1] / "api" / "ui" / "index.html"
 def test_50_the_ruled_panel_exists_and_reads_the_backend():
     src = UI.read_text(encoding="utf-8", errors="replace")
     assert "function _pdrRuledPolicy(" in src
-    assert "_pdrRiskContribution(impl.risk_contribution, sel.risk_policy_ruling)" in src
+    # R82.2 added a THIRD argument: the backend approval gate, so the policy block
+    # can print the same blocking status the status bar and the Step 2 control print.
+    # The first two - the frozen risk block and the ruling - are unchanged.
+    assert "_pdrRiskContribution(impl.risk_contribution, sel.risk_policy_ruling," in src
+    assert "function _pdrRiskContribution(risk, ruling, gate)" in src
     assert "RISK POLICY RULED" in src
     assert "RULING ON RECORD" in src
     assert "APPROVAL UNAVAILABLE" in src

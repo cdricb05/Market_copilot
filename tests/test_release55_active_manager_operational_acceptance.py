@@ -232,11 +232,14 @@ def _answer(**over) -> dict:
 # PHASE B — THE ONE OPERATOR ACTION CONTRACT
 # =========================================================================== #
 def test_operator_action_vocabulary_is_the_frozen_seven():
+    # R83.1 extended the frozen seven by exactly one governed code: the withheld
+    # verdict's own next act (api.reallocation_proposal ``next_required_action``).
     assert set(ws.OPERATOR_ACTIONS) == {
         "MONITOR_PORTFOLIO", "REVIEW_PORTFOLIO_PROPOSAL", "RUN_PORTFOLIO_CYCLE",
         "WAIT_FOR_OWNED_DATA", "RESUME_RESEARCH_CYCLE",
-        "WAIT_FOR_SESSION_CLOSE", "BLOCKED"}
-    assert len(ws.OPERATOR_ACTIONS) == 7
+        "WAIT_FOR_SESSION_CLOSE", "BLOCKED",
+        "REVIEW_THE_WITHHELDING_PORTFOLIO_LIMIT"}
+    assert len(ws.OPERATOR_ACTIONS) == 8
 
 
 def test_priority_order_is_one_total_ordering_without_duplicates():
