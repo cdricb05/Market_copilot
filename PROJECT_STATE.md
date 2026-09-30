@@ -1,18 +1,52 @@
 # PROJECT_STATE
-- **Last updated:** 2026-09-29
-- **Updated by phase:** **R84_FINAL_OPERATIONAL_CERTIFICATION - RELEASE_CANDIDATE,
-  CERTIFICATION PENDING the release-lock ceremony (full-repository regression on the
-  committed tree, production-store integrity, runtime attestation, live UI acceptance).
-  Single agent, Windows PowerShell only, branch `stage19-controlled-rebalance`; NOT PUSHED.**
+- **Last updated:** 2026-09-30
+- **Updated by phase:** **R84_FINAL_OPERATIONAL_CERTIFICATION -
+  OPERATIONAL_PLATFORM_CERTIFIED (release lock, 2026-09-30). Single agent,
+  Windows PowerShell only, branch `stage19-controlled-rebalance`; NOT PUSHED.**
 
-  **Release-candidate evidence (pre-commit working tree, 2026-09-29).** Latest accepted
-  live run: `drc_2026-09-28_ca2db31a2209` (COMPLETE); latest completed close 2026-09-28
-  (NAV $98,246.56, cash $4,482.71, 25 holdings, forward evidence COMPLETE). Strict
-  architecture audit exit 0; `check_ui_js` 0 errors. A pre-commit full repository run
-  showed 12,228 passed / 2 failed / 991 skipped (both repaired). That run is NOT the
-  release gate: the gate is one full-repository run exiting 0 on the committed tree,
-  under the R84 production write guard (`tests/_production_write_guard.py`), recorded
-  by the certification commit that follows this one.
+  **Certification record.**
+  - `FULL_REGRESSION_COMMIT = ee1614607aafdef4d4cf5f76bc15dc49b547b5a2` (clean tracked
+    tree). Commits: `8cbf9a4` R84 product; `282864f`, `bd9bcf3` test isolation found by
+    the guarded full runs (D28, D29); `ee16146` fail-closed book / order write controls
+    found by browser acceptance (D30). This record is the docs-only commit after it.
+  - Full repository regression (`pytest tests`, 2026-09-30 05:43:51Z-07:25:36Z):
+    **12,206 passed, 991 skipped, 0 failed, exit 0**, under the R84 production write
+    guard: **0 refused production writes**. Skips: 971 need
+    `PAPER_TRADER_TEST_DATABASE_URL` (no test database configured), 18 need out-of-repo
+    operator scripts / handoff evidence, 1 is the live-service-manager guard test that
+    runs only from a linked worktree, 1 has no live standing proposal. Two untracked
+    pre-existing files (`tests/test_market_context_endpoint.py`,
+    `tests/test_phase29j1_operator_ux.py`) are not part of the tree and were excluded.
+  - Strict architecture audit exit 0; `check_ui_js` 0 errors (9 blocks).
+  - Production stores fingerprinted before / after (content hash, sqlite logical rows,
+    metadata walk of `D:\Stock_Prediction_app_data` and `~\.paper_trader`, Postgres
+    counts + write counters): **0 test-induced mutations**. Every change in the window
+    is the information-collection service (relaunched by its scheduled task 06:05Z)
+    or a read-only fingerprint `-shm` touch; Postgres unchanged.
+  - Runtimes on `ee16146`, dirty=False: backend (restart owner `LIVE_SMOKE_OK`, one
+    listener on 8001, `/v1/health` + `/v1/ready` 200); information collection
+    (singleton, ALIGNED); research worker (lease live, COMMITTED_CLEAN_SOURCE). The
+    Telegram poller is research-only and outside identity attestation (R55.2).
+  - Live UI acceptance at 1920x1080 (read-only, headless Chrome): Today, Daily
+    Workflow, Portfolio Overview / Audit & Details / Reallocation, System · Audit; three
+    identical refreshes; 0 dialogs, 0 page errors, 0 HTTP errors, 0 non-GET requests;
+    only console error is the non-product `/favicon.ico` 404. One action everywhere:
+    "Run the portfolio cycle". Every book / order write control disabled.
+  - Latest governed session: 2026-09-28 (`drc_2026-09-28_ca2db31a2209`, COMPLETE);
+    NAV $98,246.56, cash $4,482.71, 25 holdings; decision CHANGE_CANDIDATE_WITHHELD;
+    workflow consistency CONSISTENT.
+  - **FIXABLE_OPERATIONAL_DEFECTS_REMAINING = 0.**
+
+  **Current human / time-dependent items (2026-09-30).** The 2026-09-29 session is
+  completed and not yet closed: CATCH_UP_REQUIRED, the ONE operator action is "Run the
+  portfolio cycle" (the operator's act, one confirmation in the UI). The AMD / SNDK
+  risk-contribution limit review below remains HUMAN_DECISION_PENDING.
+
+  **Forward items observed by the release lock.** Research runtime stages
+  `forward_preboundary_monitor` FAILED_INTEGRITY (SPY skew entry mark unpriceable,
+  since 2026-09-28) and `canonical_forward_accrual` DATA_BLOCKED (vendor has not
+  published 2026-09-29); the FX carry cadence decision window of 2026-09-29 closed at
+  13:30Z with no decision (FORFEITED, before this ceremony touched any runtime).
 
   **What R84 repaired** (regression `tests/test_r84_operational_certification.py`, doc
   `docs/R84_OPERATIONAL_CERTIFICATION.md`): false INCONSISTENT on a withheld target and
