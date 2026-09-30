@@ -100,6 +100,45 @@ def test_sqlite_writes_are_denied_and_reads_allowed(tmp_path, monkeypatch):
     ro.close()
 
 
+def test_the_research_snapshot_coexists_with_a_live_writer(tmp_path, request):
+    """The snapshot must never lock a live worker out of its own database.
+
+    ``shutil.copytree`` (CopyFile2) denied a live worker's read-write reopen
+    mid-copy ("attempt to write a readonly database"). The snapshot reads a
+    database through SQLite's backup API while a writer holds it open with
+    un-checkpointed WAL content, skips the WAL/SHM, and the writer keeps writing.
+    """
+    snap = next(p.snapshot_live_store_root
+                for p in request.config.pluginmanager.get_plugins()
+                if hasattr(p, "snapshot_live_store_root"))
+    root = tmp_path / "live"
+    root.mkdir()
+    (root / "sub").mkdir()
+    (root / "sub" / "state.json").write_text('{"k": 1}')
+    (root / "worker.lease").write_text("held")
+    live = sqlite3.connect(str(root / "memory.sqlite"))
+    try:
+        live.execute("PRAGMA journal_mode=WAL")
+        live.execute("PRAGMA wal_autocheckpoint=0")
+        live.execute("CREATE TABLE t (x INTEGER)")
+        live.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(50)])
+        live.commit()
+        assert (root / "memory.sqlite-wal").stat().st_size > 0   # rows in WAL
+        out = snap(root, tmp_path / "snap")
+        live.execute("INSERT INTO t VALUES (99)")                # still writable
+        live.commit()
+    finally:
+        live.close()
+    copy = sqlite3.connect(str(out / "memory.sqlite"))
+    try:
+        assert copy.execute("SELECT count(*) FROM t").fetchone() == (50,)
+    finally:
+        copy.close()
+    assert (out / "sub" / "state.json").read_text() == '{"k": 1}'
+    assert not (out / "memory.sqlite-wal").exists()
+    assert not (out / "worker.lease").exists()
+
+
 def test_a_swallowed_refusal_is_still_recorded():
     before = len(guard.VIOLATIONS)
     try:

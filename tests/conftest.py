@@ -259,15 +259,48 @@ def _r59_research_root_snapshot(tmp_path_factory) -> Path:
     live research memory. Those suites legitimately read what research has
     concluded, so they get the same bytes - a session snapshot - and whatever
     they write lands in the snapshot, never in production.
-    """
-    import shutil
 
+    The copy must coexist with a LIVE research worker. ``shutil.copytree`` on
+    Windows copies through ``CopyFile2``, which denies every concurrent
+    read-write open of its source while it reads: a live worker that reopened
+    ``research_memory.sqlite`` (or its ``-shm``) mid-copy failed with
+    "attempt to write a readonly database". So a database is copied through
+    SQLite's online backup API from a ``mode=ro`` reader (the locking protocol
+    every concurrent reader already uses), its ``-wal`` / ``-shm`` / journal are
+    never touched, and every other file is read with a shared-read ``open``.
+    """
     dst = tmp_path_factory.mktemp("r59_research_root_snapshot") / "r59_autonomous_alpha"
-    if _R59_PRODUCTION_ROOT.exists():
-        shutil.copytree(_R59_PRODUCTION_ROOT, dst,
-                        ignore=shutil.ignore_patterns("*.lock", "*.lease"))
-    else:
-        dst.mkdir(parents=True)
+    snapshot_live_store_root(_R59_PRODUCTION_ROOT, dst)
+    return dst
+
+
+def snapshot_live_store_root(root: Path, dst: Path) -> Path:
+    """Copy a store root that a live process may be writing (see above)."""
+    import sqlite3
+
+    dst.mkdir(parents=True, exist_ok=True)
+    if not root.exists():
+        return dst
+    for src in sorted(root.rglob("*")):
+        name = src.name.lower()
+        if not src.is_file() or name.endswith(
+                ("-wal", "-shm", "-journal", ".lock", ".lease")):
+            continue
+        out = dst / src.relative_to(root)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if name.endswith((".sqlite", ".sqlite3", ".db")):
+            reader = sqlite3.connect(src.as_uri() + "?mode=ro", uri=True,
+                                     timeout=30)
+            writer = sqlite3.connect(str(out))
+            try:
+                reader.backup(writer)
+            finally:
+                writer.close()
+                reader.close()
+        else:
+            with open(src, "rb") as fin, open(out, "wb") as fout:
+                for chunk in iter(lambda: fin.read(1 << 20), b""):
+                    fout.write(chunk)
     return dst
 
 

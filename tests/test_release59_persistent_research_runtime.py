@@ -199,8 +199,16 @@ def test_an_abandoned_lease_is_recovered_after_the_stale_threshold(root,
     monkeypatch.setattr(LP, "run_session", lambda **kw: {
         "stop_condition": LP.STOP_A, "jobs_executed": 0,
         "hypotheses_measured": 0, "research_still_ready": 0})
+    # R84: clock and sleep_fn injected TOGETHER, as run_forever requires. A
+    # no-op sleep over the real clock spun the idle wait (up to an hour) until
+    # a LIVE collection store happened to move and woke it early.
+    now = [0.0]
+
+    def _sleep(seconds):
+        now[0] += float(seconds)
+
     body = RT.run_forever(debug_max_cycles=1, install_signal_handlers=False,
-                          sleep_fn=lambda s: None)
+                          sleep_fn=_sleep, clock=lambda: now[0])
     assert body["worker_state"] != RT.W_REFUSED
     assert body["n_cycles"] == 1
 
