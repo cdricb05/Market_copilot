@@ -1357,7 +1357,10 @@ def compose(scenario_key: str, *, root=None) -> dict:
     rebalance = rbx.load_rebalance_state(
         desk_dir=sdir, plan_dir=tmp / "plans", actions_dir=tmp / "ca",
         active_book_id=BOOK, eligible_market_date=spec["eligible_market_date"],
-        portfolio_state=pstate, artifact=realloc_art, decision_record=decision)
+        portfolio_state=pstate, artifact=realloc_art, decision_record=decision,
+        # R84 — the harness's OWN latest session. Without it the owner resolved the
+        # LIVE workflow session and a real date leaked into every frozen scenario.
+        latest_session=spec["eligible_market_date"])
 
     # 4. The three research read contracts — REAL owners, artifacts injected.
     #    Stage 22: an ABSENT opportunity-cost artifact is the POST-CLOSE world, and it is

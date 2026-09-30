@@ -1060,7 +1060,8 @@ def stale_policy_refusal(*, incoming_policy_version: Any,
                    "the index pointer did not move; every existing artifact and "
                    "supersession record is untouched."
                    % (str(incoming_policy_version), newest)),
-        "remediation": ("scripts\\manage_information_collection.ps1 -Action Restart "
+        "remediation": ("scripts\\manage_information_collection.ps1 -RepoRoot "
+                        "C:\\Users\\binis\\paper_trader -Action Restart "
                         "-Execute, then confirm the worker reports ALIGNED."),
     }
 

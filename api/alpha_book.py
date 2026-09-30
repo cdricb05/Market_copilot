@@ -694,6 +694,11 @@ def confirm_order_plan(*, confirm: Optional[str] = None, desk_dir=None, ledger_d
                 "message": "Confirming the order plan requires confirm='%s'." % PLAN_CONFIRM_TOKEN,
                 **alpha_safety()}
     sdir = desk._desk_dir(desk_dir)
+    # R84 — this plan funds an EMPTY book from the alpha-target snapshot. A live
+    # book changes only through the governed rebalance path (see the desk owner).
+    refusal = desk.live_book_bootstrap_refusal(sdir)
+    if refusal is not None:
+        return {**refusal, **alpha_safety()}
     plan = build_order_plan(desk_dir=desk_dir, ledger_dir=ledger_dir, today=today)
     if plan.get("status") != A_OK:
         return {**plan, "performed_write": False, **alpha_safety()}
@@ -975,6 +980,11 @@ def load_alpha_status(desk_dir=None, ledger_dir=None, today: Optional[str] = Non
         "workflow_states": step_status,
         "state_vocabulary": states["state_vocabulary"],
         "next_required_action": _next_action(states),
+        # R84 — whether the bootstrap order-plan path may still FUND this book.
+        # Closed (with the backend's own reason) once the book holds a fill; the
+        # UI gates the confirm control on this verdict, never on its own reading.
+        "bootstrap_order_path_open": desk.live_book_bootstrap_refusal(sdir) is None,
+        "bootstrap_order_path_refusal": desk.live_book_bootstrap_refusal(sdir),
         "book": book, "book_valuation": valuation,
         "initialization": ({"initialization_date": init.get("initialization_date"),
                             "policy_version": init.get("policy_version"),

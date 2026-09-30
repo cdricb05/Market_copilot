@@ -739,6 +739,16 @@ def _artifact_with_future(nav_weight=0.10):
                 "portfolio": {"proposed_holding_count": 2}, "signal": {}, "risk": {}, "constraints": {},
                 "complete_target_limits": {}, "policy": {}, "policy_version": RP.ALLOCATION_POLICY_VERSION,
                 "schema_version": RP.SCHEMA_VERSION, "data_gaps": []}
+    # R84 — the R63 mandatory-repair contract every live artifact now carries: no
+    # obligations, so the complete target is reviewable. Without it the approval
+    # was (correctly) refused as MANDATORY_REPAIR_OBLIGATIONS_UNRESOLVED.
+    from paper_trader.engine import holding_opportunity_cost as hoc
+    proposal["mandatory_repair"] = {
+        "contract_version": hoc.MANDATORY_REPAIR_CONTRACT_VERSION,
+        "owner": hoc.CALCULATION_OWNER, "obligations": [], "obligation_count": 0,
+        "obligations_open_against_target": [], "obligations_open_count": 0,
+        "obligations_resolved": True}
+    proposal["full_target_reviewable"] = True
     proposal["proposal_hash"] = RP.stable_hash(proposal)
     return {"proposal_id": "reap_2026-08-28_alpha_paper_book_1_%s" % proposal["proposal_hash"][:12],
             "identity": {"proposal_hash": proposal["proposal_hash"], "eligible_market_date": "2026-08-28",
@@ -773,7 +783,38 @@ class TestGovernedExecution:
         assert res["status"] == rb.C_NOT_APPROVED and res["created_orders"] is False
         assert desk.load_orders()["n_orders"] == 0
 
+    @staticmethod
+    def _select_full_target(w):
+        # R84 â€” since R69.2 an approval must name a GOVERNED target selection; this
+        # scenario predated that gate and was refused at approval, which silently
+        # removed the only proof that a FUTURES plan executes. The selection below is
+        # the same review-envelope shape the R69 end-to-end suite records.
+        ident = w["artifact"]["identity"]
+        opt = {"target": "FULL_TARGET", "label": "Full zero-base target (the proposal)",
+               "selectable": True, "blockers": [], "blocker_codes": [], "is_defer": False,
+               "obligations_remaining": [], "mandatory_obligations_remaining": 0}
+        block = {"options": [opt], "recommended_target": "FULL_TARGET",
+                 "option_order": ["FULL_TARGET"], "selection_is_approval": False}
+        review = {"target_selection": block,
+                  "reviewed_proposal": {k: ident[k] for k in (
+                      "proposal_hash", "eligible_market_date", "active_book_id",
+                      "hoc_assessment_hash", "portfolio_state_hash", "universe_scoring_hash")},
+                  "review_verdict": {"verdict": "FULL_TARGET_PREFERRED"}}
+        envelope = {"status": "OK", "proposal_id": w["artifact"]["proposal_id"],
+                    "proposal_hash": ident["proposal_hash"], "review_hash": "RH_R50",
+                    "eligible_market_date": "2026-08-28", "proposal_read_state": "READY",
+                    "review": review, "target_selection": block,
+                    "governance": {"target_selection": block, "actionable": True},
+                    "inputs": {"hoc_assessment_hash_used": ident["hoc_assessment_hash"]}}
+        sel = pdec.record_target_selection(target="FULL_TARGET",
+                                           confirm=pdec.SELECTION_CONFIRM_TOKEN,
+                                           review_envelope=envelope,
+                                           latest_session="2026-08-28",
+                                           actor="test-operator")
+        assert sel.get("recorded") or sel.get("status") in ("RECORDED", "SELECTION_RECORDED"), sel
+
     def _approve(self, w):
+        self._select_full_target(w)
         summ = arp.load_proposal_summary(active_book_id="alpha_paper_book_1", eligible_market_date="2026-08-28",
                                          artifact=w["artifact"])
         # R63: this world's latest eligible session IS the proposal's session, so
@@ -781,7 +822,7 @@ class TestGovernedExecution:
         rec = pdec.record_decision(decision=pdec.DECISION_APPROVE, confirm=pdec.CONFIRM_TOKEN,
                                    artifact=w["artifact"], proposal_summary=summ,
                                    latest_session="2026-08-28")
-        assert rec["recorded"], rec
+        assert rec["recorded"], (rec.get("status"), rec.get("message"), rec.get("reason"))
         return rec["record"]
 
     def test_71_scenario_F_P_O_Q_futures_plan_execution_and_replay(self, executed_world):

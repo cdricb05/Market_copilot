@@ -123,6 +123,22 @@ LH_VLO_REPAIRED = {"NVDA": 0.05, "MSFT": 0.05}
 # 1. THE READ SEAM — it renders the verdict and fails closed
 # =========================================================================== #
 class TestProposalReadSeam:
+    # R84 — the read seam asks api.corporate_actions for the CURRENT registry.
+    # Without isolation it read the LIVE registry (a registered MNST split made
+    # the fixture's empty-registry binding stale and flipped test_02), so the
+    # outcome depended on production state. Every test here reads an empty
+    # temporary registry, which is what the fixture artifacts were bound to.
+    @pytest.fixture(autouse=True)
+    def _isolated_corporate_action_registry(self, tmp_path, monkeypatch):
+        from paper_trader.api import corporate_actions as _ca
+        monkeypatch.setenv(_ca.CA_DIR_ENV, str(tmp_path / "corporate_actions"))
+        # ...and the supersession owners' stores: a LIVE newer-session governed
+        # assessment otherwise supersedes the 2026-09-21 fixture proposal.
+        for env in ("PAPER_TRADER_PORTFOLIO_DECISION_DIR", "PAPER_TRADER_REASSESSMENT_DIR",
+                    "PAPER_TRADER_DRC_DIR", "PAPER_TRADER_HOC_DIR",
+                    "PAPER_TRADER_REALLOC_DIR"):
+            monkeypatch.setenv(env, str(tmp_path / env.lower()))
+
 
     def test_01_an_unrepaired_target_is_not_approvable_or_executable(self):
         """The live LH/VLO failure. Both flags go False and the reason is named."""

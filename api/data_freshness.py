@@ -157,6 +157,30 @@ def _quarter_index(d: date) -> int:
     return d.year * 4 + (d.month - 1) // 3
 
 
+#: R84 — the periodic-report (10-Q) deadline after a calendar quarter ends. 45 days
+#: is the non-accelerated filer deadline, the latest of the SEC tiers, so an input
+#: is never called due before every filer's report was.
+QUARTERLY_FILING_DEADLINE_DAYS = 45
+
+
+def _quarter_end(d: date) -> date:
+    """The last day of the calendar quarter containing ``d``."""
+    month = ((d.month - 1) // 3) * 3 + 3
+    return (date(d.year + (month // 12), (month % 12) + 1, 1) - timedelta(days=1))
+
+
+def quarterly_required_as_of(anchor: date) -> date:
+    """The earliest as-of date a quarterly input must carry on ``anchor``: the
+    filing deadline of the latest calendar quarter whose deadline has passed."""
+    q_end = _quarter_end(anchor)
+    while True:
+        prior_end = date(q_end.year, ((q_end.month - 1) // 3) * 3 + 1, 1) - timedelta(days=1)
+        deadline = q_end + timedelta(days=QUARTERLY_FILING_DEADLINE_DAYS)
+        if deadline <= anchor:
+            return deadline
+        q_end = prior_end
+
+
 # --------------------------------------------------------------------------- #
 # Pure freshness classifier (cadence-aware). Fully deterministic over injected
 # dates — this is the tested core of the month-boundary behaviour.
@@ -228,24 +252,35 @@ def classify_source(*, cadence: str, as_of: Any, anchor: Any) -> dict[str, Any]:
                           "eligible month %s." % (a.strftime("%Y-%m"), anc.strftime("%Y-%m"))}
 
     if cadence == QUARTERLY:
-        through = _iso(anc)
         aq, eq = _quarter_index(a), _quarter_index(anc)
         if aq > eq:
-            return {"status": FUTURE_DATED, "expected_through_date": through,
+            return {"status": FUTURE_DATED, "expected_through_date": _iso(anc),
                     "lag_sessions": None, "lag_calendar_days": (a - anc).days,
                     "reason": "Quarterly input is ahead of the eligible quarter."}
-        if aq == eq:
-            return {"status": FRESH, "expected_through_date": through,
-                    "lag_sessions": None, "lag_calendar_days": lag_days,
-                    "reason": "Current for the eligible quarter."}
-        if aq == eq - 1:
+        # R84 — FILING-DEADLINE aware. The old rule called any input from the prior
+        # CALENDAR quarter "not yet due", so a panel as-of 2026-05-22 read NOT_DUE
+        # (a satisfied state) on 2026-09-28, six weeks after the Q2 10-Q deadline had
+        # passed and its reports were public. The input is due to reflect the latest
+        # quarter whose periodic-report deadline has passed on the anchor date.
+        required = quarterly_required_as_of(anc)
+        through = _iso(required)
+        if a >= required:
+            if aq == eq:
+                return {"status": FRESH, "expected_through_date": through,
+                        "lag_sessions": None, "lag_calendar_days": lag_days,
+                        "reason": "Current for the eligible quarter."}
             return {"status": NOT_DUE, "expected_through_date": through,
                     "lag_sessions": None, "lag_calendar_days": lag_days,
-                    "reason": "Prior-quarter input; the current quarter's data is not "
-                              "yet due under the reporting cadence."}
+                    "reason": "Covers every quarter whose reports were due by the "
+                              "eligible session; the next quarterly refresh is not yet "
+                              "due under the reporting cadence."}
         return {"status": STALE, "expected_through_date": through,
                 "lag_sessions": None, "lag_calendar_days": lag_days,
-                "reason": "Quarterly input is more than one quarter behind."}
+                "reason": ("A quarterly refresh is due: the input is as of %s, but the "
+                           "periodic reports for the quarter ended %s were due by %s."
+                           % (a.isoformat(),
+                              (required - timedelta(days=QUARTERLY_FILING_DEADLINE_DAYS)
+                               ).isoformat(), required.isoformat()))}
 
     return {"status": UNKNOWN, "expected_through_date": _iso(anc),
             "lag_sessions": None, "lag_calendar_days": None,

@@ -206,10 +206,19 @@ def build(*, event_refresh: Optional[dict] = None,
     hoc_rows = _hoc_by_ticker(hoc)
     dec = decision or {}
     last_run = ev.get("last_run") or {}
+    summary = ev.get("last_run_summary") or {}
     run_state = last_run.get("state")
     # "Was the portfolio reassessed?" is the EVENT LANE's answer, not ours: a
     # completed event cycle is the only thing that can have reassessed anything.
-    reassessed = bool(run_state and str(run_state).startswith("REASSESSED"))
+    # R84 — the lane RECORDS that answer (``reassessment_ran`` on its run
+    # summary). Inferring it from the state prefix read only REASSESSED_NO_CHANGE
+    # as a reassessment, so a cycle that reassessed AND built a target
+    # (PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW) was published as "not reassessed".
+    if summary.get("reassessment_ran") is not None:
+        reassessed = bool(summary.get("reassessment_ran"))
+    else:
+        reassessed = bool(run_state and str(run_state) in (
+            "REASSESSED_NO_CHANGE", "PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW"))
 
     rows = []
     for e in events:
@@ -264,7 +273,10 @@ def build(*, event_refresh: Optional[dict] = None,
         "cycle_id": ev.get("cycle_id"),
         "last_event_cycle": {"run_id": last_run.get("run_id"),
                              "state": run_state,
-                             "generated_at": last_run.get("generated_at")},
+                             "generated_at": last_run.get("generated_at"),
+                             # R84 — the proposal owner's verdict on what the
+                             # cycle built (WITHHELD is not reviewable).
+                             "proposal_state": summary.get("proposal_state")},
         "portfolio_reassessed": reassessed,
         "portfolio_decision": {
             "state": dec.get("portfolio_decision_state"),

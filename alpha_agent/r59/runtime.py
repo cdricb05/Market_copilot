@@ -814,7 +814,12 @@ def plan_sleep(*, ready_work: int, conditions: list,
                    else float(max(MIN_SLEEP_SECONDS, max_sleep)))
         return {"sleep_seconds": seconds,
                 "state": waiting_state_for(dominant),
-                "reason": sleep_reason_for(summary),
+                # R84 — an UNCLASSIFIED blocked set has no clearance mix, and the
+                # mix-derived reason then fell through to "waiting on an elapsed
+                # market session" beside a wake condition that says the blocker is
+                # unclassified. Unclassified keeps the honest generic word.
+                "reason": (sleep_reason_for(summary) if classified
+                           else "WAITING_ON_A_BLOCKED_EXTERNAL_SOURCE"),
                 # R79 - retained because it is the token nine releases of
                 # operator tooling printed, and a reader comparing two runs
                 # across this change has to be able to see WHICH one it is

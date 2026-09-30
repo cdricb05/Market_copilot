@@ -142,6 +142,10 @@ def client(api_engine):
     db_url = api_engine.url.render_as_string(hide_password=False)
     os.environ["PAPER_TRADER_DATABASE_URL"]     = db_url
     os.environ["PAPER_TRADER_SERVICE_API_KEY"]  = _TEST_API_KEY
+    # R84 — the legacy archive's order/fill routes fail closed in production.
+    # This suite exercises that archived workflow against its OWN test database,
+    # so it opts in explicitly; the opt-in is removed again at teardown.
+    os.environ["PAPER_TRADER_LEGACY_ARCHIVE_EXECUTION_ENABLED"] = "true"
     get_settings.cache_clear()
     reset_engine_state()
     c = TestClient(app)
@@ -156,6 +160,7 @@ def client(api_engine):
                 loop.run_until_complete(c.wait_shutdown())
         except Exception:
             pass
+        os.environ.pop("PAPER_TRADER_LEGACY_ARCHIVE_EXECUTION_ENABLED", None)
         get_settings.cache_clear()
         reset_engine_state()
 
@@ -30743,14 +30748,19 @@ class TestGuidedTradePlanPaperOrderFlowV1Ui:
 
     def test_stage_actions_reuse_existing_handlers(self) -> None:
         fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
-        assert "createOrdersFromDecisions()" in fn
-        assert "fillPendingPaperOrders()" in fn
+        # R84 — the legacy archive creates no orders: the order-ticket stage is a
+        # disabled, labelled retirement marker, never a live createOrders call.
+        assert "createOrdersFromDecisions()" not in fn
+        assert "fillPendingPaperOrders()" not in fn
+        assert "Retired" in fn
         assert "viewPortfolio()" in fn
 
     def test_create_order_stage_shows_no_order_yet(self) -> None:
         fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
         assert "No order has been created yet." in fn
-        assert "Create Paper Order Ticket" in fn
+        # R84 — the create control is retired (disabled marker, no live call).
+        assert "Create Paper Order Ticket" not in fn
+        assert "Retired - governed path only" in fn
 
     def test_fill_stage_shows_not_a_trade(self) -> None:
         fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
@@ -31143,7 +31153,9 @@ class TestGuidedTradeLifecycleV1Ui:
     # --- Today's Review primary action is Place Paper Trade, not the steps ---
     def test_primary_post_approval_action_is_place_paper_trade(self) -> None:
         fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
-        assert "placePaperTrade()" in fn
+        # R84 — the legacy place-trade control is a disabled retirement marker.
+        assert "placePaperTrade()" not in fn
+        assert "Create &amp; Fill Paper Trade (retired)" in fn
 
     # --- Internal pipeline stays in Advanced / Audit (collapsed) ---
 

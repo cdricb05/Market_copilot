@@ -618,6 +618,42 @@ def _fills(sdir: Path) -> list[dict]:
     return [dict(r["fill"]) for r in _read_ledger(sdir, FILLS_FILE) if "fill" in r]
 
 
+#: R84 — the pre-governance order paths (``generate_orders`` from a confirmed
+#: paper-alpha snapshot, ``api.alpha_book.confirm_order_plan`` from the MHZ
+#: alpha-target snapshot, and ``confirm_orders`` which submits whatever they
+#: PROPOSED) exist to FUND a brand-new, empty book. Once the open book holds a
+#: single fill it is a live governed portfolio: every change to it is a portfolio
+#: decision, and the only path is proposal -> governed selection -> approval ->
+#: ``api.rebalance_execution`` order-plan confirmation. Before R84 these three
+#: were one token away from rewriting the live book with no approval at all.
+S_LIVE_BOOK_BOOTSTRAP_CLOSED = "BOOTSTRAP_ORDER_PATH_CLOSED_FOR_A_LIVE_BOOK"
+GOVERNED_REBALANCE_PATH = (
+    "proposal review -> governed target selection -> APPROVE "
+    "(api.portfolio_decision) -> POST /v1/operations/rebalance/confirm-order-plan "
+    "(api.rebalance_execution)")
+
+
+def live_book_bootstrap_refusal(sdir: Path) -> Optional[dict]:
+    """None when the open book may still be FUNDED by a bootstrap path (no open
+    book, or an open book with no fill); otherwise the named refusal. Pure read."""
+    book = open_book(sdir)
+    if book is None:
+        return None
+    book_fills = [f for f in _fills(sdir)
+                  if f.get("book_id") in (None, book.get("book_id"))]
+    if not book_fills:
+        return None
+    return {"status": S_LIVE_BOOK_BOOTSTRAP_CLOSED, "performed_write": False,
+            "book_id": book.get("book_id"), "book_fill_count": len(book_fills),
+            "governed_execution_path": GOVERNED_REBALANCE_PATH,
+            "message": ("%s is a live book (%d fill(s)). This bootstrap order path "
+                        "only funds an empty book; changing a live book is a portfolio "
+                        "decision and runs only through the governed path: %s."
+                        % (book.get("book_id"), len(book_fills),
+                           GOVERNED_REBALANCE_PATH)),
+            **desk_safety()}
+
+
 #: Stage 19.1 sentinel — "this is a CURRENT economic read: resolve the registered
 #: corporate actions from the ONE canonical owner (api.corporate_actions)". It is the
 #: DEFAULT for every economic read primitive, so a current-state consumer cannot forget
@@ -821,6 +857,9 @@ def generate_orders(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=
                 "message": "Creating paper orders requires confirm='%s'." % GEN_CONFIRM_TOKEN,
                 **desk_safety()}
     sdir = _desk_dir(desk_dir)
+    refusal = live_book_bootstrap_refusal(sdir)
+    if refusal is not None:
+        return refusal
     snap = _latest_confirmed_snapshot(ledger_dir)
     if snap is None:
         return {"status": S_NO_PROPOSAL, "performed_write": False,
@@ -994,6 +1033,9 @@ def confirm_orders(*, confirm: Optional[str] = None, desk_dir=None,
                 "message": "Submitting paper orders requires confirm='%s'." % EXEC_CONFIRM_TOKEN,
                 **desk_safety()}
     sdir = _desk_dir(desk_dir)
+    refusal = live_book_bootstrap_refusal(sdir)
+    if refusal is not None:
+        return refusal
     book = open_book(sdir)
     orders = _orders_state(sdir)
     proposed = [o for o in orders.values() if o["status"] == ST_PROPOSED]

@@ -992,12 +992,14 @@ def source_attestation(*, loaded_release: Optional[dict],
         # collected in the iteration is kept — a refusal an operator cannot act on
         # is how a healthy-looking worker stayed stale for a day.
         return dict(att, remediation=(
-            "scripts\\manage_information_collection.ps1 -Action Restart -Execute, "
+            "scripts\\manage_information_collection.ps1 -RepoRoot "
+            "C:\\Users\\binis\\paper_trader -Action Restart -Execute, "
             "then confirm the worker reports ALIGNED."),
             reason=("%s No opportunity cost, reassessment or proposal artifact was "
                     "written under obsolete code; information already collected in "
                     "this iteration is kept. Restart with "
-                    "scripts\\manage_information_collection.ps1 -Action Restart "
+                    "scripts\\manage_information_collection.ps1 -RepoRoot "
+                    "C:\\Users\\binis\\paper_trader -Action Restart "
                     "-Execute." % att.get("reason", "")))
     except Exception as exc:  # noqa: BLE001 - identity never halts collection
         return {"outcome": ATTEST_NOT_PROVABLE, "within_authority": True,
@@ -2904,7 +2906,14 @@ def load_information_collection(*, root=None, limit: int = 12,
         except Exception as exc:  # noqa: BLE001 - a read contract must never crash
             evt = {}
             warnings.append("event status unavailable: %s" % str(exc)[:160])
-    last_run = (evt or {}).get("last_run") or {}
+    # R84 — ``last_run`` is the event owner's four-key POINTER (id, dir, state,
+    # time); the facts this payload publishes (reassessment_ran, proposal_built,
+    # proposal_state, ...) live on ``last_run_summary``. Reading the pointer alone
+    # published "reassessment not reported" and proposal_built=false for a cycle
+    # that reassessed and built (then had WITHHELD) a complete target.
+    last_run = dict((evt or {}).get("last_run") or {})
+    for _k, _v in ((evt or {}).get("last_run_summary") or {}).items():
+        last_run.setdefault(_k, _v)
 
     try:
         universe = build_attention_universe()
@@ -3054,6 +3063,10 @@ def load_information_collection(*, root=None, limit: int = 12,
             "target_portfolio": last_run.get("target_portfolio"),
             "manual_review_required": bool(last_run.get("manual_review_required")),
             "proposal_built": bool(last_run.get("proposal_built")),
+            # R84 — the proposal owner's own verdict on what was built. A built
+            # target that was WITHHELD on a portfolio limit is not reviewable.
+            "proposal_state": last_run.get("proposal_state"),
+            "proposal_withheld": str(last_run.get("proposal_state") or "").upper() == "WITHHELD",
         },
         "event_counts": {
             "recent_events": (evt or {}).get("recent_event_count"),

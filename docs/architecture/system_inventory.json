@@ -505,6 +505,11 @@
    "system": "operator_state_composition"
   },
   {
+   "prefix": "/v1/operations/autonomous-status",
+   "owner": "api/autonomous_operating_status.py",
+   "system": "operator_state_composition"
+  },
+  {
    "prefix": "/v1/operations/daily-action-gate",
    "owner": "api/daily_action_gate.py",
    "system": "operational_alpha_book"

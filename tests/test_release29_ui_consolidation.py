@@ -254,7 +254,10 @@ def test_b12_metric_text_values_wrap_instead_of_truncating():
 # =========================================================================== #
 def test_b13_read_only_gets_are_bounded_so_panels_reach_a_terminal_state():
     """A GET that never settles used to leave panels on "Loading…" forever."""
-    fn = _fn("_mhzGet")
+    # R84 — _mhzGet delegates to _mhzFetch, which now owns the bound; the same
+    # three properties are asserted where they live, and the delegation is pinned.
+    assert "_mhzFetch(path, timeoutMs)" in _fn("_mhzGet")
+    fn = _fn("_mhzFetch")
     assert "AbortController" in fn and "_R29_READ_TIMEOUT_MS" in fn
     assert "method: 'GET'" in fn, "the bounded helper stays GET-only"
     # the renderers already had the terminal branch; it is now reachable.

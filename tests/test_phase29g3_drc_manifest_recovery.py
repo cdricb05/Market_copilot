@@ -33,6 +33,7 @@ from tests.test_slice5_portfolio_state import (  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 ACCEPT_DIR = Path(r"D:\Temp\paper_trader_slice6_first_live_acceptance")
+_ACCEPT_SCRIPTS = ("post_drc_acceptance.ps1", "pre_resume_drc.ps1")
 
 
 # --------------------------------------------------------------------------- #
@@ -533,7 +534,8 @@ def test_39_gate_exposes_artifact_and_eligible_for_mismatch_check():
 # =========================================================================== #
 # WORKSTREAM H — operator acceptance scripts (items 40–41)
 # =========================================================================== #
-@pytest.mark.skipif(not ACCEPT_DIR.exists(), reason="acceptance-script dir not present")
+@pytest.mark.skipif(not all((ACCEPT_DIR / _n).exists() for _n in _ACCEPT_SCRIPTS),
+                    reason="out-of-repo acceptance scripts not present (R84: the dir can exist empty)")
 @pytest.mark.parametrize("name", ["post_drc_acceptance.ps1", "pre_resume_drc.ps1"])
 def test_40_acceptance_scripts_parse_and_reference_required_fields(name):
     txt = (ACCEPT_DIR / name).read_text(encoding="utf-8")
@@ -543,7 +545,8 @@ def test_40_acceptance_scripts_parse_and_reference_required_fields(name):
     assert "holding-opportunity-cost" in txt
 
 
-@pytest.mark.skipif(not ACCEPT_DIR.exists(), reason="acceptance-script dir not present")
+@pytest.mark.skipif(not all((ACCEPT_DIR / _n).exists() for _n in _ACCEPT_SCRIPTS),
+                    reason="out-of-repo acceptance scripts not present (R84: the dir can exist empty)")
 @pytest.mark.parametrize("name", ["post_drc_acceptance.ps1", "pre_resume_drc.ps1"])
 def test_41_acceptance_scripts_contain_no_write_request(name):
     low = (ACCEPT_DIR / name).read_text(encoding="utf-8").lower()
@@ -552,7 +555,8 @@ def test_41_acceptance_scripts_contain_no_write_request(name):
     assert "invoke-restmethod -method get" in low
 
 
-@pytest.mark.skipif(not ACCEPT_DIR.exists(), reason="acceptance-script dir not present")
+@pytest.mark.skipif(not all((ACCEPT_DIR / _n).exists() for _n in _ACCEPT_SCRIPTS),
+                    reason="out-of-repo acceptance scripts not present (R84: the dir can exist empty)")
 def test_41b_post_gate_guards_present():
     txt = (ACCEPT_DIR / "post_drc_acceptance.ps1").read_text(encoding="utf-8")
     assert "not terminal-complete" in txt                      # rejects nonterminal DRC

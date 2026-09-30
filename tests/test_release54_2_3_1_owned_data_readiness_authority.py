@@ -292,11 +292,13 @@ class TestNoContradictions:
         if blocked:
             assert panel["owned_data_line"] != "READY"
             assert panel["next_action_label"] != "Run the Portfolio Cycle"
-            assert panel["headline"] == "CATCH UP WAITING FOR OWNED DATA"
+            # R84 - this world is the NORMAL evening (Sep-2 owed at 17:36 on Sep-2),
+            # so it is titled as the day's close, not as a catch-up.
+            assert panel["headline"] == "DAILY CLOSE WAITING FOR OWNED DATA"
         else:
             assert panel["owned_data_line"] == "READY"
             assert panel["next_action_label"] == "Run the Portfolio Cycle"
-            assert panel["headline"] == "CATCH UP REQUIRED"
+            assert panel["headline"] == "DAILY CLOSE DUE"
 
     def test_09b_active_manager_delegates_the_same_recovery_state(self):
         for build in (st_provider_ready, st_provider_behind):

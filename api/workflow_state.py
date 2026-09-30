@@ -2281,7 +2281,8 @@ def build_session_recovery(*, expected_completed_market_date: Any,
                            cycle_blocked: bool = False,
                            authoritative_non_sessions: Any = None,
                            provider_readiness: Optional[dict] = None,
-                           market_data_scope: Optional[dict] = None) -> dict[str, Any]:
+                           market_data_scope: Optional[dict] = None,
+                           calendar_date: Any = None) -> dict[str, Any]:
     """The ONE canonical missed-completed-session (catch-up) projection.
 
     Pure: every input is an already-published owner answer, the calendar
@@ -2317,6 +2318,17 @@ def build_session_recovery(*, expected_completed_market_date: Any,
     recovery = calendar["oldest"]
     confirmed = _coerce_date(latest_confirmed_owned_data_date)
     rec_d = _coerce_date(recovery)
+    # R84 — the ONLY owed session is the latest expected completed session: this is
+    # the normal evening close, not a missed one. The obligation and the action are
+    # unchanged (the same portfolio cycle); only the words stop calling every
+    # post-cutoff evening "never closed" / DEGRADED. A backlog of two or more, or an
+    # owed session older than the latest expected one, remains a catch-up.
+    # Only ON that session's own calendar day (after its cutoff): from the next
+    # calendar day on, an unclosed session is overdue and stays a catch-up.
+    _exp_iso = _iso(_coerce_date(expected_completed_market_date))
+    normal_close_due = bool(len(missed) == 1 and missed[0] == _exp_iso
+                            and calendar_date is not None
+                            and str(calendar_date)[:10] == _exp_iso)
 
     # --- Release 54.2.3.1: the close owner's coverage verdict (never recomputed). --- #
     # The coverage target is the session the promoted close would actually process:
@@ -2392,6 +2404,12 @@ def build_session_recovery(*, expected_completed_market_date: Any,
                    "portfolio cycle: it binds that session, and the Daily Close "
                    "revalidates the owned provider server-side before any write."
                    % (recovery, PROVIDER_COVERAGE_OWNER))
+        if normal_close_due:
+            summary = ("%s has completed and %s has live-verified the owned provider "
+                       "holds its EOD data. Its Daily Close is due: run the portfolio "
+                       "cycle, which closes it and then runs the research cycle; the "
+                       "Daily Close revalidates the owned provider before any write."
+                       % (recovery, PROVIDER_COVERAGE_OWNER))
     elif owned_data_lag:
         # No provider answer was observed (probe-free composition). The SESSION
         # owner reports the persisted owned view has not reached the expected
@@ -2428,6 +2446,7 @@ def build_session_recovery(*, expected_completed_market_date: Any,
                                             CATCH_UP_WAITING_FOR_OWNED_DATA)),
         "last_closed_session": _iso(closed),
         "missed_completed_sessions": missed,
+        "normal_close_due": bool(normal_close_due),
         "missed_completed_session_count": len(missed),
         "missed_session_backlog_truncated": bool(calendar["truncated"]),
         "skipped_non_sessions": list(calendar["skipped_non_sessions"]),
@@ -2856,6 +2875,97 @@ def _build_today_hero(*, overall: str, primary: dict, eligible_date: Any,
                  "independent lanes. A completed close never implies the portfolio "
                  "proposal was reviewed or that a model review is or is not due."),
     }
+
+
+def word_session_close_action(primary: dict, session_recovery: dict) -> dict:
+    """The words of a promoted Daily Close whose session the recovery owner names.
+
+    Release 54.2.1 — CATCH-UP WORDING. The action, its code, its execution kind and
+    its contract are UNCHANGED (still the one canonical Daily Close inside the one
+    portfolio cycle); only the sentence names the session honestly, so the operator
+    is never told to close "the latest eligible session" when the server is about to
+    bind an older one.
+
+    R84 — the normal evening close (the ONLY owed session is the latest expected
+    one, on its own calendar day; ``normal_close_due``) is scheduled work, not a
+    missed session. Before this, the headline read "Catch up — <session> was not
+    closed." beside the presentation owner's DAILY CLOSE DUE. PURE.
+    """
+    rec = session_recovery or {}
+    session = rec.get("recovery_session")
+    last_closed = rec.get("last_closed_session") or "none recorded"
+    if rec.get("normal_close_due"):
+        return dict(
+            primary,
+            explanation=(
+                "%s is a completed market session and its Daily Close is due (last "
+                "completed close: %s). The portfolio cycle binds that session itself "
+                "— no date is entered by hand — and the Daily Close revalidates the "
+                "owned provider server-side, writing nothing if the session is "
+                "genuinely unpublished." % (session, last_closed)),
+            current_task=("Run the portfolio cycle to close the %s session." % session),
+            headline=("Daily Close due — %s has completed." % session))
+    n_missed = rec.get("missed_completed_session_count") or 0
+    return dict(
+        primary,
+        explanation=(
+            "%s is a COMPLETED market session that was never closed (last completed "
+            "close: %s). %s The portfolio cycle binds the oldest missed session "
+            "itself — no date is entered by hand — and the Daily Close revalidates "
+            "the owned provider server-side, writing nothing if that session is "
+            "genuinely unpublished."
+            % (session, last_closed,
+               ("%d completed sessions are unclosed; the oldest is recovered first."
+                % n_missed) if n_missed > 1 else
+               "It is the only unclosed completed session.")),
+        current_task=("Run the portfolio cycle to close the missed %s session." % session),
+        headline=("Catch up — %s was not closed." % session))
+
+
+def align_today_hero_with_operator_action(hero: dict, operator_action: Any) -> dict:
+    """R84 — the Today hero may not name a different act than the ONE operator
+    action.
+
+    The hero is composed BEFORE the operator action (it chooses among its three
+    lanes from the operational state), so on 2026-09-29 it said "Wait for the
+    market session to close" while the ONE action, from the one priority owner,
+    was "Review the portfolio limit that withheld the change". Both surfaces are
+    read on the same screen. PURE: when the one priority owner says operator work
+    is owed and names a different act, the hero's CTA and focus become that act,
+    verbatim. The operational lane stays published beside it unchanged, so the
+    session clock is not lost - it is simply not the act.
+    """
+    act = operator_action if isinstance(operator_action, dict) else {}
+    h = dict(hero or {})
+    h["cta_owner"] = act.get("priority_owner") or "api.workflow_state._decide_overall"
+    code = act.get("action")
+    if not act.get("requires_operator_work") or not code \
+            or code == h.get("cta_action_code"):
+        h["cta_matches_operator_action"] = (code == h.get("cta_action_code")) if code else None
+        return h
+    portfolio_codes = ("REVIEW_PORTFOLIO_PROPOSAL",
+                       "REVIEW_THE_WITHHELDING_PORTFOLIO_LIMIT")
+    # Operational actions (run / resume a cycle, wait for data) are projected from
+    # the SAME operator command the hero's operational lane already renders, so the
+    # hero is not contradicted there; only a PORTFOLIO act the operational lane
+    # cannot express (the 2026-09-29 case) takes the hero over.
+    if code not in portfolio_codes:
+        h["cta_matches_operator_action"] = None
+        return h
+    h.update({
+        "focus_lane": "PORTFOLIO",
+        "headline": act.get("action_label") or h.get("headline"),
+        "detail": act.get("action_detail") or h.get("detail"),
+        "severity": act.get("severity") or h.get("severity"),
+        "cta_label": act.get("action_label"),
+        "cta_action_code": code,
+        "cta_destination": act.get("destination"),
+        "cta_focus": act.get("focus"),
+        "cta_execution_available": False,
+        "cta_creates_orders": False,
+        "cta_matches_operator_action": True,
+    })
+    return h
 
 
 def _fmt_pct(x: Any) -> str:
@@ -3924,6 +4034,35 @@ V_LIQUIDITY_OWNERS_DISAGREE = "LIQUIDITY_OWNERS_DISAGREE_ON_HELD_NAMES"
 DECISION_RECONCILIATION_OWNER = "api.workflow_state.check_decision_reconciliation"
 
 
+def _withheld_retention_exits(reassessment_presentation: Any,
+                              canonical_decision: Any) -> Any:
+    """R84 — which withholding ledger names the retention exits.
+
+    Two owners can withhold a retention exit. Churn control withholds it per
+    name (the reassessment's withholding ledger). A governed portfolio LIMIT can
+    withhold the WHOLE complete target that carried it (R83): on 2026-09-28 the
+    target exited all 11 names the opportunity-cost owner ruled outside the
+    retention rules, and a per-name risk-contribution cap refused the target.
+    Those exits are named - by the withheld verdict's own action counts - and
+    reading only the churn ledger (not evaluated on this composition) scored them
+    as silence, which turned consistency INCONSISTENT on a correct state.
+
+    Verbatim reads only: the churn ledger's count when it has one, otherwise the
+    EXIT count of a governed withheld complete target. Anything else stays None
+    and the checker skips nothing it could not read.
+    """
+    churn = ((reassessment_presentation or {}).get("withholding_reconciliation")
+             or {}).get("retention_exits_withheld")
+    if churn is not None:
+        return churn
+    cd = canonical_decision if isinstance(canonical_decision, dict) else {}
+    gwo = cd.get("governed_withheld_outcome") or {}
+    if cd.get("complete_target_withheld_on_portfolio_limits") \
+            and gwo.get("governed_outcome_complete"):
+        return (gwo.get("action_counts") or {}).get("EXIT")
+    return None
+
+
 def check_decision_reconciliation(*, hoc_exit_count: Any,
                                   proposal_exit_count: Any,
                                   mandatory_exit_obligation: Any,
@@ -3960,6 +4099,14 @@ def check_decision_reconciliation(*, hoc_exit_count: Any,
 
     # 1. Every retention exit is either in the proposal, declared outstanding, or
     #    named as withheld. Silence is the violation.
+    # R84 — "an input it cannot read is SKIPPED". With no proposal published for
+    # the session (the cycle has not built one yet) and no withheld verdict or
+    # obligation to read, there is no proposal-side answer to compare against;
+    # scoring that as silence turned every post-close / pre-cycle evening
+    # INCONSISTENT. A PUBLISHED proposal that omits the exits still fires.
+    if hoc_exits is not None and hoc_exits > 0 and prop_exits is None \
+            and withheld is None and obligation in ("", "NONE"):
+        hoc_exits = None
     if hoc_exits is not None and hoc_exits > 0:
         accounted = (prop_exits is not None and prop_exits >= hoc_exits)
         declared = obligation not in ("", "NONE")
@@ -4951,6 +5098,9 @@ def load_workflow_state(
         session_status=session_status, owned_data_lag=owned_data_lag,
         inconsistent=inconsistent_inputs, cycle_running=cycle_running,
         cycle_blocked=cycle_blocked,
+        # R84 — the exchange-local calendar day of the clock the session owner
+        # evaluated, so the owner can tell a session's own evening from the day after.
+        calendar_date=str(session.get("evaluated_at_et") or "")[:10] or None,
         # Release 60.1 — the FULL authoritative calendar window, not just the
         # closures that happened to move today's expected date. The enumeration
         # asks "which completed sessions were owed?", so every exchange holiday in
@@ -5043,30 +5193,9 @@ def load_workflow_state(
         "provider_readiness": (session_recovery.get("owned_provider_coverage") or None),
         "session_operator_action": session.get("operator_action")}))
     primary_code = primary["action_code"]
-    # Release 54.2.1 — CATCH-UP WORDING. The action, its code, its execution kind and
-    # its contract are UNCHANGED (still the one canonical Daily Close inside the one
-    # portfolio cycle); only the sentence names the session honestly, so the operator
-    # is never told to close "the latest eligible session" when the server is about to
-    # bind an older one. Pure presentation over values the two session owners published.
     if catch_up_required and primary.get("execution_kind") == EXEC_DAILY_CLOSE:
-        _n_missed = session_recovery["missed_completed_session_count"]
-        primary = assert_primary_action_contract(dict(
-            primary,
-            explanation=(
-                "%s is a COMPLETED market session that was never closed (last completed "
-                "close: %s). %s The portfolio cycle binds the oldest missed session "
-                "itself — no date is entered by hand — and the Daily Close revalidates "
-                "the owned provider server-side, writing nothing if that session is "
-                "genuinely unpublished."
-                % (session_recovery["recovery_session"],
-                   session_recovery["last_closed_session"] or "none recorded",
-                   ("%d completed sessions are unclosed; the oldest is recovered first."
-                    % _n_missed) if _n_missed > 1 else
-                   "It is the only unclosed completed session.")),
-            current_task=("Run the portfolio cycle to close the missed %s session."
-                          % session_recovery["recovery_session"]),
-            headline=("Catch up — %s was not closed."
-                      % session_recovery["recovery_session"])))
+        primary = assert_primary_action_contract(
+            word_session_close_action(primary, session_recovery))
     # Stage 19.3 — when the promoted action is the Daily Close and paper orders are
     # working, the operator is told (in the SAME sentence) that the close also settles
     # them. Pure presentation over the pending count the operational owner reported.
@@ -5719,10 +5848,8 @@ def load_workflow_state(
                 "action_counts") or {}).get("EXIT")),
             mandatory_exit_obligation=(canonical_portfolio_decision or {}).get(
                 "mandatory_exit_obligation"),
-            withheld_retention_exits=(
-                ((reassessment_presentation or {}).get(
-                    "withholding_reconciliation") or {}).get(
-                        "retention_exits_withheld")),
+            withheld_retention_exits=_withheld_retention_exits(
+                reassessment_presentation, canonical_portfolio_decision),
             proposal_deferred_trade_count=None,
             adjustment_log_deferral_counts=None,
             hoc_liquidity_states=None,
@@ -5771,6 +5898,7 @@ def load_workflow_state(
         execution_active=bool(
             (reassessment_execution or {}).get("execution_active")
             or pending_orders))
+    today_hero = align_today_hero_with_operator_action(today_hero, operator_action)
 
     return {
         "status": "OK",

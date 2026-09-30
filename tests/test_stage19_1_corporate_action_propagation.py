@@ -399,10 +399,10 @@ def test_14_corporate_action_registry_affects_portfolio_state_hash(tmp_path, mon
         ps_reg["corporate_actions"]["registry_fingerprint"]
 
 
-def _pre_registration_artifact(eligible="2026-08-11", proposal_hash="HASH_PRE"):
+def _pre_registration_artifact(eligible="2026-08-11", proposal_hash="HASH_PRE", with_repair_contract=False):
     """A proposal persisted BEFORE the corporate-action identity contract existed: it
     carries no corporate_actions_hash at all (the real Aug-11 artifact's shape)."""
-    return {
+    art = {
         "proposal_id": "reap_%s_%s_%s" % (eligible, BOOK_ID, proposal_hash[:6]),
         "identity": {"active_book_id": BOOK_ID, "eligible_market_date": eligible,
                      "proposal_hash": proposal_hash, "portfolio_state_hash": "PSH_OLD",
@@ -420,6 +420,17 @@ def _pre_registration_artifact(eligible="2026-08-11", proposal_hash="HASH_PRE"):
                          {"ticker": "HLD", "action": "RETAIN", "sector": "Tech",
                           "proposed_weight": 0.05}]},
     }
+    if with_repair_contract:
+        # R84 - the R63 mandatory-repair contract (no obligations), so a test about
+        # CORPORATE-ACTION staleness is refused by that gate and not an earlier one.
+        from paper_trader.engine import holding_opportunity_cost as _hk
+        art["proposal"]["mandatory_repair"] = {
+            "contract_version": _hk.MANDATORY_REPAIR_CONTRACT_VERSION,
+            "owner": _hk.CALCULATION_OWNER, "obligations": [], "obligation_count": 0,
+            "obligations_open_against_target": [], "obligations_open_count": 0,
+            "obligations_resolved": True}
+        art["proposal"]["full_target_reviewable"] = True
+    return art
 
 
 def test_15_pre_registration_proposal_becomes_stale(tmp_path, monkeypatch):
@@ -444,7 +455,7 @@ def test_15_pre_registration_proposal_becomes_stale(tmp_path, monkeypatch):
 
 def test_16_stale_proposal_cannot_be_approved(tmp_path, monkeypatch):
     _sdir, _book, _ps, _perf = _corrected_state(tmp_path, monkeypatch)
-    art = _pre_registration_artifact()
+    art = _pre_registration_artifact(with_repair_contract=True)
     ddir = tmp_path / "decisions"
 
     # R63: state this world's latest eligible session, so the refusal under test

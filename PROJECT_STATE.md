@@ -1,6 +1,67 @@
 # PROJECT_STATE
-- **Last updated:** 2026-09-28
-- **Updated by phase:** **R82.2_PRE_RULING_APPROVAL_STATE - FOUR SURFACES OF ONE
+- **Last updated:** 2026-09-29
+- **Updated by phase:** **R84_FINAL_OPERATIONAL_CERTIFICATION - RELEASE_CANDIDATE,
+  CERTIFICATION PENDING the release-lock ceremony (full-repository regression on the
+  committed tree, production-store integrity, runtime attestation, live UI acceptance).
+  Single agent, Windows PowerShell only, branch `stage19-controlled-rebalance`; NOT PUSHED.**
+
+  **Release-candidate evidence (pre-commit working tree, 2026-09-29).** Latest accepted
+  live run: `drc_2026-09-28_ca2db31a2209` (COMPLETE); latest completed close 2026-09-28
+  (NAV $98,246.56, cash $4,482.71, 25 holdings, forward evidence COMPLETE). Strict
+  architecture audit exit 0; `check_ui_js` 0 errors. A pre-commit full repository run
+  showed 12,228 passed / 2 failed / 991 skipped (both repaired). That run is NOT the
+  release gate: the gate is one full-repository run exiting 0 on the committed tree,
+  under the R84 production write guard (`tests/_production_write_guard.py`), recorded
+  by the certification commit that follows this one.
+
+  **What R84 repaired** (regression `tests/test_r84_operational_certification.py`, doc
+  `docs/R84_OPERATIONAL_CERTIFICATION.md`): false INCONSISTENT on a withheld target and
+  on every pre-cycle evening (R77 check scored unreadable inputs as silence); Today hero
+  / guidance / NEXT contradicting the ONE action; Sep-25 ledger row presented as the
+  current Sep-28 decision; "Proposal available" / "PORTFOLIO PROPOSAL READY" / "Select a
+  target" for a withheld session; ALL legacy-archive order / fill / decision writes live
+  (now HTTP 410 `LEGACY_ARCHIVE_EXECUTION_PATH_RETIRED`, UI never sends them); the
+  desk / alpha-book bootstrap order paths able to rewrite the LIVE book with a token and
+  no approval (now `BOOTSTRAP_ORDER_PATH_CLOSED_FOR_A_LIVE_BOOK`); published restart
+  command missing `-RepoRoot`; quarterly fundamentals past their 10-Q deadline reported
+  NOT_DUE; "no holiday calendar" warning beside the supplied NYSE calendar; supersession
+  lost after an intraday re-version; the normal evening close shown as "CATCH UP /
+  never closed / DEGRADED"; reads of the event pointer instead of the run summary;
+  explicit non-equity frontier counts; plus test isolation that let live stores decide
+  hermetic outcomes (r63 read seam, stage20 harness) and stale fixtures that had silently
+  disabled the futures execution proof and the forward grid-arming proof.
+
+  **Current NOT_DUE / DUE physical events.** The 2026-09-29 Daily Close + Daily Research
+  Cycle became due at the 17:30 ET cutoff; the ONE operator action is "Run the portfolio
+  cycle" (UI, one confirmation). Forward maturities: 5 pending observations (FX carry
+  from 2026-09-22; four R58 books from 2026-09-10), 0 matured, 0 forfeitures.
+
+  **HUMAN_DECISION_PENDING.** Review of the per-name risk-contribution limit that
+  withheld the 2026-09-28 complete target (AMD 0.150305, SNDK 0.154483 vs 0.15; the
+  repair kernel returns REPAIR_KERNEL_FOUND_NO_FEASIBLE_TARGET in round 1 at the 0.35
+  turnover budget - a genuine limit conflict, not a convergence bound). Nothing is
+  selectable or approvable; the current book stands.
+
+  **ALPHA / DATA / FORWARD gaps (not operational defects).** 0 eligible / 0 admitted
+  non-equity instruments; every non-equity sleeve blocked on
+  NO_APPROVED_OPERATIONAL_SIGNAL (`non_equity_gap_class` ALPHA_DATA_EVIDENCE_GAP).
+  Research frontier STALLED_PENDING_INFORMATION_THE_ESTATE_DOES_NOT_OWN (14
+  FAMILY_EXHAUSTED). SPY next-open challenger INTEGRITY_BLOCKED (no served open mark).
+  Quarterly fundamental panel as-of 2026-05-22 is now honestly STALE (refresh due).
+  Champion research mark 38 sessions stale (research-only).
+
+  **Multi-asset / execution plumbing.** Futures plan -> whole-contract orders -> NEXT
+  session settlement -> replay proven hermetically; desk NAV, execution and
+  reconciliation are instrument-contract aware; the frontier publishes
+  frontier_eligible / admitted / blocked non-equity counts with blockers. The ONE
+  execution path is proposal -> governed selection -> approval ->
+  `POST /v1/operations/rebalance/confirm-order-plan` -> NEXT_CLOSE settlement via the
+  Daily Close; P&L and benchmark-relative figures derive from the desk ledgers.
+
+  **Zero unresolved fixable operational blockers.** Next phase:
+  ALPHA_FORWARD_STRATEGY_PNL.
+
+- **Preceding phase:** **R82.2_PRE_RULING_APPROVAL_STATE - FOUR SURFACES OF ONE
   PANEL DISAGREED ABOUT WHETHER APPROVAL WAS THE OPERATOR'S CURRENT ACT (single
   agent, Windows PowerShell only, live checkout on `stage19-controlled-rebalance`
   over `87f1be8`; NOT COMMITTED, NOT PUSHED).**

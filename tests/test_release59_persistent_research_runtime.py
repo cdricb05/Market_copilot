@@ -766,6 +766,12 @@ def test_every_mutating_action_requires_an_explicit_execute_switch():
 
 
 @pytest.mark.skipif(not _MANAGER.exists(), reason="manager absent")
+@pytest.mark.skipif(
+    str(_ROOT).rstrip("\\").lower() == r"c:\users\binis\paper_trader",
+    reason=("R84: run from the DEPLOYED checkout the guard correctly PERMITS, so this "
+            "test failed by construction - and it would drive the live service "
+            "manager with -Execute (Install/Start/Restart/Uninstall). It proves the "
+            "guard only from a linked development worktree, where it still runs."))
 def test_a_development_worktree_may_never_be_promoted_into_a_service():
     for action in ("Install", "Start", "Restart", "Uninstall"):
         out = _ps(_MANAGER, "-RepoRoot", str(_ROOT), "-Action", action,

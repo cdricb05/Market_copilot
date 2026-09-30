@@ -54,6 +54,11 @@ DEFAULT_CLOSE_CUTOFF_ET = time(17, 30)
 
 # Frozen calendar / confirmation policy labels (part of the tested contract).
 CALENDAR_POLICY = "WEEKDAY_CUTOFF_NO_HOLIDAYS"
+#: R84 — the label published when an AUTHORITATIVE exchange calendar WAS supplied
+#: (engine.exchange_calendar, R60.1). The frozen label above stays the answer
+#: when none is; publishing "NO_HOLIDAYS" beside a supplied NYSE calendar - with
+#: a warning that no holiday calendar exists - told the operator something false.
+CALENDAR_POLICY_WITH_EXCHANGE_CALENDAR = "WEEKDAY_CUTOFF_AUTHORITATIVE_EXCHANGE_CALENDAR"
 CONFIRMATION_SOURCE = "OWNED_EOD_PROVIDER_CONFIRMED_SESSIONS"
 
 # Frozen session-status vocabulary (part of the tested contract).
@@ -549,7 +554,11 @@ def evaluate_session(
                    "operational close.")
 
     # Confirmation-aware mode: owned data is authoritative.
-    warnings.append(_DEGRADED_WARNING)
+    # R84 — the "no holiday calendar" warning is true only when none was supplied.
+    if not calendar_available:
+        warnings.append(_DEGRADED_WARNING)
+    elif calendar_policy == CALENDAR_POLICY:
+        calendar_policy = CALENDAR_POLICY_WITH_EXCHANGE_CALENDAR
 
     if confirmed is not None and confirmed > expected:
         warnings.append(

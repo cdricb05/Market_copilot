@@ -244,6 +244,10 @@ NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR = (
     "REVIEW_AND_SELECT_THE_POLICY_COMPLIANT_SUCCESSOR_TARGET")
 #: Every gate is clear. This is the ONLY word that may arm an approval affordance.
 NEXT_ACTION_APPROVE_SELECTED_TARGET = "APPROVE_SELECTED_TARGET"
+#: (R84) the session's complete target was WITHHELD on a portfolio limit (R83):
+#: nothing is selectable, so "select a target" is an act that cannot be done. The
+#: word is the workflow owner's ONE operator action for the same state, reused.
+NEXT_ACTION_REVIEW_THE_WITHHELDING_LIMIT = "REVIEW_THE_WITHHELDING_PORTFOLIO_LIMIT"
 NEXT_ACTION_VOCAB = (
     NEXT_ACTION_RUN_PORTFOLIO_CYCLE, NEXT_ACTION_SELECT_A_TARGET,
     NEXT_ACTION_SELECT_AGAINST_THE_CURRENT_REVIEW,
@@ -251,7 +255,8 @@ NEXT_ACTION_VOCAB = (
     NEXT_ACTION_RECORD_THE_NO_CHANGE_DECISION,
     NEXT_ACTION_RECORD_RISK_POLICY_RULING,
     NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR,
-    NEXT_ACTION_APPROVE_SELECTED_TARGET)
+    NEXT_ACTION_APPROVE_SELECTED_TARGET,
+    NEXT_ACTION_REVIEW_THE_WITHHELDING_LIMIT)
 #: The operator-facing wording of each action, owned HERE. A browser that turned a
 #: code into prose would be holding an interpretation of workflow state, which is
 #: exactly what this release removes from it.
@@ -266,6 +271,8 @@ NEXT_ACTION_LABELS = {
     NEXT_ACTION_REVIEW_THE_POLICY_COMPLIANT_SUCCESSOR: (
         "Review and select the policy-compliant successor"),
     NEXT_ACTION_APPROVE_SELECTED_TARGET: "Approve selected target",
+    NEXT_ACTION_REVIEW_THE_WITHHELDING_LIMIT: (
+        "Review the portfolio limit that withheld the change"),
 }
 
 
@@ -656,6 +663,32 @@ def load_decision_supersession(*, active_book_id: Optional[str],
                 "governed_manifest_run_id": run_id,
                 "governed_provenance": provenance,
             }
+            # R84 — an intraday cycle may persist a newer same-session VERSION of
+            # the reassessment (new evidence, same session). That head is not the
+            # governed manifest's, so the head-only rule stopped a governed LATER
+            # session from superseding OLDER-session proposals: on 2026-09-29 the
+            # 2026-09-18 and 2026-09-25 proposals reverted to "not superseded".
+            # The session's GOVERNED decision still exists and still outranks any
+            # proposal bound to an earlier session. Same-session comparisons keep
+            # the strict head rule untouched.
+            p_session = str((proposal_summary or {}).get(
+                "reallocation_bound_eligible_market_date") or "")[:10]
+            if is_governed is not True and ref and ref.get("governed") \
+                    and ref.get("portfolio_reassessment_hash") \
+                    and p_session and session and p_session < str(session)[:10]:
+                assessment = {
+                    "available": True,
+                    "decision": ref.get("portfolio_reassessment_state"),
+                    "eligible_market_date": session,
+                    "reassessment_hash": ref.get("portfolio_reassessment_hash"),
+                    "artifact_id": ref.get("portfolio_reassessment_id"),
+                    "generated_at": None,
+                    "hoc_assessment_hash": None,
+                    "is_governed": True,
+                    "governed_manifest_run_id": ref.get("run_id"),
+                    "governed_provenance": PROV_GOVERNED_DAILY_CYCLE,
+                    "head_is_newer_ungoverned_version": True,
+                }
     return assess_proposal_supersession(proposal_summary=proposal_summary,
                                         assessment=assessment)
 
@@ -3065,7 +3098,8 @@ AG_AVAILABLE = PDS_REVIEW_REQUIRED
 #: Ordered, most-specific-first, and identical to the order ``record_decision``
 #: evaluates. Published so a surface can state WHERE in the gate it is standing.
 APPROVAL_GATE_STATUS_VOCAB = (
-    AG_AVAILABLE, PDS_SESSION_STALE, PDS_TARGET_SELECTION_REQUIRED, PDS_STALE,
+    AG_AVAILABLE, PDS_SESSION_STALE, PDS_CHANGE_WITHHELD,
+    PDS_TARGET_SELECTION_REQUIRED, PDS_STALE,
     PDS_SELECTION_IS_NO_CHANGE, PDS_SELECTED_TARGET_NOT_IMPLEMENTABLE,
     PDS_REFERENCE_LIMIT_BREACH_RULED, PDS_RISK_POLICY_REVIEW_REQUIRED)
 
@@ -3149,7 +3183,9 @@ def selected_target_approval_gate(*, selection: Optional[dict],
                                   ruling_state: Optional[dict] = None,
                                   policy_review: Optional[dict] = None,
                                   current_proposal_hash: Optional[str] = None,
-                                  decision_dir=None) -> dict:
+                                  decision_dir=None,
+                                  change_withheld: bool = False,
+                                  withheld_reasons: Optional[list] = None) -> dict:
     """Is approval the operator's CURRENT act on this frozen selection, or not?
 
     The read counterpart of the APPROVE branch of :func:`record_decision`, evaluated
@@ -3223,6 +3259,17 @@ def selected_target_approval_gate(*, selection: Optional[dict],
                      or "This proposal is bound to a session the workflow has "
                         "moved past. It stays fully readable and is no longer a "
                         "decision anyone may act on."))
+    # 1b. R84 — the session's complete target was WITHHELD on a portfolio limit
+    #     (R83). Nothing is selectable, so the gate must not name "select a target"
+    #     as the next act: it names the act the workflow owner names for the same
+    #     state. The write path refuses the approval independently.
+    if change_withheld and not sel:
+        return _out(PDS_CHANGE_WITHHELD, NEXT_ACTION_REVIEW_THE_WITHHELDING_LIMIT,
+                    "The session's complete target was withheld on a governed "
+                    "portfolio limit (%s). Nothing is selectable and nothing is "
+                    "approvable; the limit itself is what needs review."
+                    % (", ".join(withheld_reasons or []) or "portfolio limit"),
+                    withheld_reasons=list(withheld_reasons or []))
     # 2. A NEW approval must name the target it approves (R69.2).
     if not sel:
         return _out(PDS_TARGET_SELECTION_REQUIRED, NEXT_ACTION_SELECT_A_TARGET,
@@ -3726,7 +3773,11 @@ def load_portfolio_decision(*, portfolio_state: Optional[dict] = None,
                 freshness=fresh,
                 current_proposal_hash=proposal_summary.get(
                     "reallocation_proposal_hash"),
-                decision_dir=decision_dir)
+                decision_dir=decision_dir,
+                change_withheld=bool(proposal_summary.get(
+                    "reallocation_proposal_withheld")),
+                withheld_reasons=list(proposal_summary.get(
+                    "reallocation_withheld_reasons") or []))
         except Exception:  # noqa: BLE001 - degrade-safe: a read never crashes here
             gate = None
 

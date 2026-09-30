@@ -77,6 +77,17 @@ class Settings(BaseSettings):
         description="Whether to allow adding to an existing position (averaging down)",
     )
 
+    # --- R84: retired legacy execution entry points ---
+    legacy_archive_execution_enabled: bool = Field(
+        default=False,
+        description=(
+            "The legacy DB paper portfolio is an ARCHIVED, read-only book "
+            "(api.operational_book). Its order/fill-producing routes are a second "
+            "order ledger outside the governed Stage-18/19 path, so they fail closed. "
+            "Only the hermetic legacy regression suite (tests/test_api.py, its own "
+            "test database) sets this to true."),
+    )
+
     # --- Benchmark ---
     benchmark_ticker: str = Field(default="SPY", description="Ticker used for benchmark comparison")
 

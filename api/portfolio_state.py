@@ -987,11 +987,16 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "proposal_status": ("PRELIMINARY_REVIEW_ONLY_UNAPPROVED" if is_proposal
                             else "NO_PROPOSAL"),
         "preliminary_proposal_label": PRELIMINARY_PROPOSAL_LABEL,
-        "proposal_note": ("The reassessment proposal is review-only. It is backed by the "
-                          "Slice 6 Holding Opportunity-Cost review but is NOT an approved "
-                          "reallocation: the Reallocation Proposal engine (Slice 7) is not "
-                          "implemented yet. Manual review remains mandatory; no paper orders "
-                          "are created."),
+        # R84 — the previous note claimed the Reallocation Proposal engine (Slice 7)
+        # was "not implemented yet", which has been false since Slice 7 landed. The
+        # proposal, its governed review and approval are owned elsewhere; this block
+        # is the legacy membership comparison and says only that.
+        "proposal_note": ("This is the legacy rank-membership comparison, review-only "
+                          "and never an approved reallocation. The canonical proposal is "
+                          "owned by api.reallocation_proposal and governed through the "
+                          "Portfolio > Reallocation review (selection, then separate "
+                          "approval). Manual review remains mandatory; no paper orders "
+                          "are created here."),
         "confirmation_allowed": False,
         # Slice 6 (Phase 29G) opportunity-cost compatibility summary from the gate.
         "opportunity_cost_available": bool((gate or {}).get("opportunity_cost_available")),

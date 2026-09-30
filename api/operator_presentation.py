@@ -331,18 +331,29 @@ def _system_readiness(wf: dict, collection: Optional[dict],
         degraded.append("operational close not valid")
     if rec.get("available"):
         _r_state = str(rec.get("state") or "")
+        # R84 - the normal evening close (the only owed session is the latest
+        # expected one) is scheduled WORK, never a degradation.
+        _r_normal = bool(rec.get("normal_close_due")) and _r_state == "CATCH_UP_REQUIRED"
         item("session_recovery", "Session recovery",
-             (rec.get("recovery_session_display") or rec.get("recovery_session")
-              or "not required") if rec.get("active") else "not required",
+             ((str(rec.get("recovery_session_display")
+                   or rec.get("recovery_session") or "") + " · close due")
+              if _r_normal else
+              (rec.get("recovery_session_display") or rec.get("recovery_session")
+               or "not required") if rec.get("active") else "not required"),
              ("blocked" if _r_state in ("CATCH_UP_BLOCKED",
                                         "CATCH_UP_WAITING_FOR_OWNED_DATA")
+              else "ok" if _r_normal
               else "degraded" if rec.get("active") else "ok"),
              rec.get("summary"),
              # A missed session is WORK, not an incident: it never blocks the
              # portfolio decision surface, it names the one action that clears it.
              blocks=False)
-        if _r_state == "CATCH_UP_REQUIRED":
+        if _r_state == "CATCH_UP_REQUIRED" and not _r_normal:
             degraded.append("a completed session (%s) has not been closed"
+                            % rec.get("recovery_session"))
+        elif _r_state == "CATCH_UP_WAITING_FOR_OWNED_DATA" and rec.get("normal_close_due"):
+            # R84 - the normal evening: the day's close waits for the provider.
+            degraded.append("the Daily Close for %s waits for owned data"
                             % rec.get("recovery_session"))
         elif _r_state in ("CATCH_UP_WAITING_FOR_OWNED_DATA", "CATCH_UP_BLOCKED"):
             degraded.append("session recovery %s (%s)"
@@ -552,15 +563,25 @@ def _session_recovery(wf: dict, daily_close: dict) -> dict:
                                    "owned provider and writes nothing if the session "
                                    "is unpublished"), "degraded"
     active = bool(rec.get("catch_up_required")) or state == "CATCH_UP_BLOCKED"
+    normal = bool(rec.get("normal_close_due")) and state in (
+        "CATCH_UP_REQUIRED", "CATCH_UP_WAITING_FOR_OWNED_DATA")
     return {
         "available": bool(rec),
         "active": active,
         "state": state,
         "state_vocabulary": _l(rec.get("recovery_state_vocabulary")),
-        "headline": _RECOVERY_HEADLINES.get(str(state)) if active else None,
+        # R84 - the normal evening close is titled as what it is.
+        "headline": ((("DAILY CLOSE DUE" if state == "CATCH_UP_REQUIRED"
+                       else "DAILY CLOSE WAITING FOR OWNED DATA") if normal
+                      else _RECOVERY_HEADLINES.get(str(state))) if active else None),
+        "normal_close_due": normal,
+        "session_label": "Session due" if normal else "Missed session",
         "recovery_session": session,
         "recovery_session_display": _month_day(session),
-        "detail": (("%s was not closed." % (_month_day(session) or session))
+        "detail": ((("%s has completed and is ready to close."
+                      if (normal and state == "CATCH_UP_REQUIRED") else
+                      "%s has completed; its close waits for owned data." if normal
+                      else "%s was not closed.") % (_month_day(session) or session))
                    if active and session else None),
         "missed_completed_sessions": _l(rec.get("missed_completed_sessions")),
         "missed_completed_session_count": rec.get("missed_completed_session_count"),
@@ -879,8 +900,16 @@ def _portfolio_decision(wf: dict, constrained: dict, outcomes: dict,
         explanation = cpd.get("no_proposal_reason") or (
             "A complete target was built and refused by a governed portfolio limit; "
             "the limit itself is what needs review.")
-        action = _next_action(NA_REVIEW_REALLOCATION, available=True,
-                              destination="portfolio-manager/reallocation")
+        # R84 — the label is the ONE operator action's own, so the hero's NEXT
+        # button and the Today "what should the operator do now" card read the
+        # same words. Destination unchanged (navigation only).
+        _op = _d(wf.get("operator_action"))
+        action = _next_action(
+            NA_REVIEW_REALLOCATION, available=True,
+            destination="portfolio-manager/reallocation",
+            label=(_op.get("action_label")
+                   if _op.get("action") == "REVIEW_THE_WITHHELDING_PORTFOLIO_LIMIT"
+                   else None))
         tone = "warn"
     elif cpd_state in (_CPD_NO_CHANGE, _CPD_WITHHELD) or (cpd_state == _CPD_RECORDED and pd_state == _PDS_REJECTED):
         state = PD_HOLD
@@ -1205,6 +1234,20 @@ def _decision_summary(wf: dict, constrained: dict,
         cost = _num(trn.get("estimated_transaction_cost"))
     if cost is None:
         cost = _num(cpd.get("expected_transaction_cost_usd"))
+    # R84 — a complete target WITHHELD on a portfolio limit carries its OWN
+    # priced economics in the governed withheld verdict (R83). The counts above
+    # already come from that target, so the turnover / cost / improvement must
+    # too: falling through to the reassessment's pre-proposal release-set
+    # estimate (0.0 / $0.00 / +0.000) printed 23 positions changing beside zero
+    # turnover. Read verbatim; nothing is recomputed.
+    gwo = _d(cpd.get("governed_withheld_outcome"))
+    if cpd.get("complete_target_withheld_on_portfolio_limits") and gwo:
+        if _num(gwo.get("one_way_turnover")) is not None:
+            turnover = _num(gwo.get("one_way_turnover"))
+        if _num(gwo.get("estimated_transaction_cost")) is not None:
+            cost = _num(gwo.get("estimated_transaction_cost"))
+        if _num(gwo.get("score_improvement_net_of_cost")) is not None:
+            net = _num(gwo.get("score_improvement_net_of_cost"))
     replacements = counts.get("REPLACE_OUT", 0) or counts.get("REPLACE", 0)
     # Release 54.2.1 (Phase J.2) — WHAT THIS TARGET IS. The reallocation page rendered
     # EXIT / REDUCE / ADD / INCREASE counts at full prominence while the authoritative
@@ -1229,6 +1272,18 @@ def _decision_summary(wf: dict, constrained: dict,
         decision or {}, turnover=turnover, cost=cost,
         changing=sum(v for k, v in counts.items() if k != "RETAIN"),
         net=net, hurdle=hurdle)
+    # R84 — ONE operator action. The static per-state guidance word ("Monitor
+    # portfolio" for every HOLD) contradicted the workflow owner's ONE ACTION
+    # whenever a HOLD still carried operator work (a withheld complete target's
+    # portfolio-limit review). When the one priority owner says work is owed, the
+    # guidance IS that action's label, verbatim; otherwise the state word stands.
+    op_action = _d(wf.get("operator_action"))
+    if current.get("available") and op_action.get("requires_operator_work") \
+            and op_action.get("action_label"):
+        current = {**current, "guidance": op_action.get("action_label"),
+                   "guidance_owner": op_action.get("priority_owner")
+                   or "api.workflow_state._decide_overall",
+                   "guidance_action_code": op_action.get("action")}
     return {
         # ------------------------------------------------------------------- #
         # R54.2.4 — the economics below the supersession block describe the

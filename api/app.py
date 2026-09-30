@@ -371,6 +371,50 @@ def _verify_api_key(api_key: str = Security(_API_KEY_HEADER)) -> None:
 
 
 # ---------------------------------------------------------------------------
+# R84 — ONE execution path. The legacy DB paper portfolio is an ARCHIVED,
+# read-only book (api.operational_book); its order- and fill-producing routes
+# were still live, forming a second order ledger and a second fill workflow
+# outside the governed chain (proposal -> selection -> approval -> order-plan
+# confirmation -> NEXT_CLOSE settlement). They now fail closed, server-side,
+# with a named code. Previews and reads are untouched; nothing is deleted.
+# ---------------------------------------------------------------------------
+LEGACY_EXECUTION_RETIRED_CODE = "LEGACY_ARCHIVE_EXECUTION_PATH_RETIRED"
+GOVERNED_EXECUTION_PATH = (
+    "api.portfolio_decision (select-target, record APPROVE) -> "
+    "POST /v1/operations/rebalance/confirm-order-plan -> NEXT_CLOSE settlement "
+    "through api.daily_close")
+#: Every route that creates legacy Order rows, fills them, or runs a pipeline
+#: that does. Pinned by tests/test_r84_operational_certification.py.
+LEGACY_EXECUTION_RETIRED_ROUTES = (
+    "/v1/signals", "/v1/fill", "/v1/strategy/run", "/v1/strategy/prediction/run",
+    "/v1/strategy/prediction/fetch-and-run", "/v1/review/create-orders",
+    "/v1/review/fill-pending-orders", "/v1/review/create-exit-orders",
+    "/v1/review/candidates/{candidate_id}/paper-trade",
+    # The archive's TradeDecision rows exist only to feed its order path; a
+    # "Create Decisions" control beside the governed portfolio decision is
+    # confusable with it, so decision creation into the archive is retired too.
+    "/v1/review/create-decisions", "/v1/review/daily-plan-create-decisions",
+)
+
+
+def _legacy_archive_execution_retired() -> None:
+    if get_settings().legacy_archive_execution_enabled:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "code": LEGACY_EXECUTION_RETIRED_CODE,
+            "message": ("The legacy paper portfolio is an archived, read-only book. "
+                        "It creates no orders and no fills. Portfolio changes are "
+                        "executed only through the governed path."),
+            "governed_execution_path": GOVERNED_EXECUTION_PATH,
+            "performed_write": False,
+            "creates_orders": False,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
 
@@ -7088,7 +7132,23 @@ def operations_portfolio_reassessment() -> dict:
     its own primary action. It returns NOT_RUN before a reassessment exists and remains
     readable (HTTP 200) in every blocked state.
     """
-    return _reassess.load_portfolio_reassessment()
+    payload = _reassess.load_portfolio_reassessment()
+    # R84 — this route composed its operator card WITHOUT the portfolio-decision
+    # lane, so a session whose complete target was WITHHELD on a portfolio limit
+    # read "PORTFOLIO PROPOSAL READY" here while the workflow owner (which passes
+    # the lane, R83) said "PORTFOLIO CHANGE WITHHELD - PROPOSAL NOT PRODUCED".
+    # When the workflow composition describes this exact reassessment (hash
+    # equality) its lane-aware card is published; otherwise nothing changes.
+    try:
+        wf = _snap.section("workflow") or {}
+        wf_hash = (wf.get("portfolio_reassessment") or {}).get("reassessment_hash")
+        wf_pres = wf.get("portfolio_reassessment_presentation")
+        if wf_pres and wf_hash and wf_hash == payload.get("reassessment_hash"):
+            payload = dict(payload, presentation=wf_pres,
+                           presentation_owner="api.workflow_state (decision-lane aware)")
+    except Exception:  # noqa: BLE001 - the bare card stays readable
+        pass
+    return payload
 
 
 @app.get(
@@ -8361,7 +8421,8 @@ def prediction_health() -> PredictionHealthOut:
     "/v1/signals",
     response_model=DecisionResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 def ingest_signals(body: DecisionRequest) -> DecisionResponse:
     """
@@ -8399,7 +8460,8 @@ def ingest_signals(body: DecisionRequest) -> DecisionResponse:
     "/v1/fill",
     response_model=FillResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 def trigger_fill(body: FillRequest) -> FillResponse:
     """
@@ -9048,7 +9110,8 @@ def _override_signals_source_run(
     "/v1/strategy/run",
     response_model=StrategyRunResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
     """
@@ -9196,7 +9259,8 @@ def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
     "/v1/strategy/prediction/run",
     response_model=StrategyRunResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 def run_prediction_strategy(body: PredictionRunRequest) -> StrategyRunResponse:
     """
@@ -9328,7 +9392,8 @@ def run_prediction_strategy(body: PredictionRunRequest) -> StrategyRunResponse:
     "/v1/strategy/prediction/fetch-and-run",
     response_model=FetchAndRunPredictionResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 async def fetch_and_run_prediction_strategy(
     body: FetchAndRunPredictionRequest,
@@ -11745,7 +11810,8 @@ async def update_review_candidate_status(
     "/v1/review/candidates/{candidate_id}/paper-trade",
     response_model=CandidatePaperTradeResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 async def candidate_scoped_paper_trade(
     candidate_id: str,
@@ -12685,7 +12751,8 @@ async def preview_decisions_from_signals(
     "/v1/review/create-decisions",
     response_model=ReviewCreateDecisionsResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 async def create_decisions_from_signals(
     body: ReviewCreateDecisionsRequest,
@@ -13419,7 +13486,8 @@ async def preview_orders_from_decisions(
     "/v1/review/create-orders",
     response_model=ReviewCreateOrdersResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 async def create_orders_from_decisions(
     body: ReviewCreateOrdersRequest,
@@ -16340,7 +16408,8 @@ async def daily_plan_decision_preview(
     "/v1/review/daily-plan-create-decisions",
     response_model=DailyPlanCreateDecisionsResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 async def daily_plan_create_decisions(
     body: DailyPlanCreateDecisionsRequest,
@@ -19233,7 +19302,8 @@ _MANUAL_FILL_DOLLARS = Decimal("0.01")
     "/v1/review/fill-pending-orders",
     response_model=ManualPaperFillResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 async def fill_pending_paper_orders(
     body: ManualPaperFillRequest,
@@ -22266,7 +22336,8 @@ def model_methodology() -> ModelMethodologyResponse:
     "/v1/review/create-exit-orders",
     response_model=CreateExitOrdersResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(_verify_api_key)],
+    dependencies=[Depends(_verify_api_key),
+                  Depends(_legacy_archive_execution_retired)],
 )
 async def create_exit_orders(
     body: CreateExitOrdersRequest,

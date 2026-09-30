@@ -348,7 +348,10 @@ class TestUiSingleSourceOfTruth:
         # coordinated post-close Daily Alpha Run refresh is asserted separately
         # (test_post_close_refresh_reloads_book_and_daily_alpha_run) below.
         js = _scripts(html)
-        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 10
+        # R84 — Phase 31A added the 11th site: the command-center loader's
+        # `finally` refreshes the book through the SAME coalesced loader
+        # (_obInFlight), so a connected section never keeps a placeholder.
+        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 11
 
     def test_post_close_refresh_reloads_book_and_daily_alpha_run(self, html):
         # Phase 28C (Workstream H): after a daily close, the post-close path

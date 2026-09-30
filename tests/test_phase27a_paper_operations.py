@@ -219,9 +219,11 @@ class TestOrderCreation:
         assert g2["performed_write"] is False
 
     def test_no_changes_after_book_matches_target(self, env):
+        # R84 — a funded book is live: the snapshot path refuses before it plans.
         _full_first_cycle()
         g = desk.generate_orders(confirm=desk.GEN_CONFIRM_TOKEN, today="2026-07-22")
-        assert g["status"] == desk.S_NO_CHANGES
+        assert g["status"] == desk.S_LIVE_BOOK_BOOTSTRAP_CLOSED
+        assert g["performed_write"] is False
 
     def test_orders_never_plain_buy_sell(self, env):
         _confirm_snapshot()
@@ -399,27 +401,19 @@ class TestBookAndPerformance:
         table = _marks_table(_D0 + ["2026-07-20", "2026-07-21", "2026-08-14"])
         desk.refresh_desk(confirm=desk.REFRESH_CONFIRM_TOKEN, downloader=_dl(table),
                           today="2026-08-15")
+        # R84 — a new monthly snapshot can no longer rewrite a LIVE book with no
+        # portfolio approval. The governed path (proposal -> selection ->
+        # approval -> api.rebalance_execution) owns every change to a funded
+        # book; its sell/settlement arithmetic is pinned by the Stage-19 suites.
+        orders_before = desk._read_ledger(env["desk"], desk.ORDERS_FILE)
         g = desk.generate_orders(confirm=desk.GEN_CONFIRM_TOKEN, today="2026-08-15")
-        assert g["status"] == desk.S_OK
-        assert g["removals"] == ["AAA"] and g["additions"] == []
-        sell = [o for o in desk.load_orders()["orders"]
-                if o["status"] == desk.ST_PROPOSED]
-        assert len(sell) == 1 and sell[0]["side"] == desk.SIDE_SELL
-        assert sell[0]["ticker"] == "AAA"
-        held_before = desk.book_nav(desk.open_book(env["desk"]),
-                                    desk.load_fills()["fills"], desk.read_marks())["holdings"]
-        assert sell[0]["quantity"] == held_before["AAA"]
-        desk.confirm_orders(confirm=desk.EXEC_CONFIRM_TOKEN, today="2026-08-15")
-        table2 = _marks_table(_D0 + ["2026-07-20", "2026-07-21", "2026-08-14", "2026-08-17"])
-        r = desk.refresh_desk(confirm=desk.REFRESH_CONFIRM_TOKEN, downloader=_dl(table2),
-                              today="2026-08-18")
-        assert r["settlement"]["n_filled"] == 1
+        assert g["status"] == desk.S_LIVE_BOOK_BOOTSTRAP_CLOSED
+        assert g["performed_write"] is False
+        c = desk.confirm_orders(confirm=desk.EXEC_CONFIRM_TOKEN, today="2026-08-15")
+        assert c["status"] == desk.S_LIVE_BOOK_BOOTSTRAP_CLOSED
+        assert desk._read_ledger(env["desk"], desk.ORDERS_FILE) == orders_before
         v = desk.load_books()["books"][0]["valuation"]
-        assert v["holdings_count"] == len(_TICKS) - 1
-        assert "AAA" not in v["holdings"]
-        sell_fill = [f for f in desk.load_fills()["fills"] if f["side"] == desk.SIDE_SELL][0]
-        assert sell_fill["net_cash_delta"] == pytest.approx(
-            sell_fill["gross_value"] - sell_fill["transaction_cost"], rel=1e-9)
+        assert v["holdings_count"] == len(_TICKS) and "AAA" in v["holdings"]
 
 
 # --------------------------------------------------------------------------- #
@@ -475,10 +469,11 @@ class TestJournalAndTimeline:
         table = _marks_table(_D0 + ["2026-07-20", "2026-07-21", "2026-08-14"])
         desk.refresh_desk(confirm=desk.REFRESH_CONFIRM_TOKEN, downloader=_dl(table),
                           today="2026-08-15")
-        desk.generate_orders(confirm=desk.GEN_CONFIRM_TOKEN, today="2026-08-15")
-        texts = [e["text"] for e in desk.load_journal()["entries"]]
-        assert any("Removed because it exited the combined Top-25." in t for t in texts)
-        assert any("Held because it remains inside the hold buffer." in t for t in texts)
+        journal_before = desk.load_journal()["entries"]
+        g = desk.generate_orders(confirm=desk.GEN_CONFIRM_TOKEN, today="2026-08-15")
+        # R84 — refused for a live book, so nothing is journaled either.
+        assert g["status"] == desk.S_LIVE_BOOK_BOOTSTRAP_CLOSED
+        assert desk.load_journal()["entries"] == journal_before
 
     def test_timeline_covers_lifecycle(self, env):
         _full_first_cycle()

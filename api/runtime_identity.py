@@ -150,6 +150,7 @@ RUNTIME_CONTRACT = {
         "startup_owner": "scripts/manage_information_collection.ps1",
         "remediation": ("Restart the canonical information-collection service "
                         "with scripts\\manage_information_collection.ps1 "
+                        "-RepoRoot C:\\Users\\binis\\paper_trader "
                         "-Action Restart -Execute."),
     },
     # MULTI_ASSET_CAPITAL_ACTIVATION_R55_V1 - since Release 59 the research

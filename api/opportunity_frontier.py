@@ -139,7 +139,35 @@ def load_opportunity_frontier(*, portfolio_state: Optional[dict] = None,
         "non_equity_admission_ledger": non_equity_admission_ledger(registry, fr),
     })
     fr["eligible_non_equity_count_explanation"] = _explain_non_equity_count(fr)
+    fr.update(non_equity_count_summary(fr))
     return fr
+
+
+def non_equity_count_summary(frontier: dict) -> dict:
+    """R84 — the three non-equity counts every portfolio review must print,
+    named explicitly and read from this owner's OWN admission ledger (never a
+    second count). ``blocked`` counts SLEEVES carrying a blocker, and each
+    blocker is named with its sleeve and economic source, so a zero is always
+    classified (an alpha / data / evidence gap) rather than left bare."""
+    ledger = list((frontier or {}).get("non_equity_admission_ledger") or [])
+    admitted = sum(int(r.get("instruments_admitted") or 0) for r in ledger)
+    blocked = [r for r in ledger if r.get("blocker")]
+    return {
+        "frontier_eligible_non_equity_count": (frontier or {}).get(
+            "eligible_non_equity_count"),
+        "admitted_non_equity_count": admitted,
+        "blocked_non_equity_count": len(blocked),
+        "blocked_non_equity_count_unit": "SLEEVES",
+        "non_equity_blockers": [
+            {"sleeve_id": r.get("sleeve_id"), "asset_class": r.get("asset_class"),
+             "blocker": r.get("blocker"),
+             "economic_source": r.get("operational_signal_candidate")
+             or "NO_VALIDATED_OPERATIONAL_SIGNAL"}
+            for r in blocked],
+        "non_equity_gap_class": ("ALPHA_DATA_EVIDENCE_GAP"
+                                 if ledger and admitted == 0 and len(blocked) == len(ledger)
+                                 else None),
+    }
 
 
 def non_equity_admission_ledger(registry: dict, frontier: dict) -> list[dict]:

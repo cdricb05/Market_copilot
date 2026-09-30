@@ -69,8 +69,17 @@ NEXT_EVENING = "2026-09-22T23:00:00+00:00"
 def root(tmp_path, monkeypatch):
     """A private research root holding the challenger's REAL declared policy."""
     monkeypatch.setenv(AR.RESEARCH_ROOT_ENV, str(tmp_path / "research"))
-    PD.declare_policy(**NOC.policy_declaration({"identity_hash": IDENTITY_HASH}),
-                      now="2026-09-12T21:20:51+00:00")
+    decl = NOC.policy_declaration({"identity_hash": IDENTITY_HASH})
+    # R84 — R79 refuses this challenger LIVE because its declared next-open entry
+    # is not served by the default close-only valuation path
+    # (DECLARED_ENTRY_MARK_IS_NOT_SERVED_BY_THE_DECLARED_VALUATION_PATH). These
+    # tests prove the GRID-ARMING machinery any future-entry challenger needs, so
+    # this PRIVATE, hermetic declaration takes R79's own lift path and declares a
+    # served open mark. The live policy file is never touched.
+    decl["execution_contract"] = dict(
+        decl["execution_contract"],
+        valuation_marks={"mark_instant": CFA.MARK_INSTANT_OPEN})
+    PD.declare_policy(**decl, now="2026-09-12T21:20:51+00:00")
     return tmp_path
 
 

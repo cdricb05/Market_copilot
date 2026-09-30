@@ -3826,6 +3826,19 @@
         // retries exhausted — surface the genuine problem (never hidden).
         _set('err', res.timeout ? 'Timeout' : 'Offline',
              (res.timeout ? 'service probe timeout' : 'service unreachable') + ' (after ' + MAX_TRANSIENT_RETRIES + ' retries)');
+        // R84 — the badge used to stay at Timeout forever after a cold page load
+        // whose heavy reads held every per-host connection, while every panel
+        // rendered from a healthy backend. Keep re-checking on a slow cadence
+        // (bounded) so a transient settles to the truth; a real outage stays red.
+        for (var slow = 0; slow < 20; slow++) {
+          await _sleep(15000);
+          if (myGen !== _gen) return;
+          var again;
+          try { again = await _probeOnce(); } catch (e) { again = { state: 'transient', timeout: false }; }
+          if (myGen !== _gen) return;
+          if (again.state === 'ready') { _set('ok', 'Ready', again.dbg); return; }
+          if (again.state === 'notready') { _set('err', 'Not Ready', again.dbg); return; }
+        }
         return;
       }
     })();
@@ -4786,7 +4799,7 @@
             <div class="cc-kv"><span class="k">Valuation Date</span><span class="v" id="dwob-sum-valdate">&mdash;</span></div>
             <div class="cc-kv" title="Scheduled MODEL-RECALIBRATION checkpoint. The portfolio itself is reassessed by the governed Daily Research Cycle after every material signal refresh, not on this date. A newer target before this date is informational."><span class="k">Model recalibration checkpoint</span><span class="v" id="dwob-review">&mdash;</span></div>
           </div>
-          <button id="dwob-monitor-btn" class="cc-btn primary" style="margin-top:6px;font-size:var(--fs-0);padding:4px 10px;" onclick="navigateToPortfolioPositions()" title="Open the Portfolio — the actual filled Alpha Paper Book #1 holdings, valuation and P&amp;L.">Monitor Holdings and Performance</button>
+          <button id="dwob-monitor-btn" class="cc-btn primary" style="margin-top:6px;font-size:var(--fs-0);padding:4px 10px;" onclick="navigateToPortfolioPositions()" title="Open the Portfolio — the actual filled Alpha Paper Book #1 holdings, valuation and P&amp;L. Navigation only.">Open holdings &amp; performance</button>
           <div class="cc-na-note" id="dwob-next" style="margin-top:6px; font-size:11px; line-height:1.5;">Next Action: connect to load the operational book.</div>
         </div>
         <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW END ===================== -->
@@ -8800,7 +8813,7 @@
               <span class="step-label">Step 2: Run Strategy</span>
               <span class="step-status not-started" id="dtr-status-strategy">Not Started</span>
             </div>
-            <button class="step-btn" id="dtr-btn-strategy-detail" onclick="dtrRunStrategy(this)">Run Strategy</button>
+            <button class="step-btn" id="dtr-btn-strategy-detail" disabled title="Retired: the legacy archive runs no strategy that creates orders.">Run Strategy (retired)</button>
             <div class="step-result" id="dtr-result-strategy"></div>
           </div>
           <div class="workflow-step-box">
@@ -8808,7 +8821,7 @@
               <span class="step-label">Step 3: Manual Signal / Override</span>
               <span class="step-status not-started" id="dtr-status-signal">Not Started</span>
             </div>
-            <button class="step-btn" id="dtr-btn-signal" onclick="dtrSubmitSignal(this)">Submit Signal</button>
+            <button class="step-btn" id="dtr-btn-signal" disabled title="Retired (R84): the legacy archive creates no signals-to-orders and no fills. Portfolio changes run only through Portfolio &rsaquo; Reallocation.">Submit Signal (retired)</button>
             <div class="step-result" id="dtr-result-signal"></div>
           </div>
           <div class="workflow-step-box">
@@ -8816,7 +8829,7 @@
               <span class="step-label">Step 4: Run Fill</span>
               <span class="step-status not-started" id="dtr-status-fill">Not Started</span>
             </div>
-            <button class="step-btn" id="dtr-btn-fill" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
+            <button class="step-btn" id="dtr-btn-fill" disabled title="Retired (R84): the legacy archive creates no signals-to-orders and no fills. Portfolio changes run only through Portfolio &rsaquo; Reallocation.">Run Fill (retired)</button>
             <div class="step-result" id="dtr-result-fill"></div>
           </div>
           <div class="workflow-step-box">
@@ -8876,7 +8889,7 @@
                 <div class="fg"><label>Signal Timestamp</label><input id="sig-ts" type="datetime-local" class="mono"></div>
                 <div class="fg"><label>Source Run</label><input id="sig-src" placeholder="strategy-run-001" class="mono"></div>
               </div>
-              <button class="btn-action" onclick="submitSignal(this)">Submit Signal</button>
+              <button class="btn-action" id="legacy-submit-signal-btn" disabled title="Retired (R84): the legacy archive creates no signals-to-orders and no fills. Portfolio changes run only through Portfolio &rsaquo; Reallocation.">Submit Signal (retired)</button>
               <small style="display:block;margin-top:6px;color: var(--label);">Weekday only. Server derives market_date from US/Eastern clock.</small>
             </div>
           </details>
@@ -8887,7 +8900,7 @@
                 <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto" class="mono"></div>
                 <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date" class="mono"></div>
               </div>
-              <button class="btn-action" onclick="window.runUiAction('Run Fill Cycle', () => triggerFill(this), this)">Run Fill Cycle</button>
+              <button class="btn-action" id="legacy-run-fill-btn" disabled title="Retired (R84): the legacy archive creates no signals-to-orders and no fills. Portfolio changes run only through Portfolio &rsaquo; Reallocation.">Run Fill Cycle (retired)</button>
             </div>
           </details>
           <details>
@@ -10156,7 +10169,33 @@ function autoKey() {
   return `ui-${Date.now()}`;
 }
 
+// R84 — ONE execution path. The archived legacy book's order / fill / decision
+// writes are retired server-side (HTTP 410 LEGACY_ARCHIVE_EXECUTION_PATH_RETIRED).
+// The browser never even sends them: a retired POST resolves to the same named
+// refusal locally, so no legacy control can reach an execution write.
+const _R84_RETIRED_POSTS = [
+  '/v1/signals', '/v1/fill', '/v1/strategy/run', '/v1/strategy/prediction/run',
+  '/v1/strategy/prediction/fetch-and-run', '/v1/review/create-orders',
+  '/v1/review/fill-pending-orders', '/v1/review/create-exit-orders',
+  '/v1/review/create-decisions', '/v1/review/daily-plan-create-decisions',
+];
+function _r84IsRetiredPost(method, path) {
+  if (String(method || '').toUpperCase() !== 'POST') return false;
+  const p = String(path || '').split('?')[0];
+  return _R84_RETIRED_POSTS.indexOf(p) >= 0
+    || /^\/v1\/review\/candidates\/[^/]+\/paper-trade$/.test(p);
+}
+window._r84IsRetiredPost = _r84IsRetiredPost;
+const _R84_RETIRED_MESSAGE = 'Retired: the legacy paper portfolio is an archived, read-only book. '
+  + 'Portfolio changes run only through the governed path (Portfolio › Reallocation: '
+  + 'review, select, approve, confirm order plan).';
+
 async function call(method, path, body) {
+  if (_r84IsRetiredPost(method, path)) {
+    return new Response(JSON.stringify({ detail: { code: 'LEGACY_ARCHIVE_EXECUTION_PATH_RETIRED',
+      message: _R84_RETIRED_MESSAGE, performed_write: false, creates_orders: false } }),
+      { status: 410, headers: { 'Content-Type': 'application/json' } });
+  }
   const opts = {
     method,
     headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
@@ -15920,6 +15959,8 @@ async function dtrIngestPrice(btn) {
 }
 
 async function dtrRunStrategy(btn) {
+  // R84 - retired legacy execution path; executes nothing.
+  toast(_R84_RETIRED_MESSAGE, 'error'); return;
   const shortWindow = document.getElementById('dtr-short-window').value.trim();
   const longWindow = document.getElementById('dtr-long-window').value.trim();
 
@@ -17772,6 +17813,8 @@ async function previewDecisionsFromDailyPlanSignals(btn) {
 }
 
 async function createDecisionsFromDailyPlanSignals(btn) {
+  // R84 - retired legacy execution path; executes nothing.
+  toast(_R84_RETIRED_MESSAGE, 'error'); return;
   const resultEl = document.getElementById('daily-plan-create-decisions-result');
   if (!resultEl) return;
 
@@ -19767,7 +19810,7 @@ async function generateTradePlan(btn) {
             html += '</tbody></table></div>';
             if (orderEligibleCount > 0) {
               html += '<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">';
-              html += '<button class="btn-sm" style="background: var(--ok); color: #000; font-weight: 700; font-size: 10px;" onclick="createOrdersFromDecisions()">Create Paper Order Tickets</button>';
+              html += '<button class="btn-sm" style="background: var(--ok); color: #000; font-weight: 700; font-size: 10px;" disabled title="Retired: legacy archive creates no orders">Retired - governed path only</button>';
               html += '<span style="font-size: 9px; color: var(--label);">Creates PENDING paper order tickets only. No broker. No fills. Automation off.</span>';
               html += '</div>';
             } else {
@@ -20357,6 +20400,8 @@ function renderDecisionPreviewResponse(data) {
 }
 
 async function createDecisionsFromSignals() {
+  // R84 - retired legacy execution path; executes nothing.
+  toast(_R84_RETIRED_MESSAGE, 'error'); return;
   const limit = parseInt(document.getElementById('create-decisions-limit').value) || 50;
   const receivedOnly = document.getElementById('create-decisions-received-only').checked;
   const container = document.getElementById('create-decisions-content');
@@ -20677,6 +20722,8 @@ function renderOrderPreviewResponse(data) {
 }
 
 async function createOrdersFromDecisions() {
+  // R84 - retired legacy execution path; executes nothing.
+  toast(_R84_RETIRED_MESSAGE, 'error'); return;
   const container = document.getElementById('create-orders-content');
 
   return new Promise(resolve => {
@@ -20784,6 +20831,8 @@ function renderCreateOrdersResponse(data) {
 }
 
 async function fillPendingPaperOrders() {
+  // R84 - retired legacy execution path; executes nothing.
+  toast(_R84_RETIRED_MESSAGE, 'error'); return;
   const container = document.getElementById('fill-orders-content');
 
   return new Promise(resolve => {
@@ -21126,9 +21175,9 @@ const WORKFLOW_STEPS = [
   { id: 'signal-preview', name: 'Signal Preview', description: 'Preview signals that will be created from review candidates', button: 'Generate Preview', action: 'generateSignalPreview' },
   { id: 'create-signals', name: 'Create Signals', description: 'Create signal rows from review queue candidates', button: 'Create Signals', action: 'createSignalsFromCandidates' },
   { id: 'decision-preview', name: 'Decision Preview', description: 'Preview trade decisions that will be created from signals', button: 'Preview Decisions', action: 'previewDecisionsFromSignals' },
-  { id: 'create-decisions', name: 'Create Decisions', description: 'Create trade decision rows from review signals', button: 'Create Decisions', action: 'createDecisionsFromSignals' },
+  { id: 'create-decisions', name: 'Create Decisions (retired)', description: 'RETIRED - the legacy archive creates no trade decisions; portfolio decisions are governed under Portfolio > Reallocation', button: 'Create Decisions', action: 'createDecisionsFromSignals', retired: true },
   { id: 'order-preview', name: 'Order Preview', description: 'Preview orders that can be created from approved decisions', button: 'Preview Orders', action: 'previewOrdersFromDecisions' },
-  { id: 'create-orders', name: 'Create Orders', description: 'Create paper Order tickets from approved decisions (PENDING status, no broker execution, no fills)', button: 'Create Paper Orders', action: 'createOrdersFromDecisions' },
+  { id: 'create-orders', name: 'Create Orders (retired)', description: 'RETIRED - the legacy archive creates no orders; paper orders are created only by the governed order-plan confirmation', button: 'Create Paper Orders', action: 'createOrdersFromDecisions', retired: true },
 ];
 
 async function generateDailyReviewSummary(btn) {
@@ -22380,7 +22429,10 @@ async function updateReviewWorkflow() {
 
     // Right side - button
     if (step.action) {
-      if (isDisabled || status === 'disabled') {
+      if (step.retired) {
+        // R84 — the archive's decision/order writes are retired server-side.
+        html += `<button class="btn-sm" disabled title="${escapeHtml(_R84_RETIRED_MESSAGE)}" style="background: var(--label); color: white; cursor: not-allowed; opacity: 0.5;">Retired &mdash; governed path only</button>`;
+      } else if (isDisabled || status === 'disabled') {
         html += `<button class="btn-sm" disabled style="background: var(--label); color: white; cursor: not-allowed; opacity: 0.5;">${escapeHtml(step.button)}</button>`;
       } else if (status === 'blocked' || !stepReady) {
         html += `<button class="btn-sm" disabled style="background: var(--label); color: white; cursor: not-allowed; opacity: 0.5;">Blocked</button>`;
@@ -22393,7 +22445,7 @@ async function updateReviewWorkflow() {
       } else if (step.action === 'runRotationPreview') {
         html += `<button class="btn-sm" onclick="runRotationPreview(this)" style="background: var(--warning);">${escapeHtml(step.button)}</button>`;
       } else if (step.action === 'createOrdersFromDecisions') {
-        html += `<button class="btn-sm" onclick="createOrdersFromDecisions()" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
+        html += `<button class="btn-sm" disabled title="Retired: legacy archive creates no orders" style="background: var(--ok);">Retired - governed path only</button>`;
       } else {
         html += `<button class="btn-sm" onclick="${step.action}()" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
       }
@@ -22833,7 +22885,7 @@ function _ptCandTicketHtml(c) {
     + '<div style="font-size:10px;font-weight:800;color:var(--ok);margin-bottom:2px;">Paper Trade Ticket Ready for ' + tk + '</div>'
     + '<div style="font-size:8px;color:var(--label);margin-bottom:5px;">No broker execution. Paper portfolio only. No live trade.</div>'
     + '<button class="btn-sm" style="background:var(--ok);color:#06281a;font-weight:800;font-size:10px;padding:5px 12px;" '
-    +   'onclick="createAndFillCandidatePaperTrade(\'' + c.id + '\', \'' + tk + '\', this)">Create &amp; Fill Paper Trade</button>'
+    +   'disabled title="Retired (R84): the legacy archive creates no orders and no fills.">Create &amp; Fill Paper Trade (retired)</button>'
     + resultDiv
     + '</div>';
 }
@@ -22843,6 +22895,8 @@ function _ptCandTicketHtml(c) {
 // before showing "Paper Trade Completed". Uses the styled write-confirm modal,
 // never a native browser dialog.
 async function createAndFillCandidatePaperTrade(candidateId, ticker, btn) {
+  // R84 - retired legacy execution path; executes nothing.
+  toast(_R84_RETIRED_MESSAGE, 'error'); return;
   const resultEl = document.getElementById('pt-result-' + candidateId);
   function fail(msg) {
     const html = '<div style="margin-top:6px;border:1px solid var(--danger);border-radius:3px;padding:6px 8px;background:rgba(239,68,68,.08);">'
@@ -23256,13 +23310,13 @@ function updateTodayReview(ctx) {
       _rpNext = 'Trade plan ready. Create a paper order ticket.';
       _rightNext = 'Create a paper order ticket.';
       if (ctxEl) { ctxEl.textContent = 'No order has been created yet. Creates PENDING paper order tickets only — no trades, fills, positions, cash changes, or broker actions.'; ctxEl.style.color = 'var(--label)'; }
-      if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" onclick="createOrdersFromDecisions()">Create Paper Order Ticket</button>';
+      if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" disabled title="Retired: legacy archive creates no orders">Retired - governed path only</button>';
     } else if (_stage === 'FILL') {
       _rpTask = 'Fill Paper Order';
       _rpNext = 'Paper order ticket created. Fill the paper order.';
       _rightNext = 'Fill the paper order.';
       if (ctxEl) { ctxEl.textContent = 'This is still not a trade. Portfolio holdings update only after paper fill.'; ctxEl.style.color = 'var(--label)'; }
-      if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="fillPendingPaperOrders()">Fill Paper Order</button>';
+      if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" disabled title="Retired (R84): the legacy archive creates no orders and no fills.">Fill Paper Order (retired)</button>';
     } else {
       _rpTask = 'Generate Trade Plan';
       _rpNext = 'Generate a trade plan from approved candidates.';
@@ -23281,7 +23335,7 @@ function updateTodayReview(ctx) {
     taskEl.textContent = 'Paper Trade Ticket';
     if (nextEl) { nextEl.textContent = 'Paper Order Ticket Ready. Review the ticket, then Create & Fill Paper Trade.'; nextEl.style.color = 'var(--ok)'; }
     _rightNext = 'Create & Fill Paper Trade or cancel.';
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" onclick="placePaperTrade()">Create & Fill Paper Trade</button>';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" disabled title="Retired (R84): the legacy archive creates no orders and no fills.">Create &amp; Fill Paper Trade (retired)</button>';
     renderTradeFlowCard(_stage);
   } else if (window._workflowCompletedState) {
     // Paper order filled: positions and cash have been updated. Guide the user
@@ -23649,14 +23703,14 @@ function renderTradeFlowCard(stage) {
     }
     if (safetyEl) safetyEl.textContent = 'Paper portfolio only. No broker execution. No live trade. Create & Fill Paper Trade creates and fills a local paper order only. No live broker order is created. Automation is off.';
     if (actionEl) {
-      var _ah = '<button id="tf-place-btn" class="btn" style="background:var(--ok);color:#04210f;font-weight:800;font-size:13px;padding:12px 18px;" onclick="placePaperTrade()">Create & Fill Paper Trade</button>';
+      var _ah = '<button id="tf-place-btn" class="btn" style="background:var(--ok);color:#04210f;font-weight:800;font-size:13px;padding:12px 18px;" disabled title="Retired (R84): the legacy archive creates no orders and no fills.">Create &amp; Fill Paper Trade (retired)</button>';
       _ah += '<button class="btn" style="background:rgba(255,255,255,.08);color:var(--text-secondary);font-weight:700;font-size:12px;padding:12px 16px;" onclick="cancelPaperTrade()">Cancel Trade</button>';
       _ah += '<button class="btn" style="background:rgba(255,255,255,.08);color:var(--text-secondary);font-weight:700;font-size:12px;padding:12px 16px;" onclick="backToCandidate()">Back to Candidate</button>';
       _ah += '<details style="width:100%; margin-top:6px;"><summary style="font-size:9px; color:var(--label); cursor:pointer; text-transform:uppercase; letter-spacing:.06em;">Step by step (advanced)</summary>';
       _ah += '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">';
       _ah += '<button class="btn-sm" style="background:rgba(99,102,241,.2); color:var(--info); font-size:10px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
-      _ah += '<button class="btn-sm" style="background:rgba(34,197,94,.2); color:var(--ok); font-size:10px;" onclick="createOrdersFromDecisions()">Create Paper Order Ticket</button>';
-      _ah += '<button class="btn-sm" style="background:rgba(245,158,11,.2); color:var(--warning); font-size:10px;" onclick="fillPendingPaperOrders()">Fill Paper Order</button>';
+      _ah += '<button class="btn-sm" style="background:rgba(34,197,94,.2); color:var(--ok); font-size:10px;" disabled title="Retired: legacy archive creates no orders">Retired - governed path only</button>';
+      _ah += '<button class="btn-sm" style="background:rgba(245,158,11,.2); color:var(--warning); font-size:10px;" disabled title="Retired (R84): the legacy archive creates no orders and no fills.">Fill Paper Order (retired)</button>';
       _ah += '</div></details>';
       actionEl.innerHTML = _ah;
     }
@@ -23827,6 +23881,8 @@ async function _renderPaperTradeTicket(stage) {
 // one styled confirmation. PAPER ONLY: no broker order, no live trade, no
 // automation. The fill endpoint updates the local portfolio snapshot.
 async function placePaperTrade() {
+  // R84 - retired legacy execution path; executes nothing.
+  toast(_R84_RETIRED_MESSAGE, 'error'); return;
   return new Promise(function(resolve) {
     window._showWriteConfirm({
       title: 'Create & Fill Paper Trade',
@@ -29553,6 +29609,16 @@ function _pdrSelectionResult(d) {
       + 'created. The proposal is unchanged.</div></div>';
   }
 
+  // R84 — with no selectable target (e.g. a complete target WITHHELD on a
+  // portfolio limit: selectable_targets 0) there is no step 1, so step 2 must
+  // not send the operator to one. The backend's options list decides.
+  var hasOptions = (((d && d.target_selection) || {}).options || []).length > 0;
+  if (!hasOptions) {
+    return '<div class="pdr-step" id="pdr-step2" data-no-selectable-target="1">'
+      + '<div class="sh"><span>Target selection</span></div>'
+      + '<div class="pdr-idm">No target is selectable for this session, so there is '
+      + 'nothing to select and nothing to approve.</div></div>';
+  }
   return '<div class="pdr-step" id="pdr-step2">'
     + '<div class="sh"><span>Step 2 &mdash; selection result (backend)</span></div>'
     + '<div class="pdr-idm">No target has been selected for this session yet.'
@@ -31758,7 +31824,7 @@ function _opRenderSessionRecovery(p) {
   // deliberately no backfill / force-close / date-entry control anywhere.
   var canRun = (r.next_action_kind === 'PORTFOLIO_CYCLE') && !!(na.available && na.executes);
   var facts = ''
-    + '<div><div class="k">Missed session</div><div class="v">'
+    + '<div><div class="k">' + _opEsc(r.session_label || 'Missed session') + '</div><div class="v">'
     + _opEsc(r.recovery_session_display || r.recovery_session || '—') + '</div></div>'
     + '<div><div class="k">Last closed</div><div class="v">'
     + _opEsc(r.last_closed_session || '—') + '</div></div>'
@@ -32132,6 +32198,31 @@ function _opRenderReallocationView(p) {
       + _opMetric('Positions', _opEsc(_opNil(ds.positions_before) ? '—' : ds.positions_before) + ' → ' + _opEsc(_opNil(ds.positions_after) ? '—' : ds.positions_after), 'before → after')
       + _opMetric('Expected return', _opWords(ds.expected_return_state) || '—', 'never a dollar forecast')
       + '</div>';
+  } else if (r47.governed_withheld_outcome && !hc.historical) {
+    // R84 — the withheld complete target WAS priced (R83). Its own economics and
+    // the per-name limit breaches are shown verbatim from the backend verdict,
+    // labelled WITHHELD: nothing here is approvable or executable.
+    var wo = r47.governed_withheld_outcome;
+    var brRows = (wo.withheld_risk_contribution_breaches || []).map(function (b) {
+      return '<tr data-breach-ticker="' + _opEsc(b.ticker) + '"><td>' + _opEsc(b.ticker) + '</td>'
+        + '<td style="text-align:right;">' + _opNum(b.risk_contribution_pct, 6) + '</td>'
+        + '<td style="text-align:right;">' + _opNum(b.limit, 6) + '</td>'
+        + '<td style="text-align:right;">+' + _opNum(b.excess, 6) + '</td></tr>';
+    }).join('');
+    econ = '<div class="r47-quiet" style="margin-bottom:6px;"><b>WITHHELD COMPLETE TARGET</b> &middot; priced, not approvable, not executable</div>'
+      + '<div class="pmr-econ" data-econ-scope="WITHHELD_COMPLETE_TARGET">'
+      + _opMetric('Expected improvement', _opNum(wo.score_improvement_net_of_cost, 6), 'net of cost · score points, never dollars')
+      + _opMetric('Turnover', _opWeight(wo.one_way_turnover, 1), 'one-way')
+      + _opMetric('Estimated cost', _opMoney(wo.estimated_transaction_cost), 'modelled transition cost')
+      + _opMetric('Positions', _opNil(wo.proposed_holding_count) ? '—' : String(wo.proposed_holding_count), 'in the withheld target')
+      + '</div>'
+      + (brRows
+        ? '<table class="r84-breach" id="r84-withheld-breach-table" style="margin-top:8px;font-size:11px;border-collapse:collapse;min-width:420px;">'
+          + '<thead><tr><th style="text-align:left;">Breaching name</th><th style="text-align:right;">Risk contribution</th>'
+          + '<th style="text-align:right;">Limit</th><th style="text-align:right;">Excess</th></tr></thead>'
+          + '<tbody>' + brRows + '</tbody></table>'
+        : '')
+      + '<div class="r47-quiet" style="margin-top:6px;">' + _opEsc(wo.outstanding_governance_requirement || '') + '</div>';
   } else {
     econ = '<div class="r47-quiet">No switching economics: no feasible target was priced for this session.</div>';
   }
@@ -32651,6 +32742,11 @@ function _r55RenderOperatorAnswer(d) {
     +   _opEsc(qs[0] || 'CURRENT DECISION')
     +   _r55Chip('governed', 'AUTHORITATIVE',
                  'The governed portfolio decision. Owner: ' + (dec.authority_owner || ''))
+    +   (dec.session_is_current === true
+        ? _r55Chip('governed', 'CURRENT SESSION', 'The decision is for the current eligible session.')
+        : (dec.session_is_current === false
+            ? _r55Chip('research', 'HISTORICAL SESSION', 'The decision is for an earlier session.')
+            : ''))
     + '</div>'
     + '<div class="r55-answer">' + _opEsc(decHead) + '</div>'
     + (dec.explanation ? '<div class="r55-why">' + _opEsc(dec.explanation) + '</div>' : '')
@@ -32660,6 +32756,13 @@ function _r55RenderOperatorAnswer(d) {
     +   _r55Fact('Produced by', _opWords(dec.provenance), 'muted')
     +   _r55Fact('Operational mark', dec.operational_mark_display || dec.operational_mark_date)
     +   _r55Fact('NAV', _opMoney(dec.nav))
+    // R84 — the governed ledger's newest row, when it is an EARLIER session than
+    // the verdict above, is named as historical. Backend-composed; read verbatim.
+    +   (dec.standing_ledger_record
+        ? _r55Fact('Last ledger record (historical)',
+                   (dec.standing_ledger_record.session_display || dec.standing_ledger_record.session || '')
+                   + ' · ' + _opWords(dec.standing_ledger_record.decision || ''), 'muted')
+        : '')
     + '</div>'
     + '</div>';
 
@@ -33965,7 +34068,8 @@ function renderMaterialInformation(d) {
   var linked = (d.rows || []).filter(function (r) { return !!r.source_url; }).length;
   _setHtml('matinfo-authority',
     _r30esc(d.authority_doc || '')
-    + ' Last event cycle: <b>' + _r30esc(cyc.state || '—') + '</b>'
+    + ' Last event cycle: <b>' + _r30esc(String(cyc.proposal_state || '').toUpperCase() === 'WITHHELD'
+        ? 'TARGET BUILT AND WITHHELD ON A PORTFOLIO LIMIT' : (cyc.state || '—')) + '</b>'
     + ' · portfolio reassessed: <b>' + (d.portfolio_reassessed ? 'yes' : 'no') + '</b>'
     + ' · decision: <b>' + _r30esc((d.portfolio_decision || {}).state || '—') + '</b>.'
     + ' <b>' + _r30esc(linked) + '</b> of ' + _r30esc((d.rows || []).length)
@@ -33977,7 +34081,9 @@ window.renderMaterialInformation = renderMaterialInformation;
 
 function loadMaterialInformation() {
   if (window._matinfoInFlight) return window._matinfoInFlight;
-  var p = _mhzGet('/v1/operations/material-information').then(function (d) {
+  // R84 - a heavy composed read: under page-load contention it exceeded the
+  // 45 s default, so it uses the same heavy-read budget as the operational book.
+  var p = _mhzGet('/v1/operations/material-information', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     window._matinfoInFlight = null; window._matinfoData = d;
     renderMaterialInformation(d); return d;
   }).catch(function () {
@@ -34735,6 +34841,15 @@ function renderPortfolioReassessment(d) {
     return;
   }
   var pres = d.presentation || {};
+  // R84 — the bare reassessment route composes its card WITHOUT the portfolio-
+  // decision lane, so it titled a session whose complete target was WITHHELD
+  // that a portfolio proposal was ready. The workflow owner composes the SAME card with
+  // the lane (R83). When it is for this exact reassessment (hash equality), that
+  // backend composition is the one rendered; the browser decides nothing.
+  var _wsR = window._wsData || null;
+  var _wsPres = _wsR && _wsR.portfolio_reassessment_presentation;
+  var _wsHash = _wsR && (_wsR.portfolio_reassessment || {}).reassessment_hash;
+  if (_wsPres && _wsHash && d.reassessment_hash && _wsHash === d.reassessment_hash) pres = _wsPres;
   var dec = d.decision || {};
   var pf = d.portfolio_summary || {};
   var exec = d.execution_precedence || {};
@@ -35307,7 +35422,8 @@ function _wsRenderTodayHero(d) {
       +   _wsEsc(th.headline || 'Portfolio proposal awaiting manual review') + '</h1></div>'
       + (th.detail ? '<p class="th-sub">' + _wsEsc(th.detail) + '</p>' : '')
       + '<div class="th-meta">'
-      +   '<div><div class="k">Operational close</div><div class="v">Complete &middot; valid</div></div>'
+      +   '<div><div class="k">Operational lane</div><div class="v">'
+      +     _wsEsc(((th.operational_lane || {}).headline) || '—') + '</div></div>'
       +   '<div><div class="k">Latest eligible session</div><div class="v">' + _wsEsc(latest) + '</div></div>'
       + '</div>'
       + (thCtaHtml ? ('<div class="th-cta-row">' + thCtaHtml + '</div>') : '');
@@ -37085,7 +37201,9 @@ window.loadDataFreshness = loadDataFreshness;
 window._evtData = null; window._evtInFlight = null;
 function loadInformationCollection() {
   if (window._evtInFlight) return window._evtInFlight;   // coalesce concurrent page loads
-  var p = _mhzGet('/v1/operations/information-collection').then(function (d) {
+  // R84 - a heavy composed read: under page-load contention it exceeded the
+  // 45 s default, so it uses the same heavy-read budget as the operational book.
+  var p = _mhzGet('/v1/operations/information-collection', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     window._evtInFlight = null; window._evtData = d; renderInformationCollection(d); return d;
   }).catch(function () {
     window._evtInFlight = null; renderInformationCollection(null); return null;
@@ -37393,7 +37511,11 @@ function renderInformationCollection(d) {
   var _decCode = String(dec.event_cycle_state || 'NOT_RUN');
   var decRows = [
     '<div title="Raw event-cycle state: ' + escapeHtml(_decCode) + '"><strong>'
-    + escapeHtml(_r29Humanise(_decCode, _R29_EVENT_CYCLE_TEXT) || _decCode) + '</strong>'
+    // R84 - a built target the proposal owner WITHHELD is not "available for
+    // review"; the backend publishes proposal_withheld and the words follow it.
+    + escapeHtml(dec.proposal_withheld
+        ? 'Complete target built and withheld on a portfolio limit'
+        : (_r29Humanise(_decCode, _R29_EVENT_CYCLE_TEXT) || _decCode)) + '</strong>'
     + ' &middot; reassessment ' + escapeHtml(String(dec.reassessment_ran === true ? 'complete'
       : (dec.reassessment_ran === false ? 'not required' : 'not reported'))) + '</div>'
   ];
@@ -37403,7 +37525,11 @@ function renderInformationCollection(d) {
   if (ra.reassessment_state) {
     decRows.push('<div>Recommendation: <strong>' + escapeHtml(String(ra.reassessment_state)) + '</strong></div>');
   }
-  if (dec.proposal_built) {
+  if (dec.proposal_built && dec.proposal_withheld) {
+    decRows.push('<div><span class="cc-badge manual">TARGET WITHHELD &mdash; NOT REVIEWABLE</span> '
+      + 'The complete target was refused by a governed portfolio limit; nothing is approvable. '
+      + '<a href="#portfolio-manager/reallocation" style="font-size:11px;">Review the limit</a></div>');
+  } else if (dec.proposal_built) {
     decRows.push('<div><span class="cc-badge manual">TARGET CHANGE FOR MANUAL REVIEW</span> '
       + escapeHtml(String(tp.headline || tp.state || 'A complete target portfolio is available for review.'))
       + '</div>');
@@ -37447,10 +37573,18 @@ window.renderInformationCollection = renderInformationCollection;
 window._wsData = null; window._wsInFlight = null;
 function loadWorkflowState() {
   if (window._wsInFlight) return window._wsInFlight;   // coalesce concurrent page loads
-  var p = _mhzGet('/v1/operations/workflow-state').then(function (d) {
+  // R84 - the ONE operator-state read; under cold-load contention it could lose
+  // the 45 s default and leave every dependent panel without it.
+  var p = _mhzGet('/v1/operations/workflow-state', _R601_HEAVY_READ_TIMEOUT_MS).then(function (d) {
     window._wsInFlight = null;
     window._wsData = d;
     renderWorkflowState(d);
+    // R84 — the assessment card renders the workflow's lane-aware composition
+    // when both reads describe the same reassessment; repaint it once it lands.
+    try { if (window._reassessData) renderPortfolioReassessment(window._reassessData); } catch (e) {}
+    // R84 — the Daily Workflow book-lifecycle line names the ONE operator action
+    // from this payload; repaint it once the workflow read lands.
+    try { if (window._obData && typeof renderOperationalBook === 'function') renderOperationalBook(window._obData); } catch (e) {}
     return d;
   }).catch(function () { window._wsInFlight = null; renderWorkflowState(null); return null; });
   window._wsInFlight = p;
@@ -40638,9 +40772,17 @@ function renderOperationalBook(d) {
   if (dwMonBtn) dwMonBtn.style.display = (view.lifecycleStage === 'FILLED') ? '' : 'none';
   // Phase 27B.5: the Daily Workflow states the canonical current task —
   // "Await Next Eligible Close" is a normal waiting state, never an error.
+  // R84 — this card is the BOOK LIFECYCLE (orders settled, forward tracking).
+  // It used to print "Current task / Next action: Monitor Holdings and
+  // Performance" beside a Today page whose ONE operator action was reviewing a
+  // withheld portfolio limit. The lifecycle is stated as what it is; the one
+  // operator action is owned by api.workflow_state and rendered verbatim here.
+  var _dwOp = (window._wsData && window._wsData.operator_action) || null;
+  var _dwOpTxt = (_dwOp && _dwOp.requires_operator_work && _dwOp.action_label)
+    ? (' · Operator action (one): ' + _dwOp.action_label) : '';
   _obSet('dwob-next', (ob && view.ordersExist && view.currentTask)
-    ? ('Current task: ' + view.currentTask + ' · Next action: ' + primaryLabel +
-       (view.explanation ? (' — ' + view.explanation) : ''))
+    ? ('Book lifecycle: ' + view.currentTask +
+       (view.explanation ? (' — ' + view.explanation) : '') + _dwOpTxt)
     : nextTxt);
   var stageIds = {
     'REFRESH_DESK_MARKS': 'dwob-step-refresh-data',
@@ -41200,7 +41342,14 @@ function renderPaperDesk() {
   var oc0 = st.order_counts || {};
   var nOpen = (oc0.PROPOSED || 0) + (oc0.APPROVED || 0) + (oc0.SUBMITTED || 0);
   var genBtn = document.getElementById('pd-act-generate');
-  if (genBtn) genBtn.style.display = ab ? 'none' : '';
+  if (genBtn) {
+    // R84 — hidden while the alpha workflow governs, and disabled with the
+    // backend's reason once the book is live (the bootstrap path is closed).
+    genBtn.style.display = ab ? 'none' : '';
+    var bsClosed = !!(ab && ab.bootstrap_order_path_open === false);
+    genBtn.disabled = bsClosed;
+    if (bsClosed) genBtn.title = ((ab.bootstrap_order_path_refusal || {}).message) || 'Closed for a live book.';
+  }
   [['pd-act-confirm', 'No PROPOSED paper orders exist yet — confirm the executable order plan above first.',
     'Manually submit PROPOSED paper orders (PROPOSED to APPROVED to SUBMITTED; fills at the deterministic next close). Explicit token required.'],
    ['pd-act-preview', 'No open paper orders to preview yet — confirm the executable order plan above first.',
@@ -41212,6 +41361,13 @@ function renderPaperDesk() {
     b.disabled = (nOpen === 0);
     b.title = (nOpen === 0) ? spec[1] : spec[2];
   });
+  // R84 — submitting PROPOSED bootstrap orders is closed for a live book (the
+  // governed rebalance path submits its own orders). Backend verdict, verbatim.
+  var pdConfirmBtn = document.getElementById('pd-act-confirm');
+  if (pdConfirmBtn && ab && ab.bootstrap_order_path_open === false) {
+    pdConfirmBtn.disabled = true;
+    pdConfirmBtn.title = ((ab.bootstrap_order_path_refusal || {}).message) || 'Closed for a live book.';
+  }
   // Phase 27B.5: completed actions recede. Once every open order is SUBMITTED
   // (or the book is fully filled) the confirm / preview buttons are obsolete —
   // hide them; cancel stays as the visually secondary destructive action.
@@ -41651,9 +41807,13 @@ function renderAlphaBook() {
     !ab.book ? 'Initialize Alpha Paper Book #1 first.'
              : 'Run the manual desk data refresh first — the plan needs owned closes for sizing.',
     'Read-only deterministic executable order plan at the latest completed owned closes. Writes nothing.');
+  // R84 — the backend publishes whether this bootstrap path may still fund the
+  // book. A live book changes only through the governed rebalance path.
+  var bootstrapOpen = ab.bootstrap_order_path_open !== false;
   _abBtn('ab-act-confirm-plan',
-    planReady && !ab.orders_pending_manual_confirmation && !ab.orders_awaiting_fill,
-    ab.orders_pending_manual_confirmation ? 'Alpha paper orders already exist in PROPOSED — confirm or cancel them in the paper desk below.'
+    bootstrapOpen && planReady && !ab.orders_pending_manual_confirmation && !ab.orders_awaiting_fill,
+    !bootstrapOpen ? (((ab.bootstrap_order_path_refusal || {}).message) || 'Closed for a live book — use the governed rebalance path.')
+      : ab.orders_pending_manual_confirmation ? 'Alpha paper orders already exist in PROPOSED — confirm or cancel them in the paper desk below.'
       : ab.orders_awaiting_fill ? 'Confirmed paper orders are awaiting their eligible close — no new plan can be confirmed.'
       : !ab.book ? 'Initialize Alpha Paper Book #1 first.'
       : 'Generate and review the executable order plan first (desk marks required).',

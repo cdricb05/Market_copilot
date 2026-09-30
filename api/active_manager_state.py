@@ -224,6 +224,13 @@ OPERATOR_ANSWER_QUESTIONS = (
     "WHAT SHOULD THE OPERATOR DO NOW?",
 )
 
+#: R84 — the provenance and persistence words for a CURRENT governed daily-cycle
+#: verdict that is held by its run manifest rather than a ledger row (a withheld
+#: complete target, R83). The producer is the same governed daily cycle; only the
+#: holding place differs, so neither word invents a new authority.
+PROV_WITHHELD_DAILY_CYCLE_SOURCE = "GOVERNED_DAILY_CYCLE"
+PERSISTENCE_GOVERNED_RUN_MANIFEST = "GOVERNED_RUN_MANIFEST_VERDICT_NOT_PERSISTABLE"
+
 
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
@@ -938,8 +945,16 @@ LANE_CONCLUSION_NOT_MATERIAL = "INFORMATION_NOT_MATERIAL"
 #: never ran, presented as one whose conclusion could not be read.
 LANE_CONCLUSION_NO_REASSESSMENT = "NO_REASSESSMENT_REQUIRED"
 LANE_CONCLUSION_UNKNOWN = "UNKNOWN"
+#: R84 — the cycle BUILT a complete target and the proposal owner WITHHELD it on a
+#: portfolio limit (its recorded ``proposal_state`` is WITHHELD). The cycle's own
+#: state token still reads PROPOSAL_AVAILABLE_FOR_MANUAL_REVIEW (it is set when a
+#: proposal object exists, and recorded cycles are immutable), so this lane reads
+#: the recorded proposal_state and never tells the operator a proposal is
+#: available for review when none is.
+LANE_CONCLUSION_TARGET_WITHHELD = "TARGET_WITHHELD"
 LANE_CONCLUSION_VOCAB = (LANE_CONCLUSION_HOLD, LANE_CONCLUSION_CHANGE,
                          LANE_CONCLUSION_PROPOSAL_AVAILABLE,
+                         LANE_CONCLUSION_TARGET_WITHHELD,
                          LANE_CONCLUSION_NOT_MATERIAL,
                          LANE_CONCLUSION_NO_REASSESSMENT,
                          LANE_CONCLUSION_UNKNOWN)
@@ -990,6 +1005,9 @@ _LANE_HEADLINES = {
     LANE_CONCLUSION_CHANGE: "Latest live reassessment: change indicated",
     LANE_CONCLUSION_PROPOSAL_AVAILABLE: (
         "Latest live reassessment: target portfolio built for manual review"),
+    LANE_CONCLUSION_TARGET_WITHHELD: (
+        "Latest live reassessment: complete target built and withheld on a "
+        "portfolio limit"),
 }
 
 _LANE_REASSESSMENT_SUMMARIES = {
@@ -999,6 +1017,9 @@ _LANE_REASSESSMENT_SUMMARIES = {
     LANE_CONCLUSION_CHANGE: "A portfolio reassessment ran and indicated a change",
     LANE_CONCLUSION_PROPOSAL_AVAILABLE: (
         "A portfolio reassessment ran and produced a target for manual review"),
+    LANE_CONCLUSION_TARGET_WITHHELD: (
+        "A portfolio reassessment ran; the complete target it built was withheld "
+        "on a portfolio limit, so no proposal is reviewable"),
 }
 
 
@@ -1052,9 +1073,13 @@ def _live_reassessment_lane_block(*, live_information: dict, signal_state: dict,
     elif reassess_state == "CURRENT_NO_CHANGE":
         conclusion = LANE_CONCLUSION_HOLD
     elif reassess_state == "PROPOSAL_READY":
-        conclusion = (LANE_CONCLUSION_PROPOSAL_AVAILABLE
-                      if cycle.get("proposal_built")
-                      else LANE_CONCLUSION_CHANGE)
+        conclusion = (
+            LANE_CONCLUSION_TARGET_WITHHELD
+            if cycle.get("proposal_built")
+            and str(cycle.get("proposal_state") or "").upper() == "WITHHELD"
+            else LANE_CONCLUSION_PROPOSAL_AVAILABLE
+            if cycle.get("proposal_built")
+            else LANE_CONCLUSION_CHANGE)
     else:
         conclusion = LANE_CONCLUSION_UNKNOWN
     reassessment_ran_here = conclusion not in LANE_NO_REASSESSMENT_CONCLUSIONS
@@ -1877,35 +1902,92 @@ def _operator_answer_block(*, governed: dict, canonical: Optional[dict],
     # published no decision at all this stays UNAVAILABLE rather than borrowing
     # the research lane's conclusion.
     decision_available = bool(governed.get("available") or canon)
+    # R84 — A NEWER GOVERNED VERDICT THAT NO LEDGER ROW CAN HOLD. A governed
+    # daily cycle that WITHHELD a complete target on a portfolio limit is a
+    # complete, terminal verdict whose contract forbids persisting it (R83), so
+    # the governed ledger's newest row is an OLDER session. Composing the card
+    # from both - the older row's session and clock beside the newer verdict's
+    # headline - presented the 2026-09-25 record as the current decision for
+    # 2026-09-28. When the withheld verdict is for a later session than the
+    # ledger row, the card answers with the verdict (its own session, run and
+    # completion stamp, all read verbatim from the decision owner's composition)
+    # and names the ledger row as the standing HISTORICAL record beside it.
+    withheld = canon.get("governed_withheld_outcome") or {}
+    ledger_session = governed.get("eligible_market_session")
+    withheld_session = withheld.get("eligible_market_date")
+    verdict_is_newer = bool(
+        withheld.get("governed_outcome_complete") and withheld_session
+        and (not ledger_session or str(withheld_session) > str(ledger_session)))
+    if verdict_is_newer:
+        session = withheld_session
+        decided_at = withheld.get("completed_at")
+        provenance = PROV_WITHHELD_DAILY_CYCLE_SOURCE
+        record_id = withheld.get("governed_run_id")
+    else:
+        session = ledger_session or canon.get("eligible_market_date")
+        decided_at = governed.get("timestamp")
+        provenance = governed.get("provenance")
+        record_id = governed.get("record_id")
+    explanation = (canon.get("no_proposal_reason")
+                   if canon.get("no_proposal_reason_is_authoritative")
+                   and canon.get("no_proposal_reason")
+                   else (canon.get("explanation") or canon.get("no_proposal_reason")))
+    standing_record = None
+    if verdict_is_newer and governed.get("record_id"):
+        standing_record = {
+            "record_id": governed.get("record_id"),
+            "decision": governed.get("decision"),
+            "session": ledger_session,
+            "session_display": _operator_display_time(ledger_session),
+            "decided_at": governed.get("timestamp"),
+            "decided_at_display": _operator_display_time(governed.get("timestamp")),
+            "historical": True,
+            "note": ("The newest ROW in the governed decision ledger is for an "
+                     "earlier session. It is historical and immutable; the "
+                     "current session's governed verdict above cannot be a "
+                     "ledger row because a withheld target is never persisted."),
+        }
     decision = {
         "question": OPERATOR_ANSWER_QUESTIONS[0],
         "available": decision_available,
         "headline": canon.get("headline"),
-        "explanation": canon.get("explanation") or canon.get("no_proposal_reason"),
-        "decision": governed.get("decision") or canon.get("state"),
+        "explanation": explanation,
+        "decision": (canon.get("state") if verdict_is_newer
+                     else (governed.get("decision") or canon.get("state"))),
         "decision_state": canon.get("state"),
-        "session": (governed.get("eligible_market_session")
-                    or canon.get("eligible_market_date")),
-        "session_display": _operator_display_time(
-            governed.get("eligible_market_session")
-            or canon.get("eligible_market_date")),
-        "decided_at": governed.get("timestamp"),
-        "decided_at_display": _operator_display_time(governed.get("timestamp")),
-        "provenance": governed.get("provenance"),
-        "record_id": governed.get("record_id"),
-        "persisted": governed.get("persisted"),
+        "session": session,
+        "session_display": _operator_display_time(session),
+        "session_is_current": verdict_is_newer or (
+            bool(session) and session == canon.get("eligible_market_date")),
+        "decided_at": decided_at,
+        "decided_at_display": _operator_display_time(decided_at),
+        "provenance": provenance,
+        "record_id": record_id,
+        "current_verdict_is_non_persisted_withheld": verdict_is_newer,
+        "standing_ledger_record": standing_record,
+        "persisted": (False if verdict_is_newer else governed.get("persisted")),
         # R55.1 — how the decision is HELD, in the decision owner's own words,
         # so ``persisted: false`` beside a real record id can never again read
         # as a contradiction on any surface.
-        "persistence_status": governed.get("persistence_status"),
-        "persistence_detail": governed.get("persistence_detail"),
-        "is_ledger_row": governed.get("is_ledger_row"),
-        "retrievable_through_owner": governed.get("retrievable_through_owner"),
+        "persistence_status": (PERSISTENCE_GOVERNED_RUN_MANIFEST if verdict_is_newer
+                               else governed.get("persistence_status")),
+        "persistence_detail": (
+            ("Held by the governed Daily Research Cycle run manifest %s. A "
+             "withheld target is non-persistable, non-approvable and "
+             "non-executable by contract, so no ledger row exists for it."
+             % (withheld.get("governed_run_id") or "")) if verdict_is_newer
+            else governed.get("persistence_detail")),
+        "is_ledger_row": (False if verdict_is_newer
+                          else governed.get("is_ledger_row")),
+        "retrievable_through_owner": (True if verdict_is_newer
+                                      else governed.get("retrievable_through_owner")),
         # R55.2.2 — whether this session was supposed to hold a ledger row, and
         # the named blocker when it does not. The decision owner's verdict,
         # carried verbatim; this composition classifies nothing.
-        "expected_ledger_row": governed.get("expected_ledger_row"),
-        "persistence_blocker": governed.get("persistence_blocker"),
+        "expected_ledger_row": (False if verdict_is_newer
+                                else governed.get("expected_ledger_row")),
+        "persistence_blocker": (None if verdict_is_newer
+                                else governed.get("persistence_blocker")),
         "manual_review_required": governed.get("manual_review_required"),
         # The operational facts the decision was taken against — the book's own.
         "operational_mark_date": operational_book.get("operational_mark_date"),

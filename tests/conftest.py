@@ -80,6 +80,21 @@ if _repo_root.name != "paper_trader" and (_repo_root / "__init__.py").exists():
             % getattr(sys.modules["paper_trader"], "__file__", "?"))
     sys.meta_path.insert(0, _WorktreePaperTraderFinder)
 
+# ---------------------------------------------------------------------------
+# R84 — PRODUCTION WRITE GUARD. Installed at conftest import, before any test
+# module is collected, so an import-time default can no more write production
+# than a test body can. See tests/_production_write_guard.py.
+# ---------------------------------------------------------------------------
+import importlib.util as _ilu
+
+_guard_spec = _ilu.spec_from_file_location(
+    "_paper_trader_production_write_guard",
+    str(Path(__file__).resolve().parent / "_production_write_guard.py"))
+production_write_guard = _ilu.module_from_spec(_guard_spec)
+sys.modules[_guard_spec.name] = production_write_guard
+_guard_spec.loader.exec_module(production_write_guard)
+production_write_guard.install()
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
@@ -226,6 +241,66 @@ def _hermetic_stage8_store(tmp_path_factory, monkeypatch) -> None:
         monkeypatch.setenv(
             env_var, str(tmp_path_factory.mktemp("stage8_hermetic")))
     yield
+
+
+#: ``alpha_agent.r59.DEFAULT_RESEARCH_ROOT`` and its env override, repeated for
+#: the same bootstrap reason as the forward-evidence roots above.
+_R59_RESEARCH_ROOT_ENV = "PAPER_TRADER_R59_RESEARCH_ROOT"
+_R59_PRODUCTION_ROOT = Path(r"D:\Stock_Prediction_app_data\r59_autonomous_alpha")
+
+
+@pytest.fixture(scope="session")
+def _r59_research_root_snapshot(tmp_path_factory) -> Path:
+    """R84 — one read-only-sourced COPY of the live R59 research root per session.
+
+    Several suites open the R59 research memory READ-WRITE with no path (the
+    default resolves to the live store), and ``ResearchMemory`` runs its schema
+    script on every read-write open: a test run therefore migrated the operator's
+    live research memory. Those suites legitimately read what research has
+    concluded, so they get the same bytes - a session snapshot - and whatever
+    they write lands in the snapshot, never in production.
+    """
+    import shutil
+
+    dst = tmp_path_factory.mktemp("r59_research_root_snapshot") / "r59_autonomous_alpha"
+    if _R59_PRODUCTION_ROOT.exists():
+        shutil.copytree(_R59_PRODUCTION_ROOT, dst,
+                        ignore=shutil.ignore_patterns("*.lock", "*.lease"))
+    else:
+        dst.mkdir(parents=True)
+    return dst
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_r59_research_root(request, monkeypatch) -> None:
+    """R84 — never let the LIVE R59 research root leak into a test.
+
+    A test that sets ``PAPER_TRADER_R59_RESEARCH_ROOT`` itself (inside its body
+    or its own fixture) wins over this, exactly like the fixtures above.
+    """
+    current = os.environ.get(_R59_RESEARCH_ROOT_ENV)
+    if not current or Path(current) == _R59_PRODUCTION_ROOT:
+        snap = request.getfixturevalue("_r59_research_root_snapshot")
+        monkeypatch.setenv(_R59_RESEARCH_ROOT_ENV, str(snap))
+    yield
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:
+    """R84 — a refused production write fails the session, even if swallowed."""
+    report = production_write_guard.report(
+        os.environ.get("PAPER_TRADER_TEST_WRITE_GUARD_REPORT"))
+    if report["violation_count"] and session.exitstatus == 0:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
+    report = production_write_guard.report()
+    terminalreporter.write_sep(
+        "=", "R84 production write guard: %d refused production write(s)"
+        % report["violation_count"])
+    for v in report["violations"][:40]:
+        terminalreporter.write_line(
+            "  %s %s [%s] <- %s" % (v["kind"], v["target"], v["detail"], v["test"]))
 
 
 @pytest.fixture(autouse=True)

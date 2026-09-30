@@ -533,7 +533,10 @@ class TestPlanConfirm:
         desk.confirm_orders(confirm=desk.EXEC_CONFIRM_TOKEN, today="2026-07-18")
         _refresh("2026-07-21", _marks_table(_D0 + ["2026-07-20"]))
         again = ab.confirm_order_plan(confirm=ab.PLAN_CONFIRM_TOKEN, today="2026-07-21")
-        assert again["status"] == ab.A_NO_CHANGES and again["performed_write"] is False
+        # R84 — once the book holds fills it is live, and the bootstrap plan path
+        # refuses outright (before it would have answered NO_CHANGES). Still no write.
+        assert again["status"] == desk.S_LIVE_BOOK_BOOTSTRAP_CLOSED
+        assert again["performed_write"] is False
 
     def test_blocked_targets_journaled(self, env):
         _confirm_snapshot()

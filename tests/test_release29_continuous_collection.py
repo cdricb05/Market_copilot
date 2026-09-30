@@ -1285,11 +1285,20 @@ class TestOwnership:
 
     def test_there_is_exactly_one_long_lived_worker_script(self):
         assert (REPO / "scripts" / "run_information_collection_service.py").exists()
+        # R84 — the S25 re-arm is a ONE-SHOT governed activation (it writes one
+        # epoch-floor record, starts no task and restarts nothing); its name
+        # carries "collection" but it is not a worker. It is allowed by name and
+        # pinned to stay loop-free, so a second long-lived worker still fails here.
+        one_shot = "rearm_s25_prospective_collection.py"
         strays = [p.name for p in (REPO / "scripts").glob("*.py")
                   if "collection" in p.name.lower()
                   and p.name not in ("run_information_collection_service.py",
-                                     "collection_service_control.py")]
+                                     "collection_service_control.py", one_shot)]
         assert strays == []
+        rearm = REPO / "scripts" / one_shot
+        if rearm.exists():
+            src = rearm.read_text(encoding="utf-8", errors="replace")
+            assert "while True" not in src and "run_forever" not in src
 
     def test_the_service_is_managed_by_exactly_one_powershell_script(self):
         manage = REPO / "scripts" / "manage_information_collection.ps1"
@@ -1332,7 +1341,8 @@ class TestOwnership:
         assert "_icSetHeaderBadge(" in ui
         # ONE loader still owns it — the chip is not a second status source.
         assert ui.count("function loadInformationCollection(") == 1
-        assert ui.count("_mhzGet('/v1/operations/information-collection')") == 1
+        # R84 — the one fetch site now passes the heavy-read budget; still ONE site.
+        assert ui.count("_mhzGet('/v1/operations/information-collection'") == 1
 
     def test_the_architecture_audit_guards_this_release(self):
         audit = (REPO / "scripts" / "audit_architecture.py").read_text(
