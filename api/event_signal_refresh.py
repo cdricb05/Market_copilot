@@ -1051,12 +1051,14 @@ def run_event_signal_refresh(
             corpus = fabric.ingest_corpus_lane(
                 tickers=held, lookback_days=lookback_days,
                 ingestion_root=ingestion_root, news_root=news_root,
-                entity_index=idx, progress_fn=progress_fn)
+                entity_index=idx, progress_fn=progress_fn,
+                as_of=cycle_now_iso, session=eligible)
             raw_events.extend(corpus["events"])
             adapter_results["corpus"] = {
                 "event_count": corpus["event_count"],
                 "scanned_files": corpus["scanned_files"],
                 "per_source": corpus["per_source"],
+                "window": corpus.get("window"),
                 "bounded_by": corpus["bounded_by"]}
         if include_market_quotes:
             quotes = fabric.capture_market_quotes(held, fetcher=quote_fetcher,

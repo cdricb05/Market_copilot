@@ -843,7 +843,7 @@ def autonomy_snapshot(stage8_config: Optional[dict] = None, *,
         from . import autonomous_research as ar
         qdb = ((cfg.get("autonomy") or {}).get("queue_db"))
         if qdb and Path(qdb).exists():
-            q = ar.ResearchQueue(qdb)
+            q = ar.ResearchQueue(qdb, read_only=True)
             states = q.counts_by_state()
             out["queue"] = {
                 "depth": q.depth(),
@@ -893,7 +893,8 @@ def autonomy_snapshot(stage8_config: Optional[dict] = None, *,
         }
         state_db = (cfg.get("telegram") or {}).get("state_db")
         if state_db and Path(state_db).exists():
-            tg_out["last_request"] = tc.TelegramStore(state_db).last_request()
+            tg_out["last_request"] = tc.TelegramStore(
+                state_db, read_only=True).last_request()
         out["telegram"] = tg_out
     except Exception as exc:  # noqa: BLE001
         out["telegram"] = {"status": "UNAVAILABLE", "reason": str(exc)[:120]}

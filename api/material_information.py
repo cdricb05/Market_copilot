@@ -118,6 +118,8 @@ TRANSPARENCY_FIELDS = (
     "source", "source_family", "source_title", "source_url", "source_url_state",
     "source_host", "source_reference",
     "timestamp", "ingested_at",
+    "stated_publication_at", "available_at", "availability_basis",
+    "timestamp_quality", "timestamp_note",
     "ticker", "held",
     "event_type", "event_sub_type", "family",
     "signal_authority", "authority_reach", "event_quality",
@@ -177,6 +179,37 @@ def _source_title(event: dict) -> Optional[str]:
     return t or None
 
 
+#: Row-level timestamp qualification. The kernel owns the PIT verdict; this only
+#: says which timestamp a row may show and how it must be qualified.
+TS_STATED = "STATED"
+TS_DISPUTED = "PUBLICATION_DATE_DISPUTED"
+TS_UNKNOWN = "PUBLICATION_TIME_UNKNOWN"
+TIMESTAMP_QUALITY_VOCAB = (TS_STATED, TS_DISPUTED, TS_UNKNOWN)
+
+
+def _timestamp_quality(event: dict) -> dict:
+    """Which instant a row shows as its time, and its data-quality qualification.
+
+    A disputed publication date is NEVER shown as the event's time: the row shows
+    the first independent observation and says why.
+    """
+    e = event or {}
+    pit = e.get("point_in_time_status")
+    if pit == "PUBLICATION_TIMESTAMP_DISPUTED":
+        return {"timestamp": e.get("available_at") or e.get("retrieved_at"),
+                "quality": TS_DISPUTED,
+                "note": ("Source-stated publication %s is later than when this system "
+                         "first retrieved it; shown at first observation instead. "
+                         "Treat the source date as unreliable." % e.get("published_at"))}
+    if pit == "AVAILABILITY_TIMESTAMP_UNKNOWN":
+        return {"timestamp": e.get("source_timestamp") or e.get("ingested_at"),
+                "quality": TS_UNKNOWN,
+                "note": "The source stated no publication time; shown at ingestion."}
+    return {"timestamp": (e.get("published_at") or e.get("source_timestamp")
+                          or e.get("ingested_at")),
+            "quality": TS_STATED, "note": None}
+
+
 def _hoc_by_ticker(hoc: Optional[dict]) -> dict:
     out = {}
     for r in ((hoc or {}).get("holding_reviews") or []):
@@ -228,11 +261,16 @@ def build(*, event_refresh: Optional[dict] = None,
         held = bool(tk and tk in holdings)
         review = hoc_rows.get(tk) or {}
         link = _source_link(e)
+        ts = _timestamp_quality(e)
         rows.append({
             "event_id": e.get("event_id"),
-            "timestamp": (e.get("published_at") or e.get("source_timestamp")
-                          or e.get("ingested_at")),
+            "timestamp": ts["timestamp"],
             "ingested_at": e.get("ingested_at"),
+            "stated_publication_at": e.get("published_at"),
+            "available_at": e.get("available_at"),
+            "availability_basis": e.get("availability_basis"),
+            "timestamp_quality": ts["quality"],
+            "timestamp_note": ts["note"],
             "ticker": tk,
             "held": held,
             "source": e.get("source_id") or e.get("collector_id"),

@@ -106,11 +106,13 @@ PAPER_TRADER_BENCHMARK_TICKER=SPY
 PAPER_TRADER_LOG_LEVEL=INFO
 ```
 
-Test suite only (database tests are skipped when absent):
-
-```text
-PAPER_TRADER_TEST_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/paper_trader_test
-```
+Test suite only: `PAPER_TRADER_TEST_DATABASE_URL` is read from the process
+environment of the pytest shell, never from `.env`. Database tests create,
+truncate and drop every table, so the R85 gate (`tests/_pg_test_database_gate.py`)
+admits the URL only when it names a separate, disposable database whose server
+identity differs from `PAPER_TRADER_DATABASE_URL` and which carries
+`COMMENT ON DATABASE <name> IS 'PAPER_TRADER_DISPOSABLE_TEST_DATABASE'`. A name
+containing "test" proves nothing. Otherwise every database test skips.
 
 ## Python Path
 
@@ -208,8 +210,9 @@ python scripts/seed.py
 python -m pytest tests/ -v
 ```
 
-Database tests require `PAPER_TRADER_TEST_DATABASE_URL` in `.env` and are skipped
-automatically when it is absent.
+Database tests require `PAPER_TRADER_TEST_DATABASE_URL` in the pytest process
+environment (not `.env`) naming a database the R85 gate admits; they are skipped
+automatically when it is absent or refused.
 
 ## Starting the API Server
 

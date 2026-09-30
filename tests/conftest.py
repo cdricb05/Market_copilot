@@ -1,9 +1,12 @@
 """
 tests/conftest.py — pytest fixtures for the paper_trader test suite.
 
-Database tests require PAPER_TRADER_TEST_DATABASE_URL to be set. Any test
-that accepts db_session or seeded_portfolio is automatically skipped when the
-env var is absent.
+Database tests require PAPER_TRADER_TEST_DATABASE_URL to be set AND admitted by
+the R85 gate (tests/_pg_test_database_gate.py): a separate database whose
+server identity differs from production and which is designated
+'PAPER_TRADER_DISPOSABLE_TEST_DATABASE' by COMMENT ON DATABASE. Any test that
+accepts db_session or seeded_portfolio is skipped when the variable is absent
+or refused.
 
 Isolation strategy:
     Each test runs inside a SAVEPOINT nested within a connection-level
@@ -12,8 +15,8 @@ Isolation strategy:
     or DROP between tests.
 
 Usage:
-    PAPER_TRADER_TEST_DATABASE_URL=postgresql+psycopg2://user:pass@host/test_db \\
-        pytest
+    $env:PAPER_TRADER_TEST_DATABASE_URL = '<DSN of the designated disposable db>'
+    .venv-win/Scripts/python.exe -m pytest
 """
 from __future__ import annotations
 
@@ -94,6 +97,18 @@ production_write_guard = _ilu.module_from_spec(_guard_spec)
 sys.modules[_guard_spec.name] = production_write_guard
 _guard_spec.loader.exec_module(production_write_guard)
 production_write_guard.install()
+
+# R85 — the ONE fail-closed PostgreSQL test-database gate. It runs here, before
+# any test module is imported, because ten modules read the test URL directly and
+# run create_all/TRUNCATE/drop_all. A refused URL is removed from the environment
+# so every such fixture skips. See tests/_pg_test_database_gate.py.
+_pg_gate_spec = _ilu.spec_from_file_location(
+    "_paper_trader_pg_test_database_gate",
+    str(Path(__file__).resolve().parent / "_pg_test_database_gate.py"))
+pg_test_database_gate = _ilu.module_from_spec(_pg_gate_spec)
+sys.modules[_pg_gate_spec.name] = pg_test_database_gate
+_pg_gate_spec.loader.exec_module(pg_test_database_gate)
+pg_test_database_gate.enforce()
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -367,10 +382,17 @@ def _test_db_url() -> str:
     that this fixture has no dependency on config.py or get_settings().
     """
     url = os.environ.get("PAPER_TRADER_TEST_DATABASE_URL")
+    verdict = pg_test_database_gate.verdict() or {}
+    if verdict.get("state") == pg_test_database_gate.REFUSED:
+        pytest.skip("R85 PostgreSQL test-database gate REFUSED: %s" % verdict["reason"])
     if not url:
         pytest.skip(
             "PAPER_TRADER_TEST_DATABASE_URL is not set — skipping all DB tests."
         )
+    # At use: only the exact URL the gate proved at import is accepted.
+    if not pg_test_database_gate.is_admitted(url):
+        pytest.skip("R85 PostgreSQL test-database gate REFUSED: URL_CHANGED_AFTER_"
+                    "ADMISSION: the test URL is not the one proven at import")
     return url
 
 

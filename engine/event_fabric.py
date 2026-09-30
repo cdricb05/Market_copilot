@@ -48,6 +48,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 PHASE = "RELEASE28"
@@ -598,7 +599,8 @@ EVENT_FIELDS = (
     "event_sub_type", "family", "signal_speed", "decision_authority",
     "authority_policy_version", "why_authority", "classified", "concepts",
     "cadence", "source_timestamp", "published_at", "accepted_at", "effective_at",
-    "first_observed_at", "ingested_at", "entities", "primary_ticker",
+    "first_observed_at", "ingested_at", "retrieved_at", "available_at",
+    "availability_basis", "entities", "primary_ticker",
     "identity_confidence", "source_quality", "event_quality", "materiality_inputs",
     "novelty", "novelty_reason", "duplicate_of", "supersedes", "superseded_by",
     "payload_fingerprint", "payload_reference", "extractor_version",
@@ -608,7 +610,66 @@ EVENT_FIELDS = (
 PIT_OK = "POINT_IN_TIME_OK"
 PIT_UNKNOWN_AVAILABILITY = "AVAILABILITY_TIMESTAMP_UNKNOWN"
 PIT_SNAPSHOT_PROSPECTIVE = "PROSPECTIVE_SNAPSHOT_FORWARD_ONLY"
-PIT_STATES = (PIT_OK, PIT_UNKNOWN_AVAILABILITY, PIT_SNAPSHOT_PROSPECTIVE)
+#: The source stated a publication time LATER than the instant this system
+#: independently recorded retrieving the item. Publication cannot follow
+#: retrieval, so the stated time is not evidence of anything; availability is
+#: bounded by the first independent observation instead.
+PIT_PUBLICATION_DISPUTED = "PUBLICATION_TIMESTAMP_DISPUTED"
+PIT_STATES = (PIT_OK, PIT_UNKNOWN_AVAILABILITY, PIT_SNAPSHOT_PROSPECTIVE,
+              PIT_PUBLICATION_DISPUTED)
+
+#: How ``available_at`` was established.
+AVAIL_STATED_PUBLICATION = "STATED_PUBLICATION"
+AVAIL_FIRST_OBSERVATION = "FIRST_INDEPENDENT_OBSERVATION"
+AVAIL_UNKNOWN = "UNKNOWN"
+AVAILABILITY_BASES = (AVAIL_STATED_PUBLICATION, AVAIL_FIRST_OBSERVATION, AVAIL_UNKNOWN)
+#: Clock skew allowed between a publisher's stamp and our retrieval stamp before
+#: the stated publication time is declared impossible.
+PUBLICATION_CLOCK_TOLERANCE = timedelta(minutes=15)
+
+
+def parse_instant(value: Any) -> Optional[datetime]:
+    """An ISO timestamp or date as an aware UTC instant (date-only = 00:00 UTC)."""
+    if value is None or value == "":
+        return None
+    s = str(value).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            dt = datetime.fromisoformat(s[:10])
+        except ValueError:
+            return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def resolve_availability(*, published_at: Any = None, accepted_at: Any = None,
+                         retrieved_at: Any = None) -> dict:
+    """Decide WHEN an event's information was legitimately available.
+
+    Source publication, first independent observation (``retrieved_at``) and
+    availability are distinct facts. A stated publication time is trusted unless it
+    is later than our own recorded retrieval of the same item - which is
+    impossible - in which case it is DISPUTED and availability falls back to the
+    retrieval instant. Availability is never placed earlier than a fact this system
+    recorded; an unknown stays unknown.
+    """
+    stated_raw = accepted_at if accepted_at is not None else published_at
+    stated = parse_instant(stated_raw)
+    retrieved = parse_instant(retrieved_at)
+    if stated is not None and retrieved is not None and (
+            stated > retrieved + PUBLICATION_CLOCK_TOLERANCE):
+        return {"available_at": retrieved.isoformat(),
+                "availability_basis": AVAIL_FIRST_OBSERVATION,
+                "publication_disputed": True,
+                "reason": ("stated publication %s is later than the independently "
+                           "recorded retrieval %s" % (stated_raw, retrieved_at))}
+    if stated is not None:
+        return {"available_at": str(stated_raw),
+                "availability_basis": AVAIL_STATED_PUBLICATION,
+                "publication_disputed": False, "reason": None}
+    return {"available_at": None, "availability_basis": AVAIL_UNKNOWN,
+            "publication_disputed": False, "reason": None}
 
 
 def build_event(*, source_id: Any, record_type: Any, source_event_id: Any,
@@ -618,6 +679,7 @@ def build_event(*, source_id: Any, record_type: Any, source_event_id: Any,
                 source_timestamp: Any = None, published_at: Any = None,
                 accepted_at: Any = None, effective_at: Any = None,
                 first_observed_at: Any = None, ingested_at: Any = None,
+                retrieved_at: Any = None,
                 entities: Any = None, primary_ticker: Any = None,
                 identity_confidence: Any = None, source_quality: Any = None,
                 event_quality: Any = None, materiality_inputs: Optional[dict] = None,
@@ -627,13 +689,17 @@ def build_event(*, source_id: Any, record_type: Any, source_event_id: Any,
 
     Timestamps are NEVER fabricated. A source that did not state an availability time
     leaves ``published_at`` null and the event is marked
-    ``AVAILABILITY_TIMESTAMP_UNKNOWN`` — unknown stays unknown.
+    ``AVAILABILITY_TIMESTAMP_UNKNOWN`` — unknown stays unknown. A stated publication
+    time later than our own recorded retrieval is ``PUBLICATION_TIMESTAMP_DISPUTED``:
+    it is kept verbatim as ``published_at`` but never earns ``POINT_IN_TIME_OK``.
     """
     warnings = list(quality_warnings or [])
     cls = classify_event(record_type=record_type, event_type=event_type, payload=payload)
     fp = content_fingerprint(payload if payload is not None else {})
     idem = idempotency_key(source_id=source_id, record_type=record_type,
                            source_event_id=source_event_id, payload_fingerprint=fp)
+    avail = resolve_availability(published_at=published_at, accepted_at=accepted_at,
+                                 retrieved_at=retrieved_at)
 
     pit = PIT_OK
     if published_at is None and accepted_at is None:
@@ -642,6 +708,11 @@ def build_event(*, source_id: Any, record_type: Any, source_event_id: Any,
             "PUBLICATION_TIME_UNKNOWN: the source stated no publication/acceptance "
             "timestamp; left null (never fabricated, never back-filled from a period "
             "end or an observation date).")
+    elif avail["publication_disputed"]:
+        pit = PIT_PUBLICATION_DISPUTED
+        warnings.append(
+            "PUBLICATION_TIMESTAMP_DISPUTED: %s; availability is bounded by the first "
+            "independent observation and never placed earlier." % avail["reason"])
     if cls["family"] == F_ANALYST_SNAPSHOT:
         pit = PIT_SNAPSHOT_PROSPECTIVE
 
@@ -678,6 +749,9 @@ def build_event(*, source_id: Any, record_type: Any, source_event_id: Any,
         "effective_at": effective_at,
         "first_observed_at": first_observed_at,
         "ingested_at": ingested_at,
+        "retrieved_at": retrieved_at,
+        "available_at": avail["available_at"],
+        "availability_basis": avail["availability_basis"],
         "entities": ents,
         "primary_ticker": (str(primary_ticker).strip().upper() if primary_ticker else
                            (ents[0] if ents else None)),
@@ -936,7 +1010,11 @@ def event_contract() -> dict:
         "point_in_time": ("Every timestamp is the one the source stated. A missing "
                           "publication time stays null and is flagged; a period end is "
                           "never substituted for an availability time; a current "
-                          "snapshot is never inserted into historical time."),
+                          "snapshot is never inserted into historical time. A stated "
+                          "publication time later than our own recorded retrieval is "
+                          "PUBLICATION_TIMESTAMP_DISPUTED; availability is then bounded "
+                          "by that first independent observation, never earlier."),
+        "availability_bases": list(AVAILABILITY_BASES),
         "safety": {"creates_orders": False, "mutates_operational_state": False,
                    "promotes_models": False, "read_only_sources": True},
     }
@@ -960,6 +1038,9 @@ __all__ = [
     "BUSINESS_CONCEPTS", "CONCEPT_DEPENDENCIES", "CALCULATION_OWNERS",
     "CALCULATION_ORDER", "EVENT_FAMILY_TABLE", "EVENT_FAMILIES", "EVENT_FIELDS",
     "PIT_OK", "PIT_UNKNOWN_AVAILABILITY", "PIT_SNAPSHOT_PROSPECTIVE", "PIT_STATES",
+    "PIT_PUBLICATION_DISPUTED", "AVAIL_STATED_PUBLICATION", "AVAIL_FIRST_OBSERVATION",
+    "AVAIL_UNKNOWN", "AVAILABILITY_BASES", "PUBLICATION_CLOCK_TOLERANCE",
+    "parse_instant", "resolve_availability",
     "REGIME_MACRO_SERIES", "STRUCTURAL_FORMS", "MATERIAL_EVENT_FORMS", "INSIDER_FORMS",
     "F_STRUCTURAL_REPORT", "F_MATERIAL_CORPORATE_EVENT", "F_INSIDER_TRANSACTION",
     "F_OTHER_FILING", "F_EARNINGS_RESULT", "F_GUIDANCE_CHANGE", "F_FUNDAMENTAL_FACT",

@@ -19,8 +19,10 @@ collected - and, for the lifetime of the pytest process:
   authorizer that denies INSERT / UPDATE / DELETE / DDL / writing PRAGMAs. Reads,
   including a read handle's ``query_only`` fallback, are untouched.
 * Postgres: SQLAlchemy engines bound to the PRODUCTION database (the one
-  ``PAPER_TRADER_DATABASE_URL`` names, unless it is also the test database)
-  refuse every data- or schema-changing statement.
+  ``PAPER_TRADER_DATABASE_URL`` names, in the environment or the repo ``.env``;
+  a test URL equal to it never disarms this) refuse every data- or
+  schema-changing statement. Admitting a test database at all is the job of
+  ``tests/_pg_test_database_gate.py``.
 
 Every refusal is recorded, and ``pytest_sessionfinish`` in conftest turns a
 non-empty record into a failed session even when the code under test swallowed
@@ -223,12 +225,35 @@ def _db_name(url: Optional[str]) -> Optional[tuple]:
         return None
 
 
-def production_database() -> Optional[tuple]:
-    prod = _db_name(os.environ.get("PAPER_TRADER_DATABASE_URL"))
-    test = _db_name(os.environ.get("PAPER_TRADER_TEST_DATABASE_URL"))
-    if prod is None or prod == test:
+def _production_url() -> Optional[str]:
+    """The environment first, else the repo ``.env`` (what config.Settings reads)."""
+    if os.environ.get("PAPER_TRADER_DATABASE_URL"):
+        return os.environ["PAPER_TRADER_DATABASE_URL"]
+    try:
+        lines = (Path(__file__).resolve().parents[1] / ".env").read_text(
+            encoding="utf-8-sig").splitlines()
+    except OSError:
         return None
-    return prod
+    for line in lines:
+        key, _, val = line.strip().partition("=")
+        if key.strip() == "PAPER_TRADER_DATABASE_URL" and not line.strip().startswith("#"):
+            return val.strip().strip('"').strip("'") or None
+    return None
+
+
+def production_database() -> Optional[tuple]:
+    # R85: a test URL equal to production NEVER disarms the guard. It used to
+    # return None here, i.e. the guard switched itself off in exactly the
+    # configuration it exists to stop.
+    return _db_name(_production_url())
+
+
+_LOOPBACK = {"localhost", "127.0.0.1", "::1", ""}
+
+
+def _same_host(a: str, b: str) -> bool:
+    a, b = (a or "").lower(), (b or "").lower()
+    return a == b or (a in _LOOPBACK and b in _LOOPBACK)
 
 
 def _install_sqlalchemy_guard() -> None:
@@ -246,15 +271,19 @@ def _install_sqlalchemy_guard() -> None:
         if not _state["active"]:
             return
         u = conn.engine.url
-        key = ((u.host or "").lower(), u.port or 5432, u.database or "")
-        if key == prod and _PG_WRITE.search(statement or ""):
+        same = (_same_host(u.host or "", prod[0]) and (u.port or 5432) == prod[1]
+                and (u.database or "") == prod[2])
+        if same and _PG_WRITE.search(statement or ""):
             _refuse("postgres-write", "%s/%s" % (u.host, u.database),
                     (statement or "").strip().split("\n", 1)[0][:120])
 
 
 # --------------------------------------------------------------------------- #
 def install() -> bool:
-    if os.environ.get("PAPER_TRADER_TEST_PRODUCTION_WRITE_GUARD", "1") == "0":
+    # R85: the opt-out is refused whenever a test database is configured - a run
+    # that may execute DDL is never the "supervised one-off" the opt-out is for.
+    if (os.environ.get("PAPER_TRADER_TEST_PRODUCTION_WRITE_GUARD", "1") == "0"
+            and not os.environ.get("PAPER_TRADER_TEST_DATABASE_URL")):
         return False
     if not _state["installed"]:
         sys.addaudithook(_audit)

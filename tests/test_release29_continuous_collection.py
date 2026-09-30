@@ -651,9 +651,11 @@ class TestBusyWorkerIsNotAStalledWorker:
         for n in range(3):
             (tree / ("part-%d.jsonl" % n)).write_text("\n", encoding="utf-8")
         seen: list = []
+        # R85: the window is anchored to the requested session, not the newest
+        # partition name, so the fixture partition's session is stated explicitly.
         fabric.ingest_corpus_lane(
             tickers=["AAA"], ingestion_root=tmp_path / "ing",
-            news_root=tmp_path / "news",
+            news_root=tmp_path / "news", as_of="2026-08-17T20:00:00+00:00",
             progress_fn=lambda step, detail=None: seen.append((step, detail)))
         files = [d for s, d in seen if s == "CORPUS_SCAN" and "file " in str(d)]
         assert len(files) == 3, seen

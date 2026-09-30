@@ -330,6 +330,7 @@ class ResearchQueue:
         worker is mid-transaction.
         """
         uri = "file:%s?mode=ro" % self.db_path.as_posix()
+        conn = None
         try:
             conn = sqlite3.connect(uri, uri=True, timeout=30.0,
                                    isolation_level=None)
@@ -338,12 +339,18 @@ class ResearchQueue:
             conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
             return conn
         except sqlite3.Error:
-            conn = sqlite3.connect(str(self.db_path), timeout=30.0,
-                                   isolation_level=None)
+            if conn is not None:  # R85: never leak the failed ro handle
+                conn.close()
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0,
+                               isolation_level=None)
+        try:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA busy_timeout=30000")
             conn.execute("PRAGMA query_only=ON")
             return conn
+        except BaseException:
+            conn.close()
+            raise
 
     def _init_schema(self) -> None:
         conn = self._connect()

@@ -350,10 +350,20 @@ class TelegramStore:
     sqlite3; survives restart). Never stores a secret."""
 
     def __init__(self, db_path: str | Path,
-                 clock: Optional[Callable[[], str]] = None):
+                 clock: Optional[Callable[[], str]] = None, *,
+                 read_only: bool = False):
+        # ``read_only`` (R85): an OBSERVER handle (same contract as
+        # ResearchQueue(read_only=True)) - no directory, no schema script, no
+        # journal-mode switch; the engine refuses any write through it.
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = bool(read_only)
         self._clock = clock or _utc_now_iso
+        if self.read_only:
+            if not self.db_path.exists():
+                raise FileNotFoundError(
+                    "telegram state store not present: %s" % self.db_path)
+            return
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = self._c()
         try:
             conn.executescript(_STORE_SCHEMA)
@@ -361,12 +371,41 @@ class TelegramStore:
             conn.close()
 
     def _c(self) -> sqlite3.Connection:
+        if self.read_only:
+            return self._c_read_only()
         conn = sqlite3.connect(str(self.db_path), timeout=30.0,
                                isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+            return conn
+        except BaseException:
+            conn.close()
+            raise
+
+    def _c_read_only(self) -> sqlite3.Connection:
+        """``mode=ro`` first; a cleanly-closed WAL store without ``-shm``
+        refuses that, so fall back to ``query_only`` (engine-enforced)."""
+        conn = sqlite3.connect("file:%s?mode=ro" % self.db_path.as_posix(),
+                               uri=True, timeout=30.0, isolation_level=None)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+            return conn
+        except sqlite3.Error:
+            conn.close()
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0,
+                               isolation_level=None)
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA query_only=ON")
+            return conn
+        except BaseException:
+            conn.close()
+            raise
 
     def get_offset(self) -> int:
         conn = self._c()

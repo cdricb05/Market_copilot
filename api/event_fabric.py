@@ -313,7 +313,11 @@ def append_events(events: Iterable[dict], *, fabric_dir=None,
         ref = str(ev.get("payload_reference") or "").strip()
         if ref and ref not in links:
             links[ref] = ev["event_id"]
-        part = (_iso_date(ev.get("effective_at"))
+        # A disputed publication date never names a partition: the event is filed
+        # under the instant it was first independently observed.
+        disputed = ev.get("point_in_time_status") == ek.PIT_PUBLICATION_DISPUTED
+        part = ((_iso_date(ev.get("available_at")) if disputed else None)
+                or _iso_date(ev.get("effective_at"))
                 or _iso_date(ev.get("published_at"))
                 or _iso_date(ev.get("ingested_at"))
                 or _now().date().isoformat())
@@ -381,6 +385,8 @@ def read_events(*, fabric_dir=None, since: Optional[str] = None,
 # Entity resolution — deterministic, no fuzzy matching, no model call
 # --------------------------------------------------------------------------- #
 _NAME_NOISE = re.compile(r"[^a-z0-9 ]+")
+#: identity_confidence for a headline whose only name match was a one-word alias.
+AMBIGUOUS_SINGLE_TOKEN_NAME = "UNMATCHED_AMBIGUOUS_SINGLE_TOKEN_NAME"
 _CORP_SUFFIXES = (" incorporated", " inc", " corporation", " corp", " company", " co",
                   " limited", " ltd", " plc", " holdings", " holding", " group",
                   " common", " class a", " class b", " the", " sa", " nv", " ag")
@@ -456,9 +462,16 @@ def resolve_entities(*, text: Any, entity_index: Optional[dict] = None,
     if not by_name:
         return [], "UNMATCHED"
     hay = " " + normalize_company_name(text) + " "
-    hits = {tkr for name, tkr in by_name.items() if name and (" " + name + " ") in hay}
-    if not hits:
+    matched = {name: tkr for name, tkr in by_name.items()
+               if name and (" " + name + " ") in hay}
+    if not matched:
         return [], "UNMATCHED"
+    # A one-word company name is also an ordinary word ("apple" in an FDA recall
+    # of "Apple Sauce"). It cannot identify a security on its own, so an alias
+    # match on it alone leaves the headline unmapped - never silently attached.
+    hits = {tkr for name, tkr in matched.items() if " " in name}
+    if not hits:
+        return [], AMBIGUOUS_SINGLE_TOKEN_NAME
     return sorted(hits), "MATCHED_ALIAS"
 
 
@@ -563,6 +576,7 @@ def record_to_event(rec: dict, *, lane: str, entity_index: Optional[dict] = None
         effective_at=rec.get("effective_at"),
         first_observed_at=rec.get("observed_at"),
         ingested_at=(now_iso or _now_iso()),
+        retrieved_at=rec.get("retrieved_at"),
         entities=entities,
         primary_ticker=(entities[0] if entities else None),
         identity_confidence=confidence,
@@ -573,12 +587,55 @@ def record_to_event(rec: dict, *, lane: str, entity_index: Optional[dict] = None
         quality_warnings=list(rec.get("quality_warnings") or []))
 
 
+def corpus_window(dates: Iterable[str], *, anchor_date: str, lookback_days: int,
+                  since: Optional[str] = None) -> dict:
+    """Which partitions a corpus read covers, anchored to the REQUESTED session.
+
+    The window is ``[anchor - lookback, anchor]``. It is never derived from the
+    newest partition NAME: a partition name is a source-stated date, and one
+    future-dated record (a feed re-serving a 1997 release stamped December) would
+    otherwise drag the floor past every legitimate recent partition. Partitions
+    dated after the anchor are listed separately; their records are admitted only
+    by their own recorded retrieval instant (see ``ingest_corpus_lane``).
+    """
+    anchor = _iso_date(anchor_date)
+    if anchor is None:
+        raise ValueError("corpus_window needs an ISO anchor date, got %r" % (anchor_date,))
+    floor = _iso_date(since) or (
+        date.fromisoformat(anchor) - timedelta(days=int(lookback_days))).isoformat()
+    ordered = sorted(set(dates or ()))
+    return {"anchor_date": anchor, "floor": floor,
+            "in_window": [d for d in ordered if floor <= d <= anchor],
+            "after_anchor": [d for d in ordered if d > anchor]}
+
+
+def _record_retrieved(rec: dict) -> Optional[datetime]:
+    """The instant THIS system independently recorded retrieving a corpus record."""
+    return ek.parse_instant(rec.get("retrieved_at"))
+
+
+def _information_date(ev: dict, *, ceiling: Optional[str] = None) -> Optional[str]:
+    """The date an admitted event can legitimately advance a watermark to.
+
+    A disputed publication date is not information about freshness, and no date
+    later than the caller's clock (``ceiling``) is ever a watermark.
+    """
+    if ev.get("point_in_time_status") == ek.PIT_PUBLICATION_DISPUTED:
+        d = _iso_date(ev.get("available_at"))
+    else:
+        d = _iso_date(ev.get("effective_at")) or _iso_date(ev.get("published_at"))
+    if d and ceiling and d > ceiling:
+        return None
+    return d
+
+
 def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFAULT_LOOKBACK_DAYS,
                        since: Optional[str] = None, ingestion_root=None,
                        news_root=None, entity_index: Optional[dict] = None,
                        record_types: Optional[Iterable[str]] = None,
                        max_events_per_type: int = MAX_EVENTS_PER_RECORD_TYPE,
-                       progress_fn: Optional[Callable] = None
+                       progress_fn: Optional[Callable] = None,
+                       as_of: Any = None, session: Any = None
                        ) -> dict:
     """Read the bounded recent window of every corpus tree and build canonical events.
 
@@ -586,13 +643,27 @@ def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFA
     collection iteration), so it reports progress per record type and per scanned
     partition file. Without that, a healthy scan would be indistinguishable from
     a hung one.
+
+    ``as_of`` is the information cutoff (the caller's clock; default now) and
+    ``session`` the eligible market session the read serves. The window is anchored
+    to them, never to the newest partition name. A record the system had not yet
+    retrieved at ``as_of`` is not admitted; a record filed under a partition dated
+    after the anchor is admitted only when its own recorded retrieval falls inside
+    the window.
     """
     scope = {str(t).strip().upper() for t in (tickers or []) if str(t or "").strip()}
     wanted_types = ({str(t).upper() for t in record_types} if record_types else None)
     now_iso = _now_iso()
+    cutoff = ek.parse_instant(as_of) or _now()
+    upper = cutoff.date().isoformat()
+    anchor = min(_iso_date(session) or upper, upper)
     events: list[dict] = []
     per_source: dict[str, dict] = {}
     scanned_files = 0
+    excluded = {"not_yet_retrieved_at_cutoff": 0,
+                "after_anchor_partition_outside_window": 0}
+    after_anchor_seen: dict[str, list] = {}
+    window_floor = None
 
     overrides = {"stage2": ingestion_root, "news_rss": news_root}
     for lane, env_name, default_root, types in _CORPUS_TREES:
@@ -604,20 +675,25 @@ def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFA
             dates = _partition_dates(tree)
             if not dates:
                 continue
-            newest = dates[-1]
-            floor = since or (
-                date.fromisoformat(newest) - timedelta(days=int(lookback_days))
-            ).isoformat()
-            take = [d for d in dates if d >= floor]
-            files: list[Path] = []
-            for d in take:
-                files.extend(sorted(
-                    (tree / d[:4] / d[5:7] / d[8:10]).glob("*.jsonl")))
-            files = files[-MAX_PARTITION_FILES:]
+            win = corpus_window(dates, anchor_date=anchor,
+                                lookback_days=lookback_days, since=since)
+            window_floor = win["floor"]
+            if win["after_anchor"]:
+                after_anchor_seen["%s/%s" % (lane, rt)] = list(win["after_anchor"])
+
+            def _files(ds):
+                out: list[Path] = []
+                for d in ds:
+                    out.extend(sorted(
+                        (tree / d[:4] / d[5:7] / d[8:10]).glob("*.jsonl")))
+                return out
+
+            files = [(f, False) for f in _files(win["in_window"])][-MAX_PARTITION_FILES:]
+            files += [(f, True) for f in _files(win["after_anchor"])][:MAX_PARTITION_FILES]
             emit_progress(progress_fn, "CORPUS_SCAN",
                           "%s/%s: %d partition file(s)" % (lane, rt, len(files)))
             produced = 0
-            for f in files:
+            for f, after_anchor in files:
                 scanned_files += 1
                 emit_progress(progress_fn, "CORPUS_SCAN",
                               "%s/%s file %d" % (lane, rt, scanned_files))
@@ -637,6 +713,16 @@ def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFA
                         tkr = str(rec.get("ticker") or "").upper()
                         if tkr not in scope:
                             continue
+                    got = _record_retrieved(rec)
+                    if got is not None and got > cutoff:
+                        excluded["not_yet_retrieved_at_cutoff"] += 1
+                        continue
+                    # After-anchor partition: admitted only on our OWN retrieval
+                    # instant, which must lie in [floor, cutoff] (cutoff checked above).
+                    if after_anchor and (
+                            got is None or got.date().isoformat() < win["floor"]):
+                        excluded["after_anchor_partition_outside_window"] += 1
+                        continue
                     ev = record_to_event(rec, lane=lane, entity_index=entity_index,
                                          now_iso=now_iso)
                     if ev is None:
@@ -645,9 +731,12 @@ def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFA
                     sid = ev["source_id"] or lane
                     row = per_source.setdefault(
                         sid, {"source_id": sid, "lane": lane, "events": 0,
-                              "newest_effective_at": None})
+                              "newest_effective_at": None,
+                              "publication_disputed": 0})
                     row["events"] += 1
-                    eff = _iso_date(ev.get("effective_at"))
+                    if ev.get("point_in_time_status") == ek.PIT_PUBLICATION_DISPUTED:
+                        row["publication_disputed"] += 1
+                    eff = _information_date(ev, ceiling=upper)
                     if eff and (row["newest_effective_at"] is None
                                 or eff > row["newest_effective_at"]):
                         row["newest_effective_at"] = eff
@@ -659,6 +748,11 @@ def ingest_corpus_lane(*, tickers: Iterable[str] = (), lookback_days: int = DEFA
     return {"lane": scap.LANE_RESEARCH_CORPUS, "events": events,
             "event_count": len(events), "per_source": per_source,
             "scanned_files": scanned_files,
+            "window": {"as_of": cutoff.isoformat(), "anchor_session": anchor,
+                       "floor": window_floor,
+                       "anchored_to": "REQUESTED_SESSION_NOT_NEWEST_PARTITION",
+                       "partitions_after_anchor": after_anchor_seen,
+                       "excluded": excluded},
             "bounded_by": {"lookback_days": lookback_days,
                            "max_partition_files": MAX_PARTITION_FILES,
                            "max_events_per_record_type": max_events_per_type}}
@@ -915,6 +1009,11 @@ def build_source_freshness(*, capability: Optional[dict] = None,
         wm = marks.get(sid) or {}
         as_of = (wm.get("source_watermark") or src.get("source_watermark")
                  or wm.get("last_event_effective_at"))
+        # A watermark dated after today is not evidence of freshness; it is a
+        # source-stated future date that leaked into state. Unknown stays unknown.
+        future_watermark = None
+        if as_of and str(as_of)[:10] > _now().date().isoformat():
+            future_watermark, as_of = str(as_of), None
         cls = dfresh.classify_source(cadence=cadence, as_of=as_of, anchor=anchor_date)
         status = cls["status"]
         tol = _STALE_TOLERANCE_DAYS.get(sid)
@@ -939,6 +1038,7 @@ def build_source_freshness(*, capability: Optional[dict] = None,
             "lag_sessions": cls.get("lag_sessions"),
             "lag_calendar_days": cls.get("lag_calendar_days"),
             "source_watermark": as_of,
+            "future_watermark_rejected": future_watermark,
             "last_attempted_at": wm.get("last_attempt_at"),
             "last_success_at": (wm.get("last_success_at") or src.get("last_success_at")),
             "events_total": int(wm.get("events_total") or 0),
@@ -975,8 +1075,15 @@ def build_source_freshness(*, capability: Optional[dict] = None,
 def advance_watermarks(*, watermarks: dict, per_source: dict, admitted: list,
                        duplicates: int, now_iso: Optional[str] = None,
                        errors: Optional[dict] = None) -> dict:
-    """Advance each source's watermark from what was ACTUALLY admitted."""
+    """Advance each source's watermark from what was ACTUALLY admitted.
+
+    A watermark is a claim that the source has delivered through that date, so it
+    can never lie in the future of this cycle's clock. A disputed publication date
+    advances nothing, and a prior watermark already in the future (left by a
+    future-dated record before this rule existed) is not honoured as freshness.
+    """
     stamp = now_iso or _now_iso()
+    ceiling = _iso_date(stamp)
     out = dict(watermarks or {})
     by_source: dict[str, list] = {}
     for ev in (admitted or []):
@@ -987,10 +1094,14 @@ def advance_watermarks(*, watermarks: dict, per_source: dict, admitted: list,
         evs = by_source.get(sid) or []
         newest = None
         for ev in evs:
-            eff = _iso_date(ev.get("effective_at")) or _iso_date(ev.get("published_at"))
+            eff = _information_date(ev, ceiling=ceiling)
             if eff and (newest is None or eff > newest):
                 newest = eff
         prior = row.get("source_watermark")
+        if prior is not None and ceiling and str(prior)[:10] > ceiling:
+            row["future_watermark_discarded"] = str(prior)
+            prior = None
+            row["source_watermark"] = None
         if newest and (prior is None or newest > str(prior)):
             row["source_watermark"] = newest
         elif prior is None:
@@ -1057,6 +1168,7 @@ __all__ = [
     "load_index", "save_index", "load_watermarks", "save_watermarks",
     "append_events", "read_events", "record_to_event", "ingest_corpus_lane",
     "capture_market_quotes", "capture_gdelt_news", "build_entity_index",
-    "resolve_entities", "normalize_company_name", "build_source_freshness",
+    "resolve_entities", "AMBIGUOUS_SINGLE_TOKEN_NAME", "normalize_company_name",
+    "build_source_freshness",
     "advance_watermarks", "load_event_fabric",
 ]

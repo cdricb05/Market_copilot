@@ -32034,7 +32034,10 @@ function _opRenderAttention(p) {
       : '';
     return '<div class="it"><span class="tk' + (it.held ? ' held' : '') + '">' + tk + (it.held ? '<span class="held-chip">held</span>' : '') + '</span>'
       + '<span class="d" title="' + _opEsc(it.description) + '">' + _opEsc(it.description) + link + '</span>'
-      + '<span class="r">' + _opEsc(it.relevance) + (it.timestamp ? ' &middot; ' + _opEsc(String(it.timestamp).slice(0, 10)) : '') + '</span></div>';
+      + '<span class="r">' + _opEsc(it.relevance) + (it.timestamp ? ' &middot; ' + _opEsc(String(it.timestamp).slice(0, 10)) : '')
+      + (it.timestamp_quality === 'PUBLICATION_DATE_DISPUTED'
+          ? ' <span class="cc-badge warn" style="font-size:9px;" title="' + _opEsc(it.timestamp_note || '') + '">DISPUTED SOURCE DATE</span>' : '')
+      + '</span></div>';
   }).join('');
   var n = _opNil(a.count) ? '—' : a.count, h = _opNil(a.portfolio_relevant_count) ? '—' : a.portfolio_relevant_count;
   host.innerHTML = '<div class="hd"><span class="t">Attention</span>'
@@ -34047,7 +34050,12 @@ function renderMaterialInformation(d) {
             r.source_title || 'Open the original source in a new tab')
         : _r30esc(changed);
       return '<tr>'
-        + '<td style="white-space:nowrap;">' + _r30esc(String(r.timestamp || '').slice(0, 10)) + '</td>'
+        + '<td style="white-space:nowrap;">' + _r30esc(String(r.timestamp || '').slice(0, 10))
+        + (r.timestamp_quality === 'PUBLICATION_DATE_DISPUTED'
+            ? ' <span class="cc-badge warn" style="font-size:9px;" title="' + _r30esc(r.timestamp_note || '') + '">DISPUTED SOURCE DATE</span>'
+            : (r.timestamp_quality === 'PUBLICATION_TIME_UNKNOWN'
+                ? ' <span class="cc-badge muted" style="font-size:9px;" title="' + _r30esc(r.timestamp_note || '') + '">TIME UNKNOWN</span>' : ''))
+        + '</td>'
         + '<td><b>' + _r30esc(r.ticker || '—') + '</b>'
         + (r.held ? ' <span class="cc-badge" style="font-size:9px;">HELD</span>' : '') + '</td>'
         + '<td style="white-space:nowrap;">' + srcCell + '</td>'

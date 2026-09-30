@@ -336,16 +336,33 @@ class CandidateRegistry:
     """
 
     def __init__(self, db_path: str | Path, *,
-                 clock: Optional[Callable[[], str]] = None) -> None:
+                 clock: Optional[Callable[[], str]] = None,
+                 read_only: bool = False) -> None:
+        # ``read_only`` (R85) opens an OBSERVER handle for a read model, the
+        # same contract as ResearchQueue(read_only=True): no directory, no
+        # journal-mode switch, no schema script. Previously every read path
+        # constructed a writer, so the read-only observatory migrated the
+        # store it was reporting on and leaked the handle when that failed.
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = bool(read_only)
         self._clock = clock or _wall_clock
+        if self.read_only:
+            if not self.db_path.exists():
+                raise FileNotFoundError(
+                    "tournament registry not present: %s" % self.db_path)
+            self._conn = _connect_read_only(self.db_path, timeout=5.0)
+            return
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA busy_timeout=5000")
-        self._conn.executescript(_SCHEMA)
-        self._conn.commit()
+        try:
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            self._conn.executescript(_SCHEMA)
+            self._conn.commit()
+        except BaseException:
+            self._conn.close()
+            raise
 
     # -- lifecycle -------------------------------------------------------- #
     def close(self) -> None:
@@ -703,6 +720,32 @@ class CandidateRegistry:
 
 def _wall_clock() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+
+
+def _connect_read_only(db_path: Path, *, timeout: float) -> sqlite3.Connection:
+    """A handle that cannot write (see ResearchQueue._connect_read_only):
+    ``mode=ro`` first; when a cleanly-closed WAL store has no ``-shm`` that
+    fails, so fall back to a normal open with the engine-enforced
+    ``query_only``. Every failed attempt closes its own handle."""
+    ms = int(timeout * 1000)
+    conn = sqlite3.connect("file:%s?mode=ro" % db_path.as_posix(), uri=True,
+                           timeout=timeout)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=%d" % ms)
+        conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+        return conn
+    except sqlite3.Error:
+        conn.close()
+    conn = sqlite3.connect(str(db_path), timeout=timeout)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=%d" % ms)
+        conn.execute("PRAGMA query_only=ON")
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 def _decode_candidate(row: sqlite3.Row) -> dict:
@@ -2466,14 +2509,19 @@ def _open_registry_readonly(config_path=None, *, db_path=None):
                 cfg = {}
     if not db_path or not Path(db_path).exists():
         return None, cfg
-    return CandidateRegistry(db_path), cfg
+    return CandidateRegistry(db_path, read_only=True), cfg
 
 
 def load_tournament(config_path=None, *, db_path=None,
                     leaderboard_limit: int = 20) -> dict:
     """The one canonical read-only tournament payload. Degrades to a controlled
     UNAVAILABLE dict (never raises) so an HTTP endpoint always returns 200."""
-    reg, cfg = _open_registry_readonly(config_path, db_path=db_path)
+    try:
+        reg, cfg = _open_registry_readonly(config_path, db_path=db_path)
+    except (sqlite3.Error, OSError) as exc:
+        return {"status": "UNAVAILABLE", "reason":
+                "tournament registry unreadable: %s" % str(exc)[:120],
+                "safety": _SAFETY_BADGES, "read_only": True}
     if reg is None:
         return {"status": "UNAVAILABLE", "reason":
                 "tournament registry not initialized", "safety": _SAFETY_BADGES,
@@ -2499,6 +2547,11 @@ def load_tournament(config_path=None, *, db_path=None,
             "variants_by_family": variants_by_family(reg),
             "views": (cfg or {}).get("leaderboard", {}).get("views", []),
         }
+    except sqlite3.Error as exc:
+        # An incompatible (un-migrated) store is reported, never migrated here.
+        return {"status": "UNAVAILABLE", "reason":
+                "tournament registry unreadable: %s" % str(exc)[:120],
+                "safety": _SAFETY_BADGES, "read_only": True}
     finally:
         reg.close()
 

@@ -1412,6 +1412,8 @@ def _alerts_summary(mi: Optional[dict], top_n: int = 3) -> dict:
             "event_type": r.get("event_type"),
             "signal_authority": auth or None,     # raw, for audit — never rendered as prose
             "timestamp": r.get("timestamp"),
+            "timestamp_quality": r.get("timestamp_quality"),
+            "timestamp_note": r.get("timestamp_note"),
             "source_url": (r.get("source_url")
                            if r.get("source_url_state") == "CANONICAL_SOURCE_URL" else None),
         })
