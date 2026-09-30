@@ -633,3 +633,36 @@ def test_ui_withheld_reallocation_contracts():
     # the forbidden browser dialogs are still never called
     assert not re.search(r"(?<![\w.])alert\(\s*['\"]", UI)
     assert not re.search(r"(?<![\w.])confirm\(\s*['\"]", UI)
+
+
+_WRITE_CONTROLS = ("ab-act-init", "ab-act-confirm-plan", "pd-act-generate",
+                   "pd-act-confirm", "pd-act-cancel")
+
+
+def _button_tag(control_id):
+    m = re.search(r'<button[^>]*\bid="%s"[^>]*>' % re.escape(control_id), UI)
+    assert m, control_id
+    return m.group(0)
+
+
+def test_d30_every_book_and_order_write_control_is_disabled_in_markup():
+    """D30: on a live funded book the desk reads land ~34 s after a Portfolio
+    visit; until then (or forever, on a timed-out read) the markup defaults
+    were the UI, and they rendered Create / Confirm Paper Orders ENABLED."""
+    for cid in _WRITE_CONTROLS:
+        assert re.search(r"\sdisabled[\s>]", _button_tag(cid)), cid
+    assert 'style="display:none"' in _button_tag("pd-act-generate")
+    # the pre-read label never claims there is no book
+    assert 'id="pd-book-name">BOOK LOADING<' in UI
+
+
+def test_d30_an_unavailable_read_disarms_the_write_controls():
+    desk_unavail = UI[UI.index("function renderPaperDesk()"):]
+    desk_unavail = desk_unavail[:desk_unavail.index("return;")]
+    for cid in ("pd-act-generate", "pd-act-confirm", "pd-act-cancel"):
+        assert cid in desk_unavail, cid
+    assert "b.disabled = true" in desk_unavail
+    book_unavail = UI[UI.index("function renderAlphaBook()"):]
+    book_unavail = book_unavail[:book_unavail.index("return;")]
+    for cid in ("ab-act-init", "ab-act-confirm-plan"):
+        assert "_abBtn('%s', false" % cid in book_unavail, cid

@@ -662,7 +662,10 @@ class TestUiDeskBand:
         region = self._pm_region(html)
         assert 'id="pd-band"' in region
         assert "PAPER TRADING DESK" in region
-        assert "NO PAPER BOOK YET" in region
+        # R84: before the desk read lands the markup says it is loading; "no paper
+        # book" is the renderer's verdict from the backend, never a default.
+        assert 'id="pd-book-name">BOOK LOADING<' in region
+        assert "'NO PAPER BOOK YET'" in html
 
     def test_desk_safety_badges(self, html):
         region = self._pm_region(html)

@@ -5789,9 +5789,10 @@
             <span title="Alpha capacity policy: target 25 names, up to 30 temporary holdings during rebalance.">Capacity <b>25 / 30</b></span>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;">
-            <button class="btn-sm" id="ab-act-init" onclick="abAskAction('initialize')" title="Initialize Alpha Paper Book #1: immutable policy v1 + dedicated $100,000 virtual capital, 100% cash. Explicit token required.">Initialize Alpha Paper Book #1</button>
+            <!-- R84: every book / order WRITE control is disabled in markup and enabled only by renderAlphaBook / renderPaperDesk from the backend verdict (fail closed while the reads are in flight or unavailable). -->
+            <button class="btn-sm" id="ab-act-init" disabled onclick="abAskAction('initialize')" title="Initialize Alpha Paper Book #1: immutable policy v1 + dedicated $100,000 virtual capital, 100% cash. Explicit token required.">Initialize Alpha Paper Book #1</button>
             <button class="btn-sm" id="ab-act-plan" onclick="abGeneratePlan()" title="Open the read-only deterministic executable order plan at the latest completed owned closes. Writes nothing — no orders are created by reviewing.">Review Order Plan</button>
-            <button class="btn-sm" id="ab-act-confirm-plan" onclick="abAskAction('confirmPlan')" title="Confirm the executable order plan: creates the dedicated alpha paper orders in PROPOSED (desk ledgers only). Explicit token required.">Confirm and Create Proposed Paper Orders</button>
+            <button class="btn-sm" id="ab-act-confirm-plan" disabled onclick="abAskAction('confirmPlan')" title="Confirm the executable order plan: creates the dedicated alpha paper orders in PROPOSED (desk ledgers only). Explicit token required.">Confirm and Create Proposed Paper Orders</button>
             <button class="btn-sm" id="ab-act-blocked" onclick="abShowBlocked()" title="Read-only blocked-target report: exact reason, source field, temporariness, consequence.">View Blocked Targets</button>
             <button class="btn-sm" id="ab-act-policy" onclick="abShowPolicy()" title="Read-only immutable alpha-book policy (append-only versioned).">View Policy</button>
           </div>
@@ -5821,7 +5822,7 @@
                    owned-data refresh and recovery live here; the canonical daily flow
                    does not require any button in this band. -->
               <span class="cc-badge muted" data-flow-class="MAINTENANCE_RECOVERY" title="Maintenance / recovery and desk diagnostics. Not the canonical next action.">MAINTENANCE / RECOVERY</span>
-              <span class="cc-badge muted" id="pd-book-name">NO PAPER BOOK YET</span>
+              <span class="cc-badge muted" id="pd-book-name">BOOK LOADING</span>
               <span class="cc-badge" id="pd-status">&mdash;</span></span>
             <button class="btn-sm" id="pd-refresh-view" onclick="loadPaperDesk()" title="Reload the read-only paper-desk view. Writes nothing.">&#8635; Refresh View</button>
           </div>
@@ -5864,10 +5865,10 @@
             <button class="btn-sm" id="pd-act-refresh" onclick="pdAskAction('refresh')" title="MAINTENANCE / RECOVERY ONLY. Low-level owned-mark sync + NEXT_CLOSE settlement + performance append. The normal path runs this inside the Daily Close. Explicit token required.">Recovery: Refresh Desk Data</button>
           </details>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;">
-            <button class="btn-sm" id="pd-act-generate" onclick="pdAskAction('generate')" title="Create PROPOSED paper orders from the latest confirmed paper-alpha snapshot. Explicit token required.">Create Paper Orders</button>
+            <button class="btn-sm" id="pd-act-generate" disabled style="display:none" onclick="pdAskAction('generate')" title="Create PROPOSED paper orders from the latest confirmed paper-alpha snapshot. Explicit token required.">Create Paper Orders</button>
             <button class="btn-sm" id="pd-act-preview" onclick="pdExecutionPreview()" title="Read-only indicative execution preview at the latest completed owned close. Writes nothing.">Preview Execution</button>
-            <button class="btn-sm" id="pd-act-confirm" onclick="pdAskAction('submit')" title="Manually submit PROPOSED paper orders (PROPOSED to APPROVED to SUBMITTED; fills at the deterministic next close). Explicit token required.">Confirm Paper Orders</button>
-            <button class="btn-sm" id="pd-act-cancel" onclick="pdAskAction('cancel')" title="Cancel open paper orders before any fill. Explicit token required.">Cancel Open Orders</button>
+            <button class="btn-sm" id="pd-act-confirm" disabled onclick="pdAskAction('submit')" title="Manually submit PROPOSED paper orders (PROPOSED to APPROVED to SUBMITTED; fills at the deterministic next close). Explicit token required.">Confirm Paper Orders</button>
+            <button class="btn-sm" id="pd-act-cancel" disabled onclick="pdAskAction('cancel')" title="Cancel open paper orders before any fill. Explicit token required.">Cancel Open Orders</button>
           </div>
           <!-- styled in-page confirmation for every desk mutation (never a native browser dialog) -->
           <div id="pd-confirm-box" style="display:none;border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin:0 0 8px;">
@@ -41311,6 +41312,13 @@ function renderPaperDesk() {
   if (!st) {
     if (badge) { badge.textContent = 'UNAVAILABLE'; badge.className = 'cc-badge danger'; }
     _pdSet('pd-next-action', 'Paper desk status unavailable — check the backend connection.');
+    _pdSet('pd-book-name', 'BOOK STATUS UNAVAILABLE');
+    // R84: an unreadable desk never leaves a write control armed from markup
+    // defaults or from an earlier, now-stale read.
+    ['pd-act-generate', 'pd-act-confirm', 'pd-act-cancel'].forEach(function (id) {
+      var b = document.getElementById(id);
+      if (b) { b.disabled = true; b.title = 'Paper desk status unavailable — nothing can be written from this view.'; }
+    });
     return;
   }
   if (badge) { badge.textContent = 'LIVE'; badge.className = 'cc-badge safe'; }
@@ -41753,6 +41761,9 @@ function renderAlphaBook() {
   if (!ab) {
     if (badge) { badge.textContent = 'UNAVAILABLE'; badge.className = 'cc-badge danger'; }
     _pdSet('ab-next-action', 'Alpha-book status unavailable — check the backend connection.');
+    // R84: fail closed - no book or order write stays armed without a verdict.
+    _abBtn('ab-act-init', false, 'Alpha-book status unavailable — nothing can be written from this view.', '');
+    _abBtn('ab-act-confirm-plan', false, 'Alpha-book status unavailable — nothing can be written from this view.', '');
     return;
   }
   var cur = ab.current_state || '—';
