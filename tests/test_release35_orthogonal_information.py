@@ -258,8 +258,12 @@ def test_an_insider_filing_is_observable_at_its_filing_date_only():
     assert _contract.INSIDER_TRANSACTION_DATE_MAY_BE_OBSERVABLE is False
 
 
-def test_insider_direction_comes_from_transaction_codes_not_from_value():
+def test_insider_direction_comes_from_transaction_codes_not_from_value(
+        tmp_path, monkeypatch):
     """The value fields are unvalidated; a typo must not flip a direction."""
+    # R84: the probe archive and the derived-cache swap below live in a temp
+    # research root; against the default they moved the LIVE derived cache.
+    monkeypatch.setenv(r35.RESEARCH_ROOT_ENV, str(tmp_path / "r35"))
     archive_bytes = io.BytesIO()
     with zipfile.ZipFile(archive_bytes, "w") as archive:
         archive.writestr(

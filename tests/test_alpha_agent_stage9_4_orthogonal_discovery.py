@@ -40,6 +40,10 @@ _STAGE8_CFG = json.loads((_REPO_MARK := Path(__file__).resolve().parents[1])
 _REPO = Path(__file__).resolve().parents[1]
 _CFG = json.loads((_REPO / "configs" / "alpha_agent" /
                    "stage9_tournament.json").read_text(encoding="utf-8"))
+# R84: the committed config names the LIVE identity store, which IdentityStore
+# opens read-write (schema script on connect); these tests run unconfigured.
+(_CFG.get("stage9_5") or {}).get("historical_universe", {}).pop(
+    "identity_store_db", None)
 
 
 # --------------------------------------------------------------------------- #

@@ -85,6 +85,7 @@ def test_sqlite_writes_are_denied_and_reads_allowed(tmp_path, monkeypatch):
     try:
         assert conn.execute("SELECT x FROM t").fetchall() == [(1,)]
         conn.execute("PRAGMA busy_timeout=1000")          # a read handle's pragma
+        assert conn.execute("PRAGMA table_info(t)").fetchall()   # introspection
         with pytest.raises(sqlite3.DatabaseError):
             conn.execute("INSERT INTO t VALUES (2)")
         with pytest.raises(sqlite3.DatabaseError):

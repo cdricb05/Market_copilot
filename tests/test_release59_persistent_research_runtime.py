@@ -561,7 +561,11 @@ def test_maturation_is_refused_from_this_development_worktree():
     """Prospective rows record what was known; uncommitted code may not write them."""
     from api import runtime_identity as rid
     ident = RT.worker_identity(reader=rid.read_source_identity)
-    assert ident["source"]["dirty"] is True, "this worktree should be dirty"
+    assert ident["source"]["commit"], "the real reader resolves this checkout"
+    # R84: whether THIS checkout is dirty depends on when the suite runs (the
+    # release lock certifies a clean commit), so the dirty state is stated, not
+    # assumed: the real identity with uncommitted changes must be refused.
+    ident = dict(ident, source=dict(ident["source"], dirty=True))
     policy = RT.maturation_policy(ident)
     assert policy["allowed"] is False
     assert policy["reason"] == "SOURCE_HAS_UNCOMMITTED_CHANGES"

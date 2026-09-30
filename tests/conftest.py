@@ -271,18 +271,23 @@ def _r59_research_root_snapshot(tmp_path_factory) -> Path:
     return dst
 
 
-@pytest.fixture(autouse=True)
-def _hermetic_r59_research_root(request, monkeypatch) -> None:
+@pytest.fixture(scope="session", autouse=True)
+def _hermetic_r59_research_root(_r59_research_root_snapshot) -> None:
     """R84 — never let the LIVE R59 research root leak into a test.
 
-    A test that sets ``PAPER_TRADER_R59_RESEARCH_ROOT`` itself (inside its body
-    or its own fixture) wins over this, exactly like the fixtures above.
+    SESSION-scoped so it is in force before any module-scoped fixture opens the
+    memory (a function-scoped redirect arrived after one already had). A test
+    that sets ``PAPER_TRADER_R59_RESEARCH_ROOT`` itself (inside its body or its
+    own fixture, via monkeypatch) wins over this, exactly like the fixtures above.
     """
-    current = os.environ.get(_R59_RESEARCH_ROOT_ENV)
-    if not current or Path(current) == _R59_PRODUCTION_ROOT:
-        snap = request.getfixturevalue("_r59_research_root_snapshot")
-        monkeypatch.setenv(_R59_RESEARCH_ROOT_ENV, str(snap))
+    previous = os.environ.get(_R59_RESEARCH_ROOT_ENV)
+    if not previous or Path(previous) == _R59_PRODUCTION_ROOT:
+        os.environ[_R59_RESEARCH_ROOT_ENV] = str(_r59_research_root_snapshot)
     yield
+    if previous is None:
+        os.environ.pop(_R59_RESEARCH_ROOT_ENV, None)
+    else:
+        os.environ[_R59_RESEARCH_ROOT_ENV] = previous
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:

@@ -27,6 +27,10 @@ from paper_trader.alpha_agent import runtime as RT  # noqa: E402
 
 _CFG_PATH = _REPO / "configs" / "alpha_agent" / "stage9_tournament.json"
 _REAL_CFG = json.loads(_CFG_PATH.read_text(encoding="utf-8"))
+# R84: the committed config names the LIVE identity store, which IdentityStore
+# opens read-write (schema script on connect); these tests run unconfigured.
+(_REAL_CFG.get("stage9_5") or {}).get("historical_universe", {}).pop(
+    "identity_store_db", None)
 
 
 class Clock:

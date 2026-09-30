@@ -77,6 +77,26 @@ def _make_stage_root(base: Path, name: str, latest: dict) -> Path:
     return d
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_report_tournament_feed(tmp_path, monkeypatch):
+    """R84 - the report's tournament-change feed defaults to the COMMITTED Stage 9
+    config, whose ``tournament_db`` is the LIVE registry (opened read-write, schema
+    script on connect). Every report here reads a copy rooted in tmp_path instead;
+    no registry exists there, which is the feed's own empty case."""
+    real = json.loads((_REPO / "configs" / "alpha_agent" / "stage9_tournament.json")
+                      .read_text(encoding="utf-8-sig"))
+    real["tournament_db"] = str(tmp_path / "s9_feed" / "tournament.sqlite")
+    real["shadow_book_root"] = str(tmp_path / "s9_feed" / "shadows")
+    if isinstance(real.get("shadow_books"), dict):
+        real["shadow_books"]["shadow_book_root"] = real["shadow_book_root"]
+    hermetic =tmp_path / "stage9_tournament_hermetic.json"
+    hermetic.write_text(json.dumps(real), encoding="utf-8")
+    original = rr._tournament_changes_default
+    monkeypatch.setattr(rr, "_tournament_changes_default",
+                        lambda config_path: original(config_path or str(hermetic)))
+    yield
+
+
 @pytest.fixture
 def env(tmp_path):
     runtime_root = tmp_path / "runtime"

@@ -167,8 +167,11 @@ def owned(tmp_path: Path) -> dict:
     con.commit()
     con.close()
 
+    # R84: run() opens the candidate registry even with register=False (the
+    # exhaustion read); without this it fell back to the LIVE tournament.sqlite.
     return {"panel": panel_csv, "identity": ident, "cf": cf, "issuer": iss,
-            "root": tmp_path / "research", "months": months}
+            "root": tmp_path / "research", "months": months,
+            "tournament": str(tmp_path / "registry" / "tournament.sqlite")}
 
 
 @pytest.fixture()
@@ -714,7 +717,8 @@ def test_the_universe_keeps_delisted_names(built):
 def test_run_is_reproducible_and_writes_every_required_artifact(owned):
     kwargs = dict(research_root=owned["root"], mom_panel=owned["panel"],
                   identity_db=owned["identity"], cf_index=owned["cf"],
-                  issuer_db=owned["issuer"], register=False)
+                  issuer_db=owned["issuer"], tournament_db=owned["tournament"],
+                  register=False)
     a = s25.run(**kwargs)
     assert a["ok"] is True and a["token"] == s25.READY
     required = {
@@ -738,7 +742,8 @@ def test_run_is_reproducible_and_writes_every_required_artifact(owned):
 def test_run_reports_no_promotion_and_no_portfolio_mutation(owned):
     res = s25.run(research_root=owned["root"], mom_panel=owned["panel"],
                   identity_db=owned["identity"], cf_index=owned["cf"],
-                  issuer_db=owned["issuer"], register=False)
+                  issuer_db=owned["issuer"], tournament_db=owned["tournament"],
+                  register=False)
     s = res["summary"]
     assert s["automatic_promotion"] is False
     assert s["portfolio_mutation"] is False
@@ -753,7 +758,8 @@ def test_run_reports_no_promotion_and_no_portfolio_mutation(owned):
 def test_fdr_is_applied_over_the_whole_family_and_q_is_monotone_in_p(owned):
     res = s25.run(research_root=owned["root"], mom_panel=owned["panel"],
                   identity_db=owned["identity"], cf_index=owned["cf"],
-                  issuer_db=owned["issuer"], register=False)
+                  issuer_db=owned["issuer"], tournament_db=owned["tournament"],
+                  register=False)
     fdr = res["payload"]["experiment_results"]["multiple_testing"]
     assert fdr["family_size"] == len(s25.DISCOVERY_FACTORS)
     assert fdr["family_fixed_before_evaluation"] is True

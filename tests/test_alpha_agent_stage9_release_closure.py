@@ -33,6 +33,10 @@ from paper_trader.alpha_agent import telegram_control as TC     # noqa: E402
 
 _S9_PATH = _REPO / "configs" / "alpha_agent" / "stage9_tournament.json"
 _REAL_S9 = json.loads(_S9_PATH.read_text(encoding="utf-8"))
+# R84: the committed config names the LIVE identity store, which IdentityStore
+# opens read-write (schema script on connect); these tests run unconfigured.
+(_REAL_S9.get("stage9_5") or {}).get("historical_universe", {}).pop(
+    "identity_store_db", None)
 _REAL_S8_PATH = _REPO / "configs" / "alpha_agent" / "stage8_autonomy.json"
 
 
@@ -478,7 +482,14 @@ def test_15_providers_read_canonical(tmp_path):
     assert canonical_db == _REAL_S9["tournament_db"]
     assert "stage8" in canonical_db.lower()      # the approved research root
     # the read-only providers consume that canonical config without raising.
-    prov = TC.build_tournament_providers(config_path=resolved)
+    # R84: consumed as a copy whose registry lives in tmp_path - the canonical
+    # registry is opened read-write (schema script on connect), so pointing the
+    # providers at it from a test wrote the live research store.
+    canonical_copy = copy.deepcopy(_REAL_S9)
+    canonical_copy["tournament_db"] = str(tmp_path / "tournament.sqlite")
+    prov = TC.build_tournament_providers(
+        config_path=str(_write(tmp_path / "stage9_canonical_copy.json",
+                               canonical_copy)))
     assert isinstance(prov["tournament"](), str)
     assert isinstance(prov["families"](), str)
     # the API route helper resolves the identical canonical config file.

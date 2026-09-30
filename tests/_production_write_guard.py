@@ -154,10 +154,14 @@ _DENY_CODES = {getattr(sqlite3, n) for n in (
     "SQLITE_DROP_TEMP_TABLE", "SQLITE_DROP_TEMP_TRIGGER", "SQLITE_DROP_TEMP_VIEW",
     "SQLITE_DROP_TRIGGER", "SQLITE_DROP_VIEW", "SQLITE_REINDEX", "SQLITE_ANALYZE",
     "SQLITE_CREATE_VTABLE", "SQLITE_DROP_VTABLE") if hasattr(sqlite3, n)}
-#: Connection-level pragmas a READ handle legitimately sets.
+#: Pragmas a READ handle legitimately runs with an argument.
 _SAFE_PRAGMAS = {"journal_mode", "busy_timeout", "foreign_keys", "query_only",
                  "synchronous", "cache_size", "temp_store", "mmap_size",
-                 "wal_autocheckpoint", "read_uncommitted", "cache_spill"}
+                 "wal_autocheckpoint", "read_uncommitted", "cache_spill",
+                 # introspection pragmas whose argument names a thing to READ
+                 "table_info", "table_xinfo", "table_list", "index_list",
+                 "index_info", "index_xinfo", "foreign_key_list",
+                 "foreign_key_check", "integrity_check", "quick_check"}
 
 
 _ORIGINAL_SQLITE_CONNECT = sqlite3.connect
