@@ -27,6 +27,11 @@ exactly like every other Stage-2 source — there is no second collector):
                    shares outstanding, net assets) per fund: a full copy on the
                    first capture, then a daily vintage of its most recent rows
                    plus the whole-file hash, so a later restatement is visible.
+      * JAPAN MoF WEEKLY SECURITIES / SNB WEEKLY SIGHT DEPOSITS (R96.1 H33) —
+                   the official CURRENT release file, snapshotted whole once a
+                   day, plus a first-observed ledger per (series, period) and an
+                   append-only revision ledger. History that predates the
+                   archive is labelled a baseline, never a first release.
 
 Discipline shared with the analyst-vintage lane (``eodhd_analyst``):
   * IMMUTABLE, first-write-wins (``os.replace`` of a temp file; an existing
@@ -66,6 +71,9 @@ FAMILY_NEWS = "eodhd_news"
 FAMILY_ECON = "eodhd_economic_events"
 FAMILY_IBKR = "ibkr_shortable_shares"
 FAMILY_SPDR = "spdr_etf_nav_history"
+# R96.1 H33 (human-approved 2026-10-02, research-only collection)
+FAMILY_MOF = "japan_mof_weekly_securities"
+FAMILY_SNB = "snb_weekly_sight_deposits"
 
 NOT_AVAILABLE = "NOT_AVAILABLE"
 _SNIPPET_CHARS = 500
@@ -618,6 +626,9 @@ class PublicForwardArchiveCollector(BaseCollector):
             summary[FAMILY_IBKR] = self._collect_ibkr(as_of, retrieved)
         if FAMILY_SPDR in families:
             summary[FAMILY_SPDR] = self._collect_spdr(as_of, retrieved)
+        for fam in (FAMILY_MOF, FAMILY_SNB):
+            if fam in families:
+                summary[fam] = self._collect_first_release(fam, as_of, retrieved)
         self.inventory["forward_archive"] = summary
         self.inventory["archive_root"] = str(self._root())
         self.cursor = {"last_collected_as_of": as_of,
@@ -735,6 +746,179 @@ class PublicForwardArchiveCollector(BaseCollector):
                  else (SH_DEGRADED if (written or skipped) else SH_FAILED))
         return {"state": state, "funds": len(funds), "vintages_written": written,
                 "vintages_already_archived": skipped, "failed": failed}
+
+    # ---- R96.1 H33 official first-release archives ------------------------ #
+    def _collect_first_release(self, family: str, as_of: str, retrieved: str) -> dict:
+        """One immutable whole-file snapshot per day of an official statistical
+        release, plus a FIRST-OBSERVED ledger keyed (series, period).
+
+        The ledger is the point: the publisher serves only its CURRENT file, so a
+        value's first-release form is knowable only by having captured it. A cell
+        first seen in the archive's very first snapshot is labelled
+        ``BASELINE_AT_ARCHIVE_START`` — it was already history when we arrived and
+        is NOT claimed as a first release. Only a cell that appears in a later
+        snapshot is ``FIRST_RELEASE_OBSERVED``. A changed value for a known cell
+        is appended to ``revision`` — never overwritten."""
+        spec = _FIRST_RELEASE_SPECS[family]
+        cfg = self.ctx.source_cfg
+        url = cfg.get(spec["url_key"]) or spec["default_url"]
+        root = self._root() / spec["subdir"]
+        snap = root / "snapshots" / as_of / (spec["file_name"] + ".gz")
+        if snap.exists():
+            self.note_event_time(as_of)
+            return {"state": SH_HEALTHY, "snapshot_written": False,
+                    "snapshot_already_archived": True, "snapshot_date": as_of}
+        res = self.fetch(url, expect="binary", archive=False, extension=spec["extension"],
+                         business_date=as_of, native_id="%s|%s" % (family, as_of),
+                         content_type=spec["content_type"])
+        if not res["ok"]:
+            return {"state": SH_FAILED, "snapshot_written": False,
+                    "error": res.get("error") or res.get("rejected_reason")
+                    or "HTTP_%s" % res.get("status")}
+        body = res["body"]
+        try:
+            parsed = spec["parse"](body)
+        except Exception as exc:  # noqa: BLE001 - a layout change must not crash the worker
+            self.record_error("PARSE_ERROR", "%s: %s" % (family, type(exc).__name__))
+            return {"state": SH_FAILED, "snapshot_written": False, "error": "PARSE_ERROR"}
+        if not parsed["rows"]:
+            self.record_error("PARSE_ERROR", "%s: no data rows parsed" % family)
+            return {"state": SH_FAILED, "snapshot_written": False, "error": "NO_ROWS"}
+        sha = _sha256(body)
+        meta = {"schema": "paper_trader.first_release_snapshot/1", "family": family,
+                "source_url": url, "snapshot_date": as_of, "observed_at": retrieved,
+                "source_hash": sha, "bytes": len(body),
+                "provider_release_id": parsed.get("release_id"),
+                "provider_release_timestamp": parsed.get("release_timestamp"),
+                "provider_last_modified": res.get("published_at"),
+                "n_rows": len(parsed["rows"]), "latest_period": parsed.get("latest_period"),
+                "columns": parsed.get("columns")}
+        wrote = _write_once(snap, gzip.compress(body))
+        _write_once(snap.with_name(spec["file_name"] + ".meta.json"), _json_bytes(meta))
+        led = self._ledger(root / "first_release.sqlite", as_of, retrieved, sha, parsed)
+        self.note_event_time(as_of)
+        return {"state": SH_HEALTHY, "snapshot_written": wrote, "snapshot_date": as_of,
+                "source_hash": sha, "provider_release_id": parsed.get("release_id"),
+                "latest_period": parsed.get("latest_period"), **led}
+
+    @staticmethod
+    def _ledger(path: Path, as_of: str, retrieved: str, sha: str, parsed: dict) -> dict:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(str(path))
+        try:
+            con.executescript(_FIRST_RELEASE_SCHEMA)
+            if con.execute("select 1 from snapshot where snapshot_date=?", (as_of,)).fetchone():
+                return {"ledger": "SNAPSHOT_ALREADY_LEDGERED"}
+            baseline = con.execute("select count(*) from snapshot").fetchone()[0] == 0
+            klass = "BASELINE_AT_ARCHIVE_START" if baseline else "FIRST_RELEASE_OBSERVED"
+            new = rev = 0
+            for series, period, value in parsed["rows"]:
+                cur = con.execute("select value from latest where series=? and period=?",
+                                  (series, period)).fetchone()
+                if cur is None:
+                    con.execute("insert into observation values (?,?,?,?,?,?,?,?)",
+                                (series, period, value, retrieved, as_of, sha,
+                                 parsed.get("release_id"), klass))
+                    con.execute("insert into latest values (?,?,?,?)", (series, period, value, as_of))
+                    new += 1
+                elif cur[0] != value:
+                    con.execute("insert into revision values (?,?,?,?,?,?,?)",
+                                (series, period, cur[0], value, retrieved, as_of, sha))
+                    con.execute("update latest set value=?, as_of=? where series=? and period=?",
+                                (value, as_of, series, period))
+                    rev += 1
+            con.execute("insert into snapshot values (?,?,?,?,?,?,?)",
+                        (as_of, retrieved, sha, parsed.get("release_id"), len(parsed["rows"]),
+                         new, rev))
+            con.commit()
+            return {"ledger": klass, "cells_first_observed": new, "cells_revised": rev}
+        finally:
+            con.close()
+
+
+_FIRST_RELEASE_SCHEMA = """
+create table if not exists observation(series text not null, period text not null,
+    value text, first_observed_at text not null, first_snapshot_date text not null,
+    first_source_hash text not null, provider_release_id text, capture_class text not null,
+    primary key(series, period));
+create table if not exists latest(series text not null, period text not null, value text,
+    as_of text not null, primary key(series, period));
+create table if not exists revision(series text not null, period text not null,
+    old_value text, new_value text, observed_at text not null, snapshot_date text not null,
+    source_hash text not null);
+create table if not exists snapshot(snapshot_date text primary key, observed_at text not null,
+    source_hash text not null, provider_release_id text, n_rows integer,
+    cells_first_observed integer, cells_revised integer);
+"""
+
+_MOF_PERIOD = re.compile(r"^\s*(\d{4})[．.]\s*(\d{1,2})[．.]\s*(\d{1,2})\s*[～~]")
+
+
+def parse_mof_weekly(data: bytes) -> dict:
+    """MoF 'International Transactions in Securities (weekly)' week.csv (CP932).
+
+    A data row's first cell is the period label (``2026．9．20～9．26``); every
+    other cell is kept VERBATIM per column (``col_NN``), with the column's
+    English header assembled from the header rows — no unit or sign is
+    reinterpreted here (the sign convention changed in January 2014, which is
+    the research layer's concern, not the archive's)."""
+    import csv
+    text = data.decode("cp932", errors="replace")
+    rows = list(csv.reader(io.StringIO(text)))
+    head_i = next(i for i, r in enumerate(rows) if r and r[0].strip().endswith("Period"))
+    hdr = [" | ".join(x.strip() for x in col if x and x.strip())
+           for col in zip(*[(r + [""] * 40)[:40] for r in rows[max(0, head_i - 3):head_i + 4]])]
+    update = next((c for r in rows[:4] for c in r if "Final Update" in c), None)
+    out, latest = [], None
+    for r in rows[head_i + 1:]:
+        if not r or not _MOF_PERIOD.match(r[0] or ""):
+            continue
+        period = re.sub(r"\s+", "", r[0])
+        latest = period
+        for j, v in enumerate(r[1:], start=1):
+            v = (v or "").strip()
+            if v:
+                out.append(("col_%02d" % j, period, v))
+    return {"rows": out, "release_id": update, "release_timestamp": None,
+            "latest_period": latest,
+            "columns": {"col_%02d" % j: hdr[j] for j in range(1, len(hdr)) if hdr[j]}}
+
+
+def parse_snb_cube_csv(data: bytes) -> dict:
+    """data.snb.ch cube CSV: ``"CubeId";..``, ``"PublishingDate";"YYYY-MM-DD HH:MM"``,
+    blank, then ``"Date";"D0";"Value"`` rows. An empty value is kept as NULL."""
+    text = data.decode("utf-8-sig", errors="replace")
+    lines = [ln for ln in text.splitlines()]
+    meta = {}
+    i = 0
+    while i < len(lines) and lines[i].strip():
+        parts = [p.strip().strip('"') for p in lines[i].split(";")]
+        if len(parts) >= 2:
+            meta[parts[0]] = parts[1]
+        i += 1
+    out, latest = [], None
+    for ln in lines[i:]:
+        parts = [p.strip().strip('"') for p in ln.split(";")]
+        if len(parts) < 3 or parts[0] == "Date" or not parts[0]:
+            continue
+        out.append((parts[1], parts[0], parts[2] or None))
+        latest = max(latest or parts[0], parts[0])
+    return {"rows": out, "release_id": "%s@%s" % (meta.get("CubeId"), meta.get("PublishingDate")),
+            "release_timestamp": meta.get("PublishingDate") and meta["PublishingDate"] + " Europe/Zurich",
+            "latest_period": latest, "columns": {"cube": meta.get("CubeId")}}
+
+
+_FIRST_RELEASE_SPECS = {
+    FAMILY_MOF: {"url_key": "mof_weekly_url",
+                 "default_url": ("https://www.mof.go.jp/policy/international_policy/reference/"
+                                 "itn_transactions_in_securities/week.csv"),
+                 "subdir": "japan_mof_weekly_securities", "file_name": "week.csv",
+                 "extension": "csv", "content_type": "text/csv", "parse": parse_mof_weekly},
+    FAMILY_SNB: {"url_key": "snb_sight_deposits_url",
+                 "default_url": "https://data.snb.ch/api/cube/snbgwdchfsgw/data/csv/en",
+                 "subdir": "snb_weekly_sight_deposits", "file_name": "snbgwdchfsgw.csv",
+                 "extension": "csv", "content_type": "text/csv", "parse": parse_snb_cube_csv},
+}
 
 
 def _read_xlsx_rows(data: bytes) -> list[list]:
