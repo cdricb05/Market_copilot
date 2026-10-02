@@ -292,17 +292,50 @@ CADENCE_POLICY_TABLE: tuple[dict, ...] = (
                  "bounded pass per hour inside the trading day covers both without "
                  "spending subscription quota on unchanged end-of-day rows.")),
     _policy("eodhd_analyst", kind=K_DAILY_PUBLICATION, session=SESSION_TRADING_DAY,
-            normal_interval_seconds=86400, minimum_interval_seconds=43200,
+            normal_interval_seconds=1800, minimum_interval_seconds=900,
             maximum_staleness_seconds=345600,  # 4 days — weekend + a holiday
-            attention_tier=TIER_CANDIDATES, operational=False,
+            attention_tier=TIER_UNIVERSE, operational=False,
             collector_owner="alpha_agent.ingestion (eodhd_analyst collector)",
-            window_start_et="07:00", window_end_et="22:00",
-            max_calls_per_iteration=1, max_symbols_per_iteration=40,
-            max_calls_per_day=1, credential_env=("EODHD_API_KEY",),
-            why=("A DAILY prospective snapshot. Collecting it more than once a day "
-                 "cannot produce a new vintage and only spends quota. It is "
-                 "forward-snapshot-only evidence and can never reach the "
-                 "operational target, so it is a research lane.")),
+            window_start_et="06:00", window_end_et="23:00",
+            max_calls_per_iteration=1, max_symbols_per_iteration=76,
+            max_calls_per_hour=2, max_calls_per_day=40,
+            credential_env=("EODHD_API_KEY",),
+            why=("ONE immutable vintage per symbol per day. R96 widened it from six "
+                 "sample names to the forward-archive universe, so the day is filled "
+                 "in bounded slices (at most 70 universe names per pass, two passes an "
+                 "hour); once every name has today's vintage a pass makes no network "
+                 "call at all, so a repeat cannot spend quota or create a second "
+                 "vintage. It is forward-snapshot-only evidence and can never reach "
+                 "the operational target, so it is a research lane.")),
+    _policy("eodhd_forward_archive", kind=K_DAILY_PUBLICATION,
+            session=SESSION_TRADING_DAY,
+            normal_interval_seconds=1800, minimum_interval_seconds=900,
+            maximum_staleness_seconds=345600,
+            attention_tier=TIER_UNIVERSE, operational=False,
+            collector_owner="alpha_agent.ingestion (eodhd_forward_archive collector)",
+            window_start_et="06:00", window_end_et="23:00",
+            max_calls_per_iteration=1, max_symbols_per_iteration=80,
+            max_calls_per_hour=2, max_calls_per_day=40,
+            credential_env=("EODHD_API_KEY",),
+            why=("R96 forward-only archive: provider news has no history and the "
+                 "economic calendar's estimates are only knowable as observed, so every "
+                 "uncollected day is lost. One immutable calendar snapshot a day and each "
+                 "universe symbol's news window at most once a day, in bounded slices of "
+                 "80 symbols. Research corpus only: it emits no event and can never "
+                 "reach a reassessment or the operational target.")),
+    _policy("public_forward_archive", kind=K_DAILY_PUBLICATION,
+            session=SESSION_TRADING_DAY,
+            normal_interval_seconds=86400, minimum_interval_seconds=43200,
+            maximum_staleness_seconds=345600,
+            attention_tier=TIER_GLOBAL, operational=False,
+            collector_owner="alpha_agent.ingestion (public_forward_archive collector)",
+            window_start_et="08:00", window_end_et="20:00",
+            max_calls_per_iteration=1, max_calls_per_day=2, timeout_seconds=60,
+            why=("R96 forward-only archive of two public files with no free history: "
+                 "the IBKR shortable-shares/borrow-fee file and the SPDR ETF NAV-history "
+                 "workbooks (shares outstanding). One immutable snapshot per day; a "
+                 "second pass the same day finds the snapshot and writes nothing. "
+                 "Research corpus only.")),
     # ---- official continuous filing feed ------------------------------------ #
     _policy("sec_edgar", kind=K_CONTINUOUS_EVENT, session=SESSION_TRADING_DAY,
             normal_interval_seconds=900, minimum_interval_seconds=600,

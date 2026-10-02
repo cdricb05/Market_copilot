@@ -55,6 +55,9 @@ _TREND_FIELDS = (
     "epsRevisionsDownLast7days", "epsRevisionsDownLast30days")
 _RATING_FIELDS = ("Rating", "TargetPrice", "StrongBuy", "Buy", "Hold", "Sell",
                   "StrongSell")
+# R96: Earnings.History fields kept per vintage (the as-served actual/estimate).
+_HISTORY_FIELDS = ("date", "reportDate", "beforeAfterMarket", "currency",
+                   "epsActual", "epsEstimate", "epsDifference", "surprisePercent")
 
 
 def _base_ticker(symbol: str) -> str:
@@ -153,15 +156,23 @@ class EodhdAnalystCollector(BaseCollector):
                 "lane" % self.ctx.source_cfg.get("allowed_env_vars"),
                 credential_present=False)
         snapshot_date = as_of  # the vintage timestamp == the collection date
-        probe = self._probe(key)
         retrieved = self.ctx.now_iso()
         vintage_dir = self._vintage_root() / snapshot_date
         written, skipped = 0, 0
+        sample = list(self.ctx.source_cfg.get("sample_symbols", []))
+        universe_batch = self._universe_batch(sample, vintage_dir)
+        pending = [s for s in sample + universe_batch
+                   if not (vintage_dir / ("%s.json" % _base_ticker(s))).exists()]
+        # R96: once every symbol has today's vintage there is nothing to fetch, so
+        # not even the entitlement probe is spent.
+        probe = (self._probe(key) if pending else
+                 {"family": "analyst_fundamentals", "state": ENT_ENTITLED,
+                  "detail": "no pending symbol today; probe not spent", "http_status": None})
 
         # Record (first-write-wins) the hard PIT floor for the prospective family.
         self._record_boundary(snapshot_date)
 
-        for sym in self.ctx.source_cfg.get("sample_symbols", []):
+        for sym in sample + universe_batch:
             ticker = _base_ticker(sym)
             vintage_path = vintage_dir / ("%s.json" % ticker)
             if vintage_path.exists():
@@ -191,9 +202,15 @@ class EodhdAnalystCollector(BaseCollector):
                                           obj, res["raw"]["raw_object_id"])
             self._write_vintage(vintage_path, vintage)
             written += 1
-            self._emit_records(sym, ticker, snapshot_date, retrieved, obj,
-                               res["raw"]["raw_object_id"])
+            # Universe-only symbols are vintage-only research corpus: emitting
+            # their records would flood the event fabric with names the book never
+            # asked about. The sample symbols keep their original records.
+            if sym in sample:
+                self._emit_records(sym, ticker, snapshot_date, retrieved, obj,
+                                   res["raw"]["raw_object_id"])
 
+        self.inventory["universe_symbols_this_run"] = len(universe_batch)
+        self.inventory["universe_size"] = len(self._universe())
         self.inventory["vintages_written"] = written
         self.inventory["vintages_idempotent_skipped"] = skipped
         self.inventory["snapshot_date"] = snapshot_date
@@ -216,6 +233,29 @@ class EodhdAnalystCollector(BaseCollector):
                                                % (probe["state"], written, skipped))
 
     # ------------------------------------------------------------------ #
+    def _universe(self) -> list[str]:
+        """R96: the configured archive universe (a file, never a guess)."""
+        from .forward_archive import load_universe
+        return load_universe(self.ctx.source_cfg.get("universe_file"))
+
+    def _universe_batch(self, sample: list, vintage_dir: Path) -> list[str]:
+        """The next bounded slice of universe symbols still missing today's vintage."""
+        cap = int(self.ctx.source_cfg.get("universe_max_symbols_per_run", 0) or 0)
+        if cap <= 0:
+            return []
+        have = {_base_ticker(s) for s in sample}
+        out = []
+        for sym in self._universe():
+            t = _base_ticker(sym)
+            if t in have or (vintage_dir / ("%s.json" % t)).exists():
+                continue
+            have.add(t)
+            out.append(sym)
+            if len(out) >= cap:
+                break
+        return out
+
+    # ------------------------------------------------------------------ #
     def _build_vintage(self, sym: str, ticker: str, snapshot_date: str,
                        retrieved: str, obj: dict, raw_id: str) -> dict:
         general = obj.get("General") if isinstance(obj.get("General"), dict) else {}
@@ -230,7 +270,23 @@ class EodhdAnalystCollector(BaseCollector):
             if isinstance(row, dict):
                 estimate_trend.append({k: row.get(k) for k in _TREND_FIELDS
                                        if k in row})
+        # R96: the provider's recent earnings history AS SERVED TODAY. Comparing
+        # the same quarter across daily vintages is what measures whether the
+        # provider later rewrites a pre-announcement estimate.
+        history = (obj.get("Earnings") or {}).get("History") \
+            if isinstance(obj.get("Earnings"), dict) else {}
+        history = history if isinstance(history, dict) else {}
+        hist_cap = int(self.ctx.source_cfg.get("earnings_history_cap", 8))
+        earnings_history = [
+            {k: row.get(k) for k in _HISTORY_FIELDS if k in row}
+            for _q, row in sorted(history.items())[-hist_cap:] if isinstance(row, dict)]
+        present = set()
+        for row in estimate_trend:
+            present.update(k for k, v in row.items() if v is not None)
+        not_available = sorted(f for f in _TREND_FIELDS if f not in present)
         return {
+            "earnings_history_recent": earnings_history,
+            "fields_not_available": not_available,
             "provider": "EODHD",
             "endpoint": "fundamentals/%s?filter=%s" % (sym,
                                                        self._fundamentals_filter()),

@@ -209,6 +209,38 @@ SOURCE_REGISTRY: tuple[dict, ...] = (
          why_terminal=("A prospective snapshot is leakage-safe forward but is not an "
                        "as-was revision vintage, so it accumulates as research evidence "
                        "and can never reach the operational target.")),
+    _src("eodhd_forward_archive", label="EODHD news + economic calendar (forward archive)",
+         kind="entitled_provider", lane=LANE_RESEARCH_CORPUS,
+         information_families=("news", "macro_calendar_expectations"),
+         event_families=(),
+         cadence="DAILY snapshot; news per symbol at most once a day",
+         expected_latency="same day",
+         historical_depth="forward-only from the R96 first capture (no as-was history)",
+         canonical_owner="alpha_agent.ingestion (eodhd_forward_archive collector)",
+         timestamp_quality=TS_AUTHORITATIVE, pit_quality=PIT_FORWARD_SNAPSHOT_ONLY,
+         entity_coverage="S&P 500 Current & Past + S&P 400/600 Current & Past, listed",
+         cost="existing subscription; bounded request budget",
+         credential_env=("EODHD_API_KEY",),
+         terminal_state=ek.TERM_INTEGRATED_RESEARCH_ONLY,
+         why_terminal=("A forward-only archive of information with no history: it is "
+                       "research corpus, emits no event family and can never reach a "
+                       "reassessment or the operational target."),
+         license_note="subscriber-entitled; local analytical use; bounded snippets"),
+    _src("public_forward_archive", label="IBKR borrow file + SPDR NAV history (forward archive)",
+         kind="public_official", lane=LANE_RESEARCH_CORPUS,
+         information_families=("short_borrow_availability", "etf_primary_market_flows"),
+         event_families=(),
+         cadence="DAILY snapshot", expected_latency="same day",
+         historical_depth=("borrow: forward-only from the R96 first capture; SPDR "
+                           "shares outstanding: issuer-published daily history"),
+         canonical_owner="alpha_agent.ingestion (public_forward_archive collector)",
+         timestamp_quality=TS_DATE_ONLY, pit_quality=PIT_FORWARD_SNAPSHOT_ONLY,
+         entity_coverage="IBKR US shortable list; 24 SPDR ETFs",
+         cost="free public files",
+         terminal_state=ek.TERM_INTEGRATED_RESEARCH_ONLY,
+         why_terminal=("Public forward-only snapshots kept as research corpus; no event "
+                       "family, no operational authority."),
+         license_note="publicly published; local research use; do not redistribute"),
     _src("sec_edgar", label="SEC EDGAR (official)",
          kind="public_official", lane=LANE_RESEARCH_CORPUS,
          information_families=("filings_and_textual", "insider_activity",

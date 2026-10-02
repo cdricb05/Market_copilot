@@ -150,6 +150,7 @@ LANE_LIVE_ADAPTER = "RELEASE28_LIVE_ADAPTER"
 COLLECTOR_LANE = {
     "norgate_local": LANE_STAGE2, "eodhd": LANE_STAGE2,
     "eodhd_analyst": LANE_STAGE2, "sec_edgar": LANE_STAGE2,
+    "eodhd_forward_archive": LANE_STAGE2, "public_forward_archive": LANE_STAGE2,
     "finra": LANE_STAGE2, "nasdaq_trader": LANE_STAGE2,
     "fred_alfred": LANE_STAGE2, "us_treasury": LANE_STAGE2,
     "news_rss": LANE_NEWS_RSS,

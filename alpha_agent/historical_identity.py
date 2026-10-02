@@ -80,6 +80,14 @@ METHOD_FILING_TICKER_OVERLAP = "sec_filing_date_overlapping_ticker"
 METHOD_LEGAL_NAME_OVERLAP = "legal_name_effective_date_overlap"
 METHOD_AUDITED_REPAIR = "audited_repair_rule"
 METHOD_UNRESOLVED = "unresolved_manual_review"
+# R96 B3: a vendor-stated CIK admitted only when a PRICE FINGERPRINT proves the
+# vendor security IS this Norgate security AND the SEC's own filing life for that
+# CIK overlaps the security's life. Recorded at the tier-3 level (filing-date
+# corroboration) under its own method name, so it is never confused with a
+# ticker or legal-name match.
+METHOD_VENDOR_PRICE_FINGERPRINT = "vendor_cik_price_fingerprint_sec_filing_overlap"
+VENDOR_FINGERPRINT_MIN_DATES = 10
+VENDOR_FINGERPRINT_MAX_MEDIAN_REL_DIFF = 0.01
 
 # Confidence per resolving tier (deterministic; never inflated).
 _TIER_CONFIDENCE = {
@@ -661,6 +669,43 @@ def match_security_to_cik(security: dict, *,
          "required_evidence": ["owned direct Norgate->SEC id",
                                "date-overlapping owned ticker->CIK filing",
                                "owned SEC legal-name/formerNames history"]})
+
+
+def vendor_fingerprint_mapping(security: dict, vendor: dict,
+                               sec_issuer: Optional[dict]) -> Optional[MappingResult]:
+    """R96 B3 evidence method. Returns a RESOLVED MappingResult only when every
+    corroboration holds, else ``None`` (no evidence - never a guess):
+
+      * ``vendor``: {"vendor", "symbol", "cik", "fingerprint_dates",
+        "median_abs_rel_diff"} - the vendor security's unadjusted closes matched
+        Norgate's on >= VENDOR_FINGERPRINT_MIN_DATES dates within
+        VENDOR_FINGERPRINT_MAX_MEDIAN_REL_DIFF (median |rel diff|);
+      * ``sec_issuer``: the SEC submissions identity of the vendor CIK
+        ({"first_filing", "last_filing", "name"}); its filing life must overlap
+        the security's life.
+    """
+    cik = norm_cik((vendor or {}).get("cik"))
+    n = int((vendor or {}).get("fingerprint_dates") or 0)
+    med = (vendor or {}).get("median_abs_rel_diff")
+    if not cik or n < VENDOR_FINGERPRINT_MIN_DATES or med is None \
+            or float(med) >= VENDOR_FINGERPRINT_MAX_MEDIAN_REL_DIFF:
+        return None
+    if not sec_issuer:
+        return None
+    life_start = security.get("security_start_date")
+    life_end = security.get("security_end_date")
+    if not _overlaps(life_start, life_end, sec_issuer.get("first_filing"),
+                     sec_issuer.get("last_filing")):
+        return None
+    return MappingResult(
+        security.get("security_id"), cik, METHOD_VENDOR_PRICE_FINGERPRINT,
+        TIER_FILING_TICKER_OVERLAP, _TIER_CONFIDENCE[TIER_FILING_TICKER_OVERLAP],
+        STATUS_RESOLVED, life_start, life_end,
+        {"tier": 3, "vendor": vendor.get("vendor"), "vendor_symbol": vendor.get("symbol"),
+         "cik": cik, "fingerprint_dates": n, "median_abs_rel_diff": float(med),
+         "sec_name": sec_issuer.get("name"),
+         "sec_filing_life": [sec_issuer.get("first_filing"), sec_issuer.get("last_filing")],
+         "corroboration": "price_fingerprint+sec_filing_date_overlap"})
 
 
 def _norm_name(name: Optional[str]) -> str:
@@ -1338,5 +1383,6 @@ __all__ = [
     "MappingResult", "IdentityStore", "parse_norgate_symbol",
     "canonical_security_id", "derive_share_class", "extract_security_identity",
     "parse_submissions_identity", "match_security_to_cik", "norm_cik",
+    "vendor_fingerprint_mapping", "METHOD_VENDOR_PRICE_FINGERPRINT",
     "canonical_json", "content_hash",
 ]

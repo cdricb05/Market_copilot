@@ -963,6 +963,8 @@ _CADENCE_MAP = {
     "norgate_local": dfresh.DAILY,
     "eodhd": dfresh.DAILY,
     "eodhd_analyst": dfresh.DAILY,
+    "eodhd_forward_archive": dfresh.DAILY,
+    "public_forward_archive": dfresh.DAILY,
     "sec_edgar": dfresh.EVENT_DRIVEN,
     "news_rss": dfresh.EVENT_DRIVEN,
     "nasdaq_trader": dfresh.EVENT_DRIVEN,
