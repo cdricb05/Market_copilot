@@ -46,6 +46,7 @@ from .. import r59
 from ..r57 import engine as K
 from ..r59 import engines as E
 from ..r59 import native
+from . import event_book as EVB
 
 CALCULATION_OWNER = "alpha_agent.agents_v2.books"
 
@@ -87,7 +88,11 @@ EQ_EXT_COST_RATE = EV.EQ_EXT_COST_RATE
 BOOK_FUTURES = "FUTURES_DATED_CONTRACT"
 BOOK_EQUITY_TOPN = "EQUITY_TOPN"
 BOOK_EQUITY_TRANCHE = "EQUITY_DAILY_TRANCHE"
-BOOKS = (BOOK_FUTURES, BOOK_EQUITY_TOPN, BOOK_EQUITY_TRANCHE)
+#: R91 - the event-time book (alpha_agent.agents_v2.event_book). Irregular
+#: event instants, available_at, 1/2/5-session holding windows, cluster
+#: merging, event-time benchmark; the SAME stage protocol and gate.
+BOOK_EVENT = EVB.BOOK_EVENT
+BOOKS = (BOOK_FUTURES, BOOK_EQUITY_TOPN, BOOK_EQUITY_TRANCHE, BOOK_EVENT)
 
 #: Panel arrays sliced on the session axis when a stage prefix is taken.
 #: A 2-D array is sliced on its second axis; a 1-D array is sliced only when
@@ -170,6 +175,9 @@ CALLABLE_CONTRACT = {
     BOOK_FUTURES: "weights_fn(t, live) -> float[n_markets], masked and finite",
     BOOK_EQUITY_TOPN: "score_fn(panel, t) -> float[n_names], NaN = unscorable",
     BOOK_EQUITY_TRANCHE: "score_fn(panel, t) -> float[n_names]",
+    BOOK_EVENT: "events_fn(stage) -> list[{event_id, cluster_id, "
+                "event_timestamp, available_at, weights{symbol: w}}] "
+                "(alpha_agent.agents_v2.event_book.make_events_fn)",
 }
 
 
@@ -182,7 +190,9 @@ def run_stage(*, book: str, stage: str, panel: dict, score_fn: Callable,
               closed_rule: str = "DROP",
               min_markets: int = 12,
               first_date: str = r59.DISCOVERY_START,
-              hold: Optional[int] = None) -> dict:
+              hold: Optional[int] = None,
+              event_rule: Optional[dict] = None,
+              placebo_seed: Optional[int] = None) -> dict:
     """Measure exactly ONE layer of one book, on the prefix that resolves it.
 
     Returns ``{"stats": <layer stats>, "result": <raw book result>}``. The raw
@@ -213,6 +223,16 @@ def run_stage(*, book: str, stage: str, panel: dict, score_fn: Callable,
             cadence=cadence, horizon=horizon, top_n=top_n,
             cost_rate=(EQ_EXT_COST_RATE if cost_rate is None else cost_rate),
             cost_mult=cost_mult, first_date=first_date)
+    elif book == BOOK_EVENT:
+        # The event book computes ONLY the layers up to ``stage`` (it resolves
+        # no event of a later layer), so the prefix is enforced by construction.
+        try:
+            res = EVB.run_event_window_book(
+                panel, score_fn, stage=stage, hold=int(hold or 1), label=label,
+                cost_mult=cost_mult, charge_rolls=charge_rolls,
+                event_rule=event_rule, placebo_seed=placebo_seed)
+        except EVB.EventBookRefusal as exc:
+            raise BookRefusal(str(exc))
     else:
         n = stage_sessions(np.asarray(panel["dates"]), stage,
                            int(hold or 5) + 1)
@@ -241,7 +261,13 @@ def permuted_score_fn(score_fn: Callable, *, seed: int,
     gross exposure are untouched; only the assignment of a score to an
     instrument is destroyed. That is the null this attack needs: "the ranking
     carries no information", not "the book does not exist".
+
+    For an EVENT book the callable returns events, not a vector; its null is
+    "the dates carry no information": the same episodes re-dated uniformly
+    inside their own layer (``event_book.permuted_events_fn``).
     """
+    if getattr(score_fn, "__event_book__", False):
+        return EVB.permuted_events_fn(score_fn, seed=int(seed))
     rng = np.random.default_rng(int(seed))
 
     def _fn(*args, **kwargs):

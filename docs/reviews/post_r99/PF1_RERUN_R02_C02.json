@@ -1,0 +1,75 @@
+{
+ "artifact": "PF1_RERUN_R02_C02",
+ "read_only": true,
+ "lockbox_sources": {
+  "H_d1181435_4f695f30a9e1": {
+   "file": "results_w1.json",
+   "sha256": "ff6b8792941c3b5f464f0661ee785d8cf8f0ae6e8ec1fd24ee3882a92a09bcaa"
+  },
+  "H_1b9c733e_787575045691": {
+   "file": "results_w1a.json",
+   "sha256": "41a1842f2d2e2baab09c2d208e059a72572d80e0871318654a83fb7a1166f3c3"
+  }
+ },
+ "ceiling": 0.03,
+ "records": {
+  "R99_R02": {
+   "experiment_id": "H_d1181435_4f695f30a9e1",
+   "horizon_sessions": 1,
+   "cadence_sessions": 1,
+   "returns_unchanged": {
+    "ann_gross_excess": 0.008777217028290093,
+    "ann_net_excess": 0.0015743753479429041,
+    "t_net_excess": 0.07596782964214867,
+    "p_one_sided": 0.4697223462198513
+   },
+   "lockbox_measured_ann_cost_drag": 0.007202841680347188,
+   "before_fix": {
+    "effective_cost_per_side": null,
+    "state": "COST_BUDGET_NOT_EVALUABLE",
+    "passed": false
+   },
+   "after_fix": {
+    "effective_cost_per_side": 0.00019999999999999998,
+    "state": "WITHIN_COST_BUDGET",
+    "passed": true,
+    "projected_ann_cost_drag": 0.007202841680347188,
+    "projected_equals_measured": true
+   },
+   "skeptic_verdict_recorded": "KILLED",
+   "independent_kill_reasons": "alpha_agent.r59.engines.gate: NO_ALPHA_EVIDENCE, qualified false; failed lockbox_material (0.00157 vs floor 0.015) and burden_corrected_significant (p 1.0, denominator 153); lockbox t 0.076, p 0.470, 945 effective obs; validation same sign and material (0.00728 vs 0.00375)",
+   "verdict_after_fix": "KILLED",
+   "verdict_changed": false,
+   "why_unchanged": "the canonical gate failed lockbox_material and burden_corrected_significant independently of the cost budget; an evaluable budget can only add or remove one machine check and cannot clear the statistical failures"
+  },
+  "R99_C02": {
+   "experiment_id": "H_1b9c733e_787575045691",
+   "horizon_sessions": 1,
+   "cadence_sessions": 1,
+   "returns_unchanged": {
+    "ann_gross_excess": -0.038585158369668214,
+    "ann_net_excess": -0.04618253942584061,
+    "t_net_excess": -2.096793273964351,
+    "p_one_sided": 0.9819940603682233
+   },
+   "lockbox_measured_ann_cost_drag": 0.0075973810561723995,
+   "before_fix": {
+    "effective_cost_per_side": null,
+    "state": "COST_BUDGET_NOT_EVALUABLE",
+    "passed": false
+   },
+   "after_fix": {
+    "effective_cost_per_side": 0.0005,
+    "state": "WITHIN_COST_BUDGET",
+    "passed": true,
+    "projected_ann_cost_drag": 0.0075973810561723995,
+    "projected_equals_measured": true
+   },
+   "skeptic_verdict_recorded": "KILLED",
+   "independent_kill_reasons": "alpha_agent.r59.engines.gate: NO_ALPHA_EVIDENCE, qualified false; failed lockbox_material (-0.04618 vs floor 0.015), validation_same_sign, lockbox_t_positive (t -2.097, p 0.982) and burden_corrected_significant (p 1.0, denominator 157); 945 effective obs; validation material (0.01440 vs 0.00375)",
+   "verdict_after_fix": "KILLED",
+   "verdict_changed": false,
+   "why_unchanged": "the canonical gate failed lockbox_material and burden_corrected_significant independently of the cost budget; an evaluable budget can only add or remove one machine check and cannot clear the statistical failures"
+  }
+ }
+}

@@ -48,6 +48,7 @@ from ..r59 import handlers as H
 from ..r59 import memory as M
 from ..r61 import cost_budget as CB
 from ..r61 import halts as HALT
+from ..r61 import mechanism_power as MP
 from . import (AGENT_SYSTEM_VERSION, CAPITAL_ELIGIBILITY_OWNER,
                FORWARD_ADOPTION_OWNER, FORWARD_EVIDENCE_OWNER,
                FORWARD_MATURATION_OWNER, FORWARD_REGISTRAR_OWNER,
@@ -55,7 +56,11 @@ from . import (AGENT_SYSTEM_VERSION, CAPITAL_ELIGIBILITY_OWNER,
                PROSPECTIVE_FREEZE_OWNER,
                RELEASE, SAFETY, SIGNAL_AGENTS, SIGNAL_PUBLISHING_BOUNDARY)
 from . import leakage as _leakage
+from . import mechanism_burden as MB
+from . import provenance as _PV
 from .contracts import Contracts
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # --------------------------------------------------------------------------- #
 # Event kinds. Every one is prefixed so the journal can be read back by kind
@@ -77,6 +82,24 @@ EV_REFUSED = "AGENTS_V2_REFUSED"
 #: R61 Workstream E. A cell that stopped BEFORE any return existed settles
 #: here, because ``reveal_stage`` judges a measured layer and a halt has none.
 EV_PREMEASUREMENT_HALT = HALT.EV_PREMEASUREMENT_HALT
+#: R89. The canonical power assessment of ONE pre-registered expression, and
+#: the research-only forward-observation request it may admit. Neither writes
+#: a hypothesis outcome: the assessment is metadata over the frozen spec, and
+#: the observation request is a FORWARD state that never changes what the
+#: historical record says.
+EV_POWER = "AGENTS_V2_POWER_ASSESSED"
+EV_OBSERVATION = "AGENTS_V2_FORWARD_OBSERVATION_REQUEST"
+
+#: R89 forward-observation states, and the exits an incubating cell may take.
+OBS_REQUESTED = "OBSERVATION_REQUESTED_AWAITING_REGISTRAR"
+OBS_REGISTERED = "FORWARD_OBSERVATION_ONLY_REGISTERED"
+OBS_NOT_COMPLETED = "OBSERVATION_REGISTRATION_NOT_COMPLETED"
+OBSERVATION_EXITS = ("INCUBATING", "ENOUGH_FORWARD_EVIDENCE_FOR_REVIEW",
+                     "FAILED_FORWARD_EVIDENCE",
+                     "INVALIDATED_DATA_OR_MECHANISM", "EXPIRED")
+#: The gate checks whose failure means "underpowered", not "measured wrong".
+POWER_ONLY_GATE_FAILURES = frozenset({"burden_corrected_significant",
+                                      "has_lockbox_observations"})
 
 PIT_SAFE = "PIT_SAFE"
 NOT_PIT_SAFE = "NOT_PIT_SAFE"
@@ -387,12 +410,102 @@ class AgentPipeline:
         spec["universe_id"] = feats["universe_id"]
         spec["frozen_gate_schema_hash"] = self.contracts.gate_schema_hash
         spec["agent_system_version"] = AGENT_SYSTEM_VERSION
+        # R100 repair - THE FULL RECIPE CONTRACT. Absent, a pre-registration
+        # is legacy and its spec (and hash) are exactly as before. Present, the
+        # eight-part recipe and the content-addressed source snapshot are
+        # mandatory, internally consistent and verified against the store
+        # BEFORE an id is minted (runner.preregister_frozen builds both).
+        contract = spec_in.get("provenance_contract")
+        if contract is not None:
+            if contract != _PV.PROVENANCE_CONTRACT_FULL:
+                raise PipelineRefusal("UNKNOWN_PROVENANCE_CONTRACT", str(contract))
+            problems = _PV.recipe_problems(_PV.recipe_of(spec), spec)
+            m = _PV.manifest_of(spec)
+            store = spec_in.get("frozen_source_store")
+            if m is not None:
+                if not store:
+                    problems.append("frozen_source_store is not declared")
+                else:
+                    problems += _PV.verify(m, repo_root=_REPO_ROOT,
+                                           store_dir=store)
+            if problems:
+                raise PipelineRefusal("PREREGISTRATION_PROVENANCE_INCOMPLETE",
+                                      "; ".join(problems))
+            spec["provenance_contract"] = contract
 
         model_family = "XS_LONG_SHORT" if spec["long_short"] else "LONG_ONLY"
         info_family = spec_in.get("information_family") or "PRICE_STATE"
         fam_key = M.family_key(economic_family=family,
                                information_family=info_family,
                                asset_class=ac, model_family=model_family)
+        # R91 - THE HIERARCHICAL BURDEN (alpha_agent.agents_v2.mechanism_burden).
+        # ``economic_family`` routes; ``mechanism_family`` is the campaign-local
+        # cap unit; the declared ``economic_object`` is the re-expression
+        # identity. A sign flip, threshold, horizon, subset, ranking,
+        # residualisation, cadence or RENAME of a settled object is the same
+        # burden unit and is refused here, before any hypothesis id is minted.
+        # The global burden (ResearchMemory.burden -> the gate's denominator)
+        # is untouched: every registration below still lands in it.
+        mech = spec_in.get("mechanism_family")
+        econ_obj = spec_in.get("economic_object")
+        same_unit_open: list = []
+        if mech is not None or econ_obj is not None:
+            if mech not in MB.MECHANISM_FAMILIES:
+                raise PipelineRefusal(
+                    "MECHANISM_FAMILY_UNKNOWN",
+                    "%r is not in the canonical vocabulary %s"
+                    % (mech, ", ".join(MB.MECHANISM_FAMILIES)))
+            try:
+                obj = MB.canonical_economic_object(econ_obj)
+            except MB.MechanismBurdenRefusal as exc:
+                raise PipelineRefusal("ECONOMIC_OBJECT_INCOMPLETE", str(exc))
+            unit = MB.re_expression_check(
+                self.mem, asset_class=ac, mechanism_family=mech,
+                economic_object=obj, information_family=info_family,
+                economic_family=family, model_family=model_family)
+            reopen = MB.reopen_allowed(unit, spec_in.get("reopen_defect"))
+            if unit["verdict"] == MB.UNIT_SETTLED and not reopen["allowed"]:
+                raise PipelineRefusal(
+                    "SAME_BURDEN_UNIT_ALREADY_SETTLED",
+                    "%s is the burden unit of %s; a sign, horizon, threshold, "
+                    "subset, ranking, residualisation, cadence or label change "
+                    "does not reopen it (%s)"
+                    % (unit["burden_unit"],
+                       ", ".join("%s=%s" % (h["hypothesis_id"], h["outcome"])
+                                 for h in unit["settled_negative"]),
+                       reopen["reason"]))
+            if reopen["reopens"]:
+                # The defect, not the new spec, is what reopens the unit; the
+                # settled rows stay settled and stay in the burden.
+                spec["reopens"] = reopen["reopens"]
+                spec["reopen_defect"] = {k: spec_in["reopen_defect"][k]
+                                         for k in MB.REOPEN_REQUIRED}
+            spec["mechanism_family"] = mech
+            spec["economic_object"] = obj
+            spec["economic_object_id"] = unit["economic_object_id"]
+            spec["burden_unit"] = unit["burden_unit"]
+            # Open same-unit rows are REPORTED on the event, never frozen into
+            # the spec: they are not this experiment's identity, and a resume
+            # would otherwise see its own row and mint a second id.
+            same_unit_open = [h["hypothesis_id"] for h in unit["same_unit_rows"]]
+            if spec_in.get("campaign_id"):
+                spec["campaign_id"] = str(spec_in["campaign_id"])
+            cap = spec_in.get("mechanism_family_cap")
+            if cap is not None:
+                if not spec.get("campaign_id"):
+                    raise PipelineRefusal(
+                        "CAMPAIGN_ID_REQUIRED_FOR_CAP",
+                        "a mechanism-family cap is campaign-local; name the campaign")
+                spec["mechanism_family_cap"] = int(cap)
+                own_id = M.hypothesis_id(family=fam_key, spec=spec)
+                capchk = MB.cap_check(
+                    self.mem, campaign_id=spec["campaign_id"], asset_class=ac,
+                    mechanism_family=mech, cap=int(cap),
+                    exclude_hypothesis_id=own_id,
+                    burden_unit_of_candidate=spec["burden_unit"])
+                if not capchk["allowed"]:
+                    raise PipelineRefusal("MECHANISM_FAMILY_CAP_REACHED",
+                                          capchk["reason"])
         novelty = self.mem.is_novel(family=fam_key, spec=spec)
         if not novelty["novel"]:
             raise PipelineRefusal(
@@ -413,7 +526,10 @@ class AgentPipeline:
             self.mem.event(EV_PREREG, subject=hid,
                            detail={"agent": agent, "owning_agent": owner,
                                    "spec_hash": _spec_hash(spec),
-                                   "family_key": fam_key})
+                                   "family_key": fam_key,
+                                   "mechanism_family": spec.get("mechanism_family"),
+                                   "burden_unit": spec.get("burden_unit"),
+                                   "same_burden_unit_open": same_unit_open})
         return {"state": "PREREGISTERED", "experiment_id": hid,
                 "owning_agent": owner, "spec_hash": _spec_hash(spec),
                 "already_registered": already,
@@ -1041,6 +1157,264 @@ class AgentPipeline:
                                "artifact": str(path)})
         return {**request, "artifact": str(path)}
 
+    # -- R89: the power assessment and the research-only observation door --- #
+    def assess_power(self, *, agent: str, experiment_id: str,
+                     assessment: dict) -> dict:
+        """Record the canonical power assessment of one pre-registered cell.
+
+        The numbers are the power owner's (``alpha_agent.r61.mechanism_power``
+        over ``alpha_agent.r61.power``): the record hash binds every field, so
+        an assessment an agent typed by hand is refused. What is recorded is
+        a RESEARCH PATH, never an outcome - no hypothesis row changes here.
+        """
+        self._require(agent, "assess_power")
+        row = self._experiment(experiment_id)
+        if not MP.verify(assessment):
+            raise PipelineRefusal(
+                "POWER_ASSESSMENT_NOT_FROM_OWNER",
+                "the assessment is not a hash-bound record of %s; an agent "
+                "may not supply its own power number" % MP.MECHANISM_POWER_OWNER)
+        ruling = MP.g7_ruling(assessment)
+        detail = {"agent": agent, "assessment": assessment, "g7": ruling,
+                  "power_class": assessment["power_class"],
+                  "research_path": assessment["research_path"],
+                  "spec_hash": _spec_hash(row.get("spec") or {})}
+        self.mem.event(EV_POWER, subject=experiment_id, detail=detail)
+        return {"experiment_id": experiment_id, "state": "POWER_ASSESSED",
+                "power_class": assessment["power_class"],
+                "research_path": assessment["research_path"],
+                "g7": ruling}
+
+    def _negative_measured_evidence(self, experiment_id: str, row: dict
+                                    ) -> Optional[str]:
+        """Why this cell may NOT incubate: it was measured and it failed on
+        something other than power. None means no negative evidence exists."""
+        outcome = row.get("outcome")
+        if outcome in (r59.HO_REJECTED,):
+            return "OUTCOME_REJECTED"
+        if outcome in (r59.HO_QUALIFIED, r59.HO_FORWARD_FROZEN):
+            return "NOT_UNDERPOWERED_USE_THE_QUALIFIED_PATH"
+        for e in self._stage_events(experiment_id):
+            stats = e.get("stats") or {}
+            for k in r59.GATE_MATERIALITY_FLOORS:
+                v = E._as_float(stats.get(k)) if k in stats else None
+                if v is not None and v < 0:
+                    return "NEGATIVE_LAYER_%s_%s" % (e.get("stage"), k)
+        sk = self._latest(EV_SKEPTIC, experiment_id)
+        if sk is not None:
+            failed = set(sk.get("failed") or ())
+            if failed - POWER_ONLY_GATE_FAILURES:
+                return "SKEPTIC_FAILED_ON_%s" % ",".join(
+                    sorted(failed - POWER_ONLY_GATE_FAILURES))
+        halt = self._latest(EV_PREMEASUREMENT_HALT, experiment_id)
+        if halt is not None:
+            reason = (halt.get("record") or {}).get("halt_reason")
+            if reason not in HALT.SAMPLE_INSUFFICIENT_REASONS:
+                return "HALTED_ON_%s" % reason
+        return None
+
+    def request_forward_observation(
+            self, *, agent: str, experiment_id: str, rationale: str,
+            frozen_decision_producer: str = "",
+            register_observation: Optional[Callable] = None,
+            **unexpected: Any) -> dict:
+        """Admit ONE clean, underpowered cell to research-only forward
+        observation. Nothing operational is reachable from here.
+
+        The ten conditions of the R89 incubation contract, each machine-
+        checked against persisted state (the director supplies only the
+        rationale):
+
+          1 novelty passed at pre-registration (the preregister verb refuses
+            a settled identity, so an experiment id IS the G1 pass)
+          2 the dataset is PIT_SAFE (frozen into the spec)
+          3 a tradable mapping exists (instrument_scope + universe execution
+            representation)
+          4 no known leakage (the feature set's machine verdict is not FAIL)
+          5 the mechanism is frozen (spec hash)
+          6 the prediction rule is frozen (the spec's parameters, plus the
+            named frozen decision producer)
+          7 costs are defined (cost_model is mandatory at pre-registration)
+          8 the ONLY block is statistical power / effective N: a POWER
+            assessment of class MARGINAL or WEAK exists, and the cell is
+            settled by a sample-insufficient halt or by a gate that failed
+            on power alone
+          9 the director approves, with a rationale
+         10 no negative measured evidence exists
+
+        The forward clock belongs to the canonical registrar; it is reached
+        through an INJECTED callable exactly as adoption is, so this package
+        never imports the application layer and never names a date. Without
+        an injected registrar the request stops at OBSERVATION_REQUESTED_
+        AWAITING_REGISTRAR and says so. Idempotent: a second request returns
+        the first record.
+        """
+        self._require(agent, "request_forward_observation")
+        asked = [k for k in unexpected if k in BACKFILL_KEYS]
+        if asked:
+            raise PipelineRefusal(
+                "BACKFILL_CANNOT_BE_REQUESTED",
+                "%s: the observation clock is derived by %s and is never an "
+                "argument" % (", ".join(sorted(asked)),
+                              FORWARD_REGISTRAR_OWNER))
+        if unexpected:
+            raise PipelineRefusal("UNKNOWN_REQUEST_FIELD",
+                                  ", ".join(sorted(unexpected)))
+        if not str(rationale or "").strip():
+            raise PipelineRefusal("RATIONALE_REQUIRED",
+                                  "research observation needs the director's "
+                                  "stated reason")
+        row = self._experiment(experiment_id)
+        spec = row.get("spec") or {}
+        prior = self._latest(EV_OBSERVATION, experiment_id)
+        if prior is not None:
+            return {"experiment_id": experiment_id,
+                    "state": "ALREADY_REQUESTED", **prior.get("request", {})}
+
+        failed: list = []
+        if self._latest(EV_PREREG, experiment_id) is None \
+                and row.get("generation_method") != GENERATION_METHOD:
+            failed.append("1_NOVELTY_NOT_ESTABLISHED")
+        if spec.get("pit_status") != PIT_SAFE:
+            failed.append("2_DATA_NOT_PIT_SAFE")
+        uni = self._latest(EV_UNIVERSE, spec.get("universe_id") or "") or {}
+        if not spec.get("instrument_scope") \
+                or not uni.get("execution_representation"):
+            failed.append("3_NO_TRADABLE_MAPPING")
+        if str(spec.get("leakage_verification_verdict") or "").upper() \
+                == "FAIL":
+            failed.append("4_LEAKAGE_KNOWN")
+        if not str(spec.get("mechanism") or "").strip():
+            failed.append("5_MECHANISM_NOT_FROZEN")
+        if not spec.get("parameters") \
+                or not str(frozen_decision_producer or "").strip():
+            failed.append("6_PREDICTION_RULE_NOT_FROZEN")
+        if not spec.get("cost_model"):
+            failed.append("7_COSTS_UNDEFINED")
+        power = self._latest(EV_POWER, experiment_id)
+        if power is None:
+            failed.append("8_NO_POWER_ASSESSMENT")
+        elif power.get("power_class") not in MP.INCUBATION_ADMISSIBLE_CLASSES:
+            failed.append("8_POWER_CLASS_%s_NOT_ADMISSIBLE"
+                          % power.get("power_class"))
+        halt = self._latest(EV_PREMEASUREMENT_HALT, experiment_id)
+        cand = self._latest(EV_CANDIDATE, experiment_id)
+        sk = self._latest(EV_SKEPTIC, experiment_id)
+        settled_by_power = False
+        if halt is not None and (halt.get("record") or {}).get(
+                "halt_reason") in HALT.SAMPLE_INSUFFICIENT_REASONS:
+            settled_by_power = True
+        elif cand is not None and sk is not None:
+            fl = set(sk.get("failed") or ())
+            settled_by_power = bool(fl) and fl <= POWER_ONLY_GATE_FAILURES
+        if not settled_by_power:
+            failed.append("8_NOT_SETTLED_BY_A_SAMPLE_INSUFFICIENT_HALT_OR_"
+                          "POWER_ONLY_GATE_FAILURE")
+        if agent != "quant-research-director":
+            failed.append("9_DIRECTOR_APPROVAL_REQUIRED")
+        neg = self._negative_measured_evidence(experiment_id, row)
+        if neg:
+            failed.append("10_NEGATIVE_MEASURED_EVIDENCE:%s" % neg)
+        if failed:
+            self.mem.event(EV_REFUSED, subject=experiment_id,
+                           detail={"verb": "request_forward_observation",
+                                   "reason": "INCUBATION_NOT_ELIGIBLE",
+                                   "failed": failed})
+            raise PipelineRefusal("INCUBATION_NOT_ELIGIBLE",
+                                  "; ".join(failed))
+
+        assessment = power["assessment"]
+        sample = assessment["sample"]
+        k = float((assessment.get("mde") or {}).get("k") or MP.DEFAULT_K)
+        minimum = {
+            "at_feasible_edge_0_05": MP.minimum_forward_evidence(
+                sample, target_ic=0.05, k=k),
+            "at_strong_edge_0_03": MP.minimum_forward_evidence(
+                sample, target_ic=0.03, k=k),
+        }
+        expiry_sessions = 2 * int(
+            minimum["at_strong_edge_0_03"]["approx_sessions_required"])
+        request = {
+            "kind": "RESEARCH_ONLY_FORWARD_OBSERVATION_REQUEST",
+            "experiment_id": experiment_id,
+            "spec_hash": _spec_hash(spec),
+            "power_class": power.get("power_class"),
+            "research_path": power.get("research_path"),
+            "assessment_hash": assessment.get("record_hash"),
+            "historically_qualified": False,
+            "counts_as_qualified": False,
+            "capital_eligible": False,
+            "promotion_allowed": False,
+            "may_become_champion": False,
+            "operational_effect": "NONE",
+            "backfill": False,
+            "synthetic_history": False,
+            "forward_observations_at_request": 0,
+            "observation_clock": "DERIVED_BY_%s" % FORWARD_REGISTRAR_OWNER,
+            "frozen_decision_producer": frozen_decision_producer,
+            "evidence_owner": FORWARD_EVIDENCE_OWNER,
+            "maturation_owner": FORWARD_MATURATION_OWNER,
+            "registrar_owner": FORWARD_REGISTRAR_OWNER,
+            "minimum_forward_evidence": minimum,
+            "minimum_forward_evidence_owner": MP.MECHANISM_POWER_OWNER,
+            "exit_rules": {
+                "vocabulary": list(OBSERVATION_EXITS),
+                "INCUBATING": "fewer matured independent decisions than the "
+                              "power owner's minimum",
+                "ENOUGH_FORWARD_EVIDENCE_FOR_REVIEW": (
+                    "matured independent decisions >= minimum at 0.05; the "
+                    "cell returns to the skeptic as a NEW historical+forward "
+                    "review; NO automatic promotion"),
+                "FAILED_FORWARD_EVIDENCE": (
+                    "matured decisions >= minimum and the forward statistic "
+                    "is <= 0 on the primary materiality metric"),
+                "INVALIDATED_DATA_OR_MECHANISM": (
+                    "the data owner or director records an invalidation"),
+                "EXPIRED": "no exit within %d sessions of registration"
+                           % expiry_sessions,
+                "expiry_sessions": expiry_sessions,
+                "promotion": "never automatic; human/manual governance",
+            },
+            "director_rationale": str(rationale),
+            "requested_by": agent,
+        }
+        registration = None
+        if register_observation is not None:
+            try:
+                registration = register_observation(
+                    request=dict(request),
+                    observation_clock_starts=r59.now_iso()[:10])
+            except Exception as exc:                        # noqa: BLE001
+                registration = {"registered": False,
+                                "outcome": "REGISTRAR_UNAVAILABLE",
+                                "detail": str(exc)[:200]}
+            forward_state = (OBS_REGISTERED
+                             if (registration or {}).get("registered")
+                             else OBS_NOT_COMPLETED)
+        else:
+            forward_state = OBS_REQUESTED
+        request["forward_state"] = forward_state
+        request["registration"] = registration
+        path = self._write_artifact("forward_observation_requests",
+                                    "%s.json" % experiment_id, request)
+        self.mem.event(EV_OBSERVATION, subject=experiment_id,
+                       detail={"agent": agent, "forward_state": forward_state,
+                               "request": request, "artifact": str(path)})
+        return {**request, "state": "OBSERVATION_REQUESTED",
+                "artifact": str(path)}
+
+    def forward_observation_candidates(self) -> list:
+        """Every cell in research-only forward observation, with its state."""
+        out = []
+        for e in self._events(EV_OBSERVATION):
+            d = e["detail"]
+            out.append({"experiment_id": e["subject"],
+                        "forward_state": d.get("forward_state"),
+                        "power_class": (d.get("request") or {}).get(
+                            "power_class"),
+                        "artifact": d.get("artifact")})
+        return out
+
     # -- the ledger: eighteen fields, failures included ---------------------- #
     def ledger(self) -> list:
         rows = [h for h in self.mem.list_hypotheses(limit=_EVENT_SCAN_LIMIT)
@@ -1057,6 +1431,8 @@ class AgentPipeline:
         meta = self._latest(EV_META, hid)
         ruling = self._latest(EV_DIRECTOR, hid)
         fwd = self._latest(EV_FORWARD, hid)
+        obs = self._latest(EV_OBSERVATION, hid)
+        power = self._latest(EV_POWER, hid)
         skeptic = rob.get("skeptic_verdict") or "NOT_REVIEWED"
         risk_v = (risk or {}).get("verdict") or "NOT_REVIEWED"
         stages = [e["detail"] for e in self._events(EV_STAGE, hid)]
@@ -1092,6 +1468,12 @@ class AgentPipeline:
             # it as PREREGISTERED would tell a reader nine experiments were
             # still pending when in fact nine had already answered.
             state = "HALTED_AT_%s" % halted
+        elif self._latest(EV_PREMEASUREMENT_HALT, hid) is not None \
+                and h.get("outcome"):
+            # R89: a cell settled by a PRE-MEASUREMENT halt (R61) reads its
+            # settled outcome - DATA_HOLD or REJECTED - not PREREGISTERED. It
+            # answered; reporting it as pending told a reader the opposite.
+            state = str(h.get("outcome"))
         else:
             state = "PREREGISTERED"
         tc = h.get("turnover_cost") or {}
@@ -1115,7 +1497,8 @@ class AgentPipeline:
             "SKEPTIC_VERDICT": skeptic,
             "RISK_VERDICT": risk_v,
             "SURVIVOR_STATE": state,
-            "FORWARD_STATE": (fwd or {}).get("forward_state") or "NONE",
+            "FORWARD_STATE": ((fwd or {}).get("forward_state")
+                              or (obs or {}).get("forward_state") or "NONE"),
             # Appended AFTER the eighteen the release brief requires, so that
             # list stays exactly where and as it was. These three make the
             # sequential reveal legible: without them a cell that stopped at
@@ -1123,6 +1506,11 @@ class AgentPipeline:
             "STAGES_REVEALED": revealed,
             "HALTED_AT": halted,
             "LOCKBOX_COMPUTED": "L" in revealed,
+            # R89: the power class and research path are reported BESIDE the
+            # historical state, never in place of it. A DATA_HOLD row that is
+            # incubating still reads DATA_HOLD; nothing here calls it qualified.
+            "POWER_CLASS": (power or {}).get("power_class") or "NOT_ASSESSED",
+            "RESEARCH_PATH": (power or {}).get("research_path") or "NONE",
         }
 
 
@@ -1142,4 +1530,7 @@ _VERBS = {
     "publish_candidate": AgentPipeline.publish_candidate,
     "request_forward_registration":
         AgentPipeline.request_forward_registration,
+    "assess_power": AgentPipeline.assess_power,
+    "request_forward_observation":
+        AgentPipeline.request_forward_observation,
 }

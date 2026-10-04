@@ -1,0 +1,781 @@
+{
+ "label": "POST_R99_BEFORE",
+ "taken_at_local": "2026-10-04T14:44:30",
+ "files": {
+  "portfolio_decisions/decisions.json": [
+   "897e502da5dca1f8896ffcc6639ed787cbea238d21661f9d6a451b75a3a9fb4e",
+   2946
+  ],
+  "portfolio_decisions/governed_decisions.json": [
+   "78ea3d6169f6ade533548eb662f25c2f6fd496bb32481f48a35f0d28fb31c461",
+   362570
+  ],
+  "portfolio_decisions/governed_index.json": [
+   "163a2977aac9b56237e8f4343c07293408dd11b462353dfd2e319831a613c607",
+   22635
+  ],
+  "portfolio_decisions/index.json": [
+   "1ed2c48bcf46fa246f136abae112ea21acf3ead7f843997d6a9f96cad3bcb6aa",
+   3840
+  ],
+  "portfolio_decisions/risk_policy_ruling_index.json": [
+   "a2cb1c778b3a1d7f50b1675d94d919985873f1c35abe7bc3c2930ac90437053f",
+   12001
+  ],
+  "portfolio_decisions/risk_policy_rulings.json": [
+   "8e7b2a06d1b46236dce6bd14c17835cc91441652a2f284d237c5a71e9381067a",
+   10988
+  ],
+  "portfolio_decisions/target_selection_index.json": [
+   "e8c2ddcbcd600fcc32a5e5a1f37f2bddb30bff68c4bd66fdf5b1fa3059c737b5",
+   115949
+  ],
+  "portfolio_decisions/target_selections.json": [
+   "d7396dbf107573c2ab71da97373aab5e7347f997224c7cbb6ddb5bcbf2d0e8f0",
+   160887
+  ],
+  "reallocation_proposals/artifacts/reap_2026-08-07_alpha_paper_book_1_f06913bf55d4.json": [
+   "100407bac1995ef4e9c27de712c630300665954bdbfa1d6b30d12810726a09e8",
+   31502
+  ],
+  "reallocation_proposals/artifacts/reap_2026-08-10_alpha_paper_book_1_691222bbdc58.json": [
+   "a54cf995af8f725228b23d6a778b11d0c60e67a458d9b76e07317ec78a9420e6",
+   31554
+  ],
+  "reallocation_proposals/artifacts/reap_2026-08-11_alpha_paper_book_1_10fc9a778625.json": [
+   "b72beaa18a330a71cc9f50a31871919b00e7c6fe3cb14eeda7c7a74cddc80293",
+   31594
+  ],
+  "reallocation_proposals/artifacts/reap_2026-08-12_alpha_paper_book_1_f64fe4998d9d.json": [
+   "03b46cfb2593c9f7d5cdb10d127f3718dba4532e2173537e954347a7d002606d",
+   31788
+  ],
+  "reallocation_proposals/artifacts/reap_2026-08-31_alpha_paper_book_1_5c2826e026a9.json": [
+   "dd54a8bce075fac7ab7e6eadc03ca7312928b14fef2b86e6dbc3333897ff5b7f",
+   59972
+  ],
+  "reallocation_proposals/artifacts/reap_2026-08-31_alpha_paper_book_1_6f75a7f1e428.json": [
+   "ecc7b7944919374dfa06b4699c38c88a47b1e1ae3ac4dbe7bd95efd8424bd605",
+   59865
+  ],
+  "reallocation_proposals/artifacts/reap_2026-08-31_alpha_paper_book_1_9eb1438f9462.json": [
+   "68a374ed77b3a595cd49cfb8fa680ea00d058616e8c4c7d3dec147284a739149",
+   59972
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-01_alpha_paper_book_1_6abed2e26d28.json": [
+   "6e0d454c52497abd8bf393abd4c924aeb635ff43a247dddfe8164c21ebedf0a6",
+   93008
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-01_alpha_paper_book_1_957998cd43c2.json": [
+   "043091870ec47275bd1e3158747e180d13aeaad33f9c5a3ac66c632af99e1259",
+   60034
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-01_alpha_paper_book_1_ab374a670544.json": [
+   "4902731802c8c5bd69b3b42bc99324fea11f1a4c94d975356cc2e258fa0a9fe0",
+   59927
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-02_alpha_paper_book_1_dcf85725a02e.json": [
+   "1e509c0fd67ec553efb01447376f15296e6a718fa804170bc8330dc9f2f9739a",
+   92903
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-04_alpha_paper_book_1_5b72acbefe34.json": [
+   "564396baee7efc4aebf11bd4e62be3f4d968fc2336e1489164daed6bccae985a",
+   87585
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-04_alpha_paper_book_1_75daa70bf935.json": [
+   "5a4899a30c467302b18aeb92345467894c09703d7097e616b504e250f65e0562",
+   87478
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-04_alpha_paper_book_1_8a966dd0d345.json": [
+   "b2ae83d4cd63bd825b68c4b8f59f80af46e5da8eca917258e7db4dfb45fcf022",
+   87369
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-04_alpha_paper_book_1_a290bb4c898c.json": [
+   "776047b0c5dc97af56c7f3fda16fbb80076aa0da6aab95646d43f27b1f5c583c",
+   87369
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-04_alpha_paper_book_1_e491804f9a8d.json": [
+   "54008caee6495251972c867984e89cc898bf682bba536bb9fa396bcb3d5887a2",
+   87369
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-09_alpha_paper_book_1_0a29467c0f55.json": [
+   "b6f2ec0dcc33c0b554bc16e6a336d4f2f32955b44893f68d1f49614d52c22f36",
+   87220
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-09_alpha_paper_book_1_fdb96b103ed2.json": [
+   "3ab60a42c45401ba2b96182168c24d024bda0a7fa40759dfebd6846d80b84e56",
+   87327
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-10_alpha_paper_book_1_61f6ad19b1fb.json": [
+   "f26833670ceb187f0b63c31dfc38d309359a70ac52a1eba99e95e27c0052847c",
+   87262
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-10_alpha_paper_book_1_bae89231fc22.json": [
+   "977744cd99edbf4ce138816ff8dce1581f6a1ba3e0c3859ae134baa8321934e1",
+   87369
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-14_alpha_paper_book_1_99c83763df9b.json": [
+   "0f0c375719dd7cfa69c9652dd510b4766b66acf76fdfca3c56e2bc2d35e9d152",
+   87345
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-14_alpha_paper_book_1_f119ef14cd50.json": [
+   "156f642dd5cbde3de0167c36454977b1fe2ff561857b2b9e5d8328b55e942d2e",
+   87238
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-15_alpha_paper_book_1_127346946aa3.json": [
+   "b2938c370f4b79d62581d34daaa004c2402aee99de8270fe369e991a34b11749",
+   87238
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-15_alpha_paper_book_1_d01270143464.json": [
+   "43e1a7a67068b0b3ee1aecb74322bbda9143550e16809fd53ddfc96e27ab2720",
+   87345
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-16_alpha_paper_book_1_44805568e8f0.json": [
+   "fc071760df43c31b29e532a5bbab1c988228a87706f62cf35cb1220069e2673c",
+   87293
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-16_alpha_paper_book_1_459c3c3c76e8.json": [
+   "003fcdbb4aff508ffe17142165e4915146e038dac02723d6a207ea1af8b47c18",
+   87400
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-16_alpha_paper_book_1_ed408b06eb62.json": [
+   "f7ac1248c2277bf0b4b06cb65733e5129db46ebd796fb0cf8103c0a8e43bb0c1",
+   87400
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-17_alpha_paper_book_1_3f0b29844493.json": [
+   "a79d3689eafc1f11c533a8bd5205aa5594d8d8c23fcdc6c021b65c79166fb8ce",
+   87260
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-17_alpha_paper_book_1_7a14d146d952.json": [
+   "3052566c0a09530197d15dd170dc24898b08e687e6f2277e0024b8e25eb16345",
+   100608
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-17_alpha_paper_book_1_81773ec8b455.json": [
+   "c1ca0957a6c40c9bb9908f193ac1fecdd35758631702c3c88e6e5e0cb648a26d",
+   100910
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-18_alpha_paper_book_1_9bd6e73a2ef6.json": [
+   "07d3c50357b9b7430c1186424d022f9d1cb7a16a1f91e33470638d03d93bc86b",
+   100919
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-18_alpha_paper_book_1_be0527479a3f.json": [
+   "06045d450a2d37a1ceca074e7422a813e1f0cfde9fe8b443cb29496038907b21",
+   100812
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-21_alpha_paper_book_1_09052b5e8dac.json": [
+   "ed5215ad6dfbfb6bf13bb2384d476466611a905d887deac4397f26478239b2a3",
+   120903
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-21_alpha_paper_book_1_7937a5087301.json": [
+   "d9bf50431bb8db41a0ee4e6c2f764f0bba2cb6596a22043c75eccf4c3dea71dd",
+   120903
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-21_alpha_paper_book_1_c624cf7f9fb1.json": [
+   "38e1c4a34760bfb2750914a24562eb1f3dcf36f008169c87fafa02048ccf8aa9",
+   97954
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-22_alpha_paper_book_1_ba1150547920.json": [
+   "063ee043e3621485960c94e08dc5d633db18f94b883d84f23b43dc920a634295",
+   121345
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-22_alpha_paper_book_1_c780dbeebf5c.json": [
+   "49d4a4843109270ae59f52364a707201bb77dd7b519ee58b169bf9cd14be5a2c",
+   121345
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-22_alpha_paper_book_1_f7875b2eba5c.json": [
+   "28c8a458698886cc7ae34e49e47499b6e9637e3cc3b2a60c189f777b23fd4d65",
+   121214
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-23_alpha_paper_book_1_1ae1b53c67c9.json": [
+   "488bc41c48027332b40688b56ebd70557ecb2d0a242bd532d5e7752938158a14",
+   119657
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-23_alpha_paper_book_1_1b04e5321693.json": [
+   "b2c6f866f48d041f4ac9b77c8c5d9de8f3e873bb783a8d5938a95d1e28a0b334",
+   120775
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-23_alpha_paper_book_1_76826115cf06.json": [
+   "4b0d3bc60464405c792732a139353f11c3872d0d08c8c6f16fd2907eeca38e3d",
+   120775
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-23_alpha_paper_book_1_eded991621f8.json": [
+   "dd0b6f24d9090ac96a7c6c6eef550525d44ccec0ea500b1b7994125ecdb0797b",
+   120775
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-25_alpha_paper_book_1_eaee484fa4a0.json": [
+   "d23437e1e5f46b2b588ab7d3e66cc7c67c078c12d9d79f8b7446512e02f17935",
+   119827
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-29_alpha_paper_book_1_331a9c872914.json": [
+   "a65fdb72f5c91cdd1360776c5e21bed896a3e3d24f830f155166f5cf0dd3fa6d",
+   108099
+  ],
+  "reallocation_proposals/artifacts/reap_2026-09-29_alpha_paper_book_1_9fd4e1f5f32a.json": [
+   "e72fe427cb77c23f035e024708d3ac7fee26359980775a3163a98da072eb041c",
+   107992
+  ],
+  "reallocation_proposals/artifacts/reap_2026-10-01_alpha_paper_book_1_2cd491718a85.json": [
+   "ee555ca1aff1a2c9b6e86335e0706bd24bb236b0f425def376ee3120b3d277df",
+   126121
+  ],
+  "reallocation_proposals/artifacts/reap_2026-10-01_alpha_paper_book_1_812d76a05d6f.json": [
+   "27389d370411f22fd3e119f0cdd9725ffc73df1617fca455a7c32a8d9e272151",
+   126228
+  ],
+  "reallocation_proposals/index.json": [
+   "315bffa60c8e9b01fdfd50a78429d73f0f4a874cb46419f620ad1529a1194a9e",
+   17616
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-13_alpha_paper_book_1_40781b6d8764.json": [
+   "f1572e065474bd366af176fd4407cf8ec6523709778d2c72dc94adcc564466e3",
+   20603
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-14_alpha_paper_book_1_257ce5789a03.json": [
+   "bd978b8df6b2a703c71bd6fa4cb3548db25ac6e51ef662586501b0403aae7bef",
+   21921
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-17_alpha_paper_book_1_7edb4353341f.json": [
+   "610a78ed701caaab3bab38aac4227b59a5b33ea3499e954a7398271e5ab64cec",
+   91227
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-18_alpha_paper_book_1_cc0e6cedf338.json": [
+   "db40b1788a30e84801e4b7e6226d28eac95106043aacf7599d1009b1da494bbb",
+   89973
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-20_alpha_paper_book_1_c08a0cee8edf.json": [
+   "f3eaf3b75c470be9d42e287228a18d98e508930c6ba4331a8d3f3799c9669f04",
+   94266
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-24_alpha_paper_book_1_cce1ab302edc.json": [
+   "91d93d9b3cb4721f61682cfa43763669c8b41bf76d9c482cde7dec115fd3ffd0",
+   94259
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-25_alpha_paper_book_1_784f9cb276ea.json": [
+   "028149e1eca19601d9a185018bf3773c327d8e5472d1d90008bb39888fba67da",
+   92926
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-26_alpha_paper_book_1_28da2cf3a116.json": [
+   "75dbe2495ef8332fa33f083ba0983a8eb4e983f3c528b01d892a5f28fd33f105",
+   92912
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-27_alpha_paper_book_1_376f98ed4a3a.json": [
+   "799f204305fba134e95785aa9593533d534ce32dbc0b384d4c4ec4423c87325b",
+   92918
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-28_alpha_paper_book_1_e73cf2c9049d.json": [
+   "ca961dc41e09efaa748498db053910099005adf21a2ce6f84483b1364492e377",
+   93190
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-08-31_alpha_paper_book_1_292f6a534254.json": [
+   "9d6e59d6449a52add9ac8e19dee4f364b0b1dc719f1ebf52b776d0a7e3bd09e4",
+   94940
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-01_alpha_paper_book_1_50a1e8c4465d.json": [
+   "f864262b816ace02c02f75072b85e07d0e340be7d552c205571dbd225283ff86",
+   95808
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-01_alpha_paper_book_1_a0e27f0fb39c.json": [
+   "d0654e862c1c7b2a2782fc6969ec2a82e3b3b79940475c9f59b54fa06406c436",
+   99703
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-02_alpha_paper_book_1_029df5cdcda5.json": [
+   "17235979574253cdf509fd3a5c38f26b636855099741d763defd6b44024cc6a7",
+   98136
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-02_alpha_paper_book_1_2176b1427bc8.json": [
+   "8f0e0551ea604f263e22ca32d5ce4bf76a58ad809e17b3d05766cabc90b4088e",
+   98704
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-02_alpha_paper_book_1_74776dda34ac.json": [
+   "0a913095c8f10b45c961a05eacbdb7f1d87ab7d8abaaf02666b47c6c61a222e5",
+   98814
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-02_alpha_paper_book_1_e1b699577d84.json": [
+   "5d9dee1c34e946d9b4f1b51ec793c9a5a5772078afd667c68b92b42fc8733bee",
+   98704
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-03_alpha_paper_book_1_532903b4d00d.json": [
+   "4724d08ca6bfada616c4594ff476192dd3a56de6dbd4ea62d1dd31690349042f",
+   98396
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-03_alpha_paper_book_1_6ea1683ff59d.json": [
+   "7b23e55eecb366fbf086febd971c00e6d140d789946f4eb596acfe4377f25967",
+   98111
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-03_alpha_paper_book_1_d15e5bcf4bf6.json": [
+   "8aa31b3eee1531271479058825508a3c25357b6cb0dd443e2e562942e3de4bbc",
+   98388
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-04_alpha_paper_book_1_41e9bb8f38db.json": [
+   "74e828cb979bb3d4adf39e48fafa514912ddfe1ddfab072bc3a2244f8ed6ab37",
+   101251
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-04_alpha_paper_book_1_4a2cc032e0b9.json": [
+   "a4f9593425d1223d4c5fb830d873867de1ef917ea0c809a0435f95be82dedf15",
+   101259
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-04_alpha_paper_book_1_900082d12854.json": [
+   "32e46234055c48932eab2d454ea469b23698ddbe988370f7e51082203feb13b4",
+   101422
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-04_alpha_paper_book_1_ed611f288a12.json": [
+   "d0e95573d36ef234778ae580a5b8c89ee0174c4d38242a88cdcc080bffbd60c5",
+   101422
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-08_alpha_paper_book_1_05ccb339c579.json": [
+   "4fa480b28374e9babba04cd08b7b7b2bcbc11575e315ee1c086467d1006740a2",
+   98398
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-08_alpha_paper_book_1_0d8b24901ced.json": [
+   "79f12fe8f7bfb927e9b2c417a8a9f31eb58a9b1b91238736e62a745c4af0ba49",
+   99309
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-09_alpha_paper_book_1_71e131f4515f.json": [
+   "1cc5f995a2bd20b6a92bcc5768e136efea118a2e36e0ec8de0ca9171bc9682c5",
+   99320
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-10_alpha_paper_book_1_7471fe99c542.json": [
+   "20fa9555936290827bab68768ff7127910ac75a91ed549a4afbea94408a21920",
+   99113
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-11_alpha_paper_book_1_8ee24409f4f0.json": [
+   "738fef9c00fd59eb77f398202c7a9a780c59718daccda48d3dfecd7dcf8ea50d",
+   98377
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-14_alpha_paper_book_1_bd65f30b657f.json": [
+   "184f027308533943659667c844510fc63e5dceea4f6975a5ca21f191103c9748",
+   99104
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-15_alpha_paper_book_1_7df4a6a94db2.json": [
+   "a55d4f15771255b558aab5b9d2ba81d90a727f1ab7130f2bd4444f2b58feb024",
+   99104
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-16_alpha_paper_book_1_6307a30a23df.json": [
+   "ef031763fb5bf702160bf8ae6803984e4025dfecc92ff2fc9e5aacefeb13e7da",
+   99092
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-17_alpha_paper_book_1_71990774672d.json": [
+   "e6d9c8ec71c8866cf724c22637a22f4d60eba35aa4304a5d54652a5cfb9f5c78",
+   99285
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-17_alpha_paper_book_1_c00f8414f931.json": [
+   "6bd87d7fb127e2ac81cfdad22bba3c071324c9dacf9f2db9debc05169a35c18b",
+   99285
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-17_alpha_paper_book_1_d8f3293f1850.json": [
+   "d9db46fa04e0d52a92093b9aed49c2757b080b7f1324678398f7f3e3151fbf8a",
+   99098
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-18_alpha_paper_book_1_cc051d034198.json": [
+   "439f409fccb697d128c4b9af1a738b9fba25a0e225c45fd5cddc1c0ae8088030",
+   100180
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-21_alpha_paper_book_1_4cb4a2fc282c.json": [
+   "4414230777ca42aab68f5cc47a51a3e3a6032701b4e4aa5456ee1caac18daee6",
+   99451
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-22_alpha_paper_book_1_50a9603ff1bd.json": [
+   "e843ae6ff9c8c2e7081885c899d3cd517022bbeee8b1cc811078d1f5bbee858e",
+   99886
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-22_alpha_paper_book_1_8d3d73a65151.json": [
+   "4f8fb6462b9fb17aebdee6ae4a8d121ae5adfc224a6136db896fc44dfa1f6ce3",
+   99467
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-23_alpha_paper_book_1_8b5066e68971.json": [
+   "f85b9cb518d7d2090545e97940d54d2b942f2933bbf93a01b7784cda81fbe74f",
+   102199
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-23_alpha_paper_book_1_efab528bac3a.json": [
+   "7ca464779bcb68d1833612ab0f75012b8f2df72cc692d849b56a5832bde94bb8",
+   101775
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-24_alpha_paper_book_1_5a4d79f8964e.json": [
+   "4055ac404f1f9e3f1f1152f4c3ffedb01338c7d347ed8e77ea60a5d5e44cad81",
+   99471
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-24_alpha_paper_book_1_8a0702e7ca4f.json": [
+   "8c66333cc5a8c9362fbc6197f48ec55eab0ec1927cbf574f13cca0c190748fb8",
+   163538
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-25_alpha_paper_book_1_fc1a30282b70.json": [
+   "4545473796ac96c068c403fd4ac8db7bef9d811d30103fca683f74067b727661",
+   163778
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-28_alpha_paper_book_1_9601ca9fb781.json": [
+   "de8f5c19b144b96d7de06765428b080165315dbd7049d2e3e566c49db00c96a4",
+   163784
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-28_alpha_paper_book_1_9a9b11041049.json": [
+   "2da0700091a7d22a032038646e07b5b593268f1eec7870be5ec91e42cc2b9ce0",
+   163515
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-09-29_alpha_paper_book_1_8c0764fb6258.json": [
+   "651aa6108e4c0a3cd48a5db11c6a871cf4b5a8fb838c4a085eb67c5c81df870d",
+   163793
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-10-01_alpha_paper_book_1_1e949889cf9e.json": [
+   "de06c41376e1a391cfad9aacf3b82efa7ed0db59cbb7eac340749022c2daf2aa",
+   164030
+  ],
+  "portfolio_reassessments/artifacts/prs_2026-10-01_alpha_paper_book_1_2e5785bd4654.json": [
+   "77f858de377fcfa8ae51868c47b4cc6b4f51c52effb534a8832423dbc0ddd565",
+   163888
+  ],
+  "portfolio_reassessments/index.json": [
+   "751f929eeb4fbf7b7fa4324549d23a9532f21aed0fcd16098ccfb5848e2c08d5",
+   100009
+  ],
+  "portfolio_reassessments/recommendation_history.json": [
+   "2feb80548c9c972f0051ec5c54b42bb4fa415b106da446d20601a05b5fbfabee",
+   1108398
+  ],
+  "rebalance_order_plans/order_plans.json": [
+   "8ee1a312b8870ef3f218e0f48323a0fbdc244b7c24186a3636ff34fe072645f4",
+   27319
+  ],
+  "reassessment_outcomes/outcome_observations.json": [
+   "183aaf32c676d0c950893c07334989511c61c331b655a032686632a4f7c45004",
+   26090610
+  ],
+  "forward_challenger_registry/registrations/254edc8427e80b55d688ed57967e0e2833d40771476c53042162e49efc58df34.json": [
+   "dc0b480b57ec2791d27f367101b50c1e2229983659381b2ef3b378e3c994365d",
+   4231
+  ],
+  "forward_challenger_registry/registrations/41f9e68a039ef97ce41efbe67f8393552b6fb0515d073bc2b97e5209e737d415.json": [
+   "245874bea2e336039766b0a04ad96775f4b740eece533a093b2b5e4f77985888",
+   4183
+  ],
+  "forward_challenger_registry/registrations/436a13011b6700109cdb3918ac91c0dd471534c69057ca33948870bfa87db641.json": [
+   "cc9507f0faf3f955280fae8b73c1e3ad6c71cf24e3006963a03b48e14b77e9c4",
+   5363
+  ],
+  "forward_challenger_registry/registrations/4e2d1027f9aa2a664f70befcc0c0f27eadf72ba648a8ccebf75e2c6ec3198ff1.json": [
+   "009c90ac394d5c16550c44f6b10406966e975e2d6e57aa81e9b76c65297a5946",
+   4655
+  ],
+  "forward_challenger_registry/registrations/6606c9a40719d4d7694859b3367b395fee98dea134316f6e4452643f5cbbcba0.json": [
+   "0803064123991010fff4b7c9ee19ac667e5262b33197db0f95d072679027f547",
+   4707
+  ],
+  "forward_challenger_registry/registrations/7919b94eb8d95f865e40d04b49f59a57f76effb158b40e61c4ea89a65899319e.json": [
+   "42431fb0bd43ddefd57b85d3005bb5507576c890fb61e3c63ad9380240dfb44c",
+   4223
+  ],
+  "forward_challenger_registry/registrations/89f642ec035ddfb08bbc3e09e1c8ee2bfbae8f25824ccec78e29ea57d63e7f92.json": [
+   "fdc4e9d7067644a067d1082f93ee12f3e07c61f5d1831fb835768dfcdd1c68b2",
+   4235
+  ],
+  "forward_challenger_registry/registrations/ceca883ea5a1b8e0d2daf91343e18a0b5fb041a1983a6dc8f435a448a33cea39.json": [
+   "1dbc85a52e749e53e244937afe0e8855e3d637c7eea9a522126a420938e586df",
+   7019
+  ],
+  "canonical_forward_accrual/accrual_projection.json": [
+   "cbee5b7384f00d70bfa9059a0151f0c2d6ba9bb04c34bc1f0fbcfae50456a74a",
+   19802
+  ],
+  "canonical_forward_accrual/emissions/254edc8427e80b55d688ed57967e0e2833d40771476c53042162e49efc58df34/2026-09-10.json": [
+   "83f23fd4b057d51da1d2d7b2ab18f36637292156fb2cf6981c2202a9fad9c895",
+   5844
+  ],
+  "canonical_forward_accrual/emissions/41f9e68a039ef97ce41efbe67f8393552b6fb0515d073bc2b97e5209e737d415/2026-09-10.json": [
+   "43209bd95a3667d4026bc9935e0992ac6e3f04e33e2567991d04a59de99c8963",
+   5797
+  ],
+  "canonical_forward_accrual/emissions/436a13011b6700109cdb3918ac91c0dd471534c69057ca33948870bfa87db641/2026-09-22.json": [
+   "9af52114592ecd1595d8860b94d40181de5b18991f3acb6d6f743b5b951a5b60",
+   6334
+  ],
+  "canonical_forward_accrual/emissions/7919b94eb8d95f865e40d04b49f59a57f76effb158b40e61c4ea89a65899319e/2026-09-10.json": [
+   "95684b1383f462b0d7331a017a95fdb49bfdee7235af68ea731659d156ad9432",
+   5840
+  ],
+  "canonical_forward_accrual/emissions/89f642ec035ddfb08bbc3e09e1c8ee2bfbae8f25824ccec78e29ea57d63e7f92/2026-09-10.json": [
+   "f72dd7d21ef19c53e403a388ab2ed3159172eae9bf3d133d14681b288fae05ef",
+   5839
+  ],
+  "prospective_adoption/intents/254edc8427e80b55d688ed57967e0e2833d40771476c53042162e49efc58df34.json": [
+   "9bcf138d192882d3baae9b54a644917895461052c7aafa828a988e0a8cba6fdc",
+   6003
+  ],
+  "prospective_adoption/intents/41f9e68a039ef97ce41efbe67f8393552b6fb0515d073bc2b97e5209e737d415.json": [
+   "cd453ff9785f0c35159f811d21230021a962935012c7be97a4271e14df333875",
+   5919
+  ],
+  "prospective_adoption/intents/436a13011b6700109cdb3918ac91c0dd471534c69057ca33948870bfa87db641.json": [
+   "83593035254a05d6a178d88f89ff195a0bbf8a8f45faafe0d9f2384ed04aa3dc",
+   7762
+  ],
+  "prospective_adoption/intents/4e2d1027f9aa2a664f70befcc0c0f27eadf72ba648a8ccebf75e2c6ec3198ff1.json": [
+   "6874713f4860b3a2d8c69ff1b06ad514471b9f91885591ae27e80aeb41dd66e9",
+   6698
+  ],
+  "prospective_adoption/intents/6606c9a40719d4d7694859b3367b395fee98dea134316f6e4452643f5cbbcba0.json": [
+   "2bb58406b45cf3ca114aa54e01bb38b7c43b43d2f29d2da21d78af6003c81abf",
+   6776
+  ],
+  "prospective_adoption/intents/7919b94eb8d95f865e40d04b49f59a57f76effb158b40e61c4ea89a65899319e.json": [
+   "6572bc8a6e61131d1ed2ace6bd5c38a91d6c079991a2b41453589e670d9edf2a",
+   5989
+  ],
+  "prospective_adoption/intents/89f642ec035ddfb08bbc3e09e1c8ee2bfbae8f25824ccec78e29ea57d63e7f92.json": [
+   "6f5f7b42e5b25b998643357e4bdc210a47c77037e6fc04ede02552efa4ce7882",
+   6010
+  ],
+  "prospective_adoption/intents/ceca883ea5a1b8e0d2daf91343e18a0b5fb041a1983a6dc8f435a448a33cea39.json": [
+   "455e3227800345fbdc43e8737fc8a4edf5746bc5b5e003fcd55a099571e3c6c3",
+   10606
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-06_alpha_paper_book_1_5b12669a330f.json": [
+   "f195a213764f5dba76ab338371fd7d433618a05f29cf40bc69553ee6fd45d983",
+   80689
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-07_alpha_paper_book_1_f72e7bc30e15.json": [
+   "27651a033d096b5d3e949c4023fe981b12209163a0cedfae15a60aa20bece525",
+   79903
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-10_alpha_paper_book_1_83b2b82344bc.json": [
+   "50c2f2ab19a86cb98e65439edb403a03e6fcfb3d0329a3a166f35f2b7650e4d9",
+   79896
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-11_alpha_paper_book_1_e1f70cf154a1.json": [
+   "987152eccd2352778f7f979fd237abf4f78e7ad06173332bf05ea8a423726a5c",
+   79907
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-12_alpha_paper_book_1_dc6487aee320.json": [
+   "c0096f8646a8131d1ff7625ba63d8d2e7aa7b47bece8d2065cc9df5915852c10",
+   80092
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-13_alpha_paper_book_1_9bdd5056a414.json": [
+   "22e73821151657513e21922276cd702a801733c89288f8fc82e6a3bf4f48e882",
+   78310
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-14_alpha_paper_book_1_16aa9ac96797.json": [
+   "6c8f031503dabd3f58145594e178318397cff0f7c6903ca9e3132e944b26a937",
+   78584
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-17_alpha_paper_book_1_7a96efc2f95e.json": [
+   "32e2035de1113876ad3ad2a4b30bfbb713b0f43f7396a72c74234f075aedbe0c",
+   78339
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-18_alpha_paper_book_1_76b92f028a0a.json": [
+   "9de2e4785a7a8e3693e92d6189a7825aa6e65322f258f271c731721bf92ab1d5",
+   78351
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-20_alpha_paper_book_1_a55edde52326.json": [
+   "93300f9567e1c809a362c62b4df3c2ed73065551cd60bbc3fa5930d8652a0167",
+   79556
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-24_alpha_paper_book_1_0705c83eb6ee.json": [
+   "871d34cf5232445c275844ade7fd3a6705903e612bf3d6e149f07bfdc46a8347",
+   79542
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-25_alpha_paper_book_1_bfd5dcf40f51.json": [
+   "2640e94f7ed446f46fe2a89aba66e4c3bd8d51c44f32901dab1b54871e0d7cc4",
+   78638
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-26_alpha_paper_book_1_5732ac787c2c.json": [
+   "7074940d7f1ad2fb564d94d3ef237b0236c262d433429ed94466c1ece9b994f4",
+   78624
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-27_alpha_paper_book_1_f0b0cc632792.json": [
+   "95292b9bf08c9648aa259b92226176d2ce0420735fca0c27649f6f0cc6b42868",
+   78632
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-28_alpha_paper_book_1_820c98810956.json": [
+   "6bd764c6123d4493c6ae4a88c3c7957c5b719fb8bb73dc19a99ad0e1651fb409",
+   79169
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-08-31_alpha_paper_book_1_6de5ece40d6f.json": [
+   "afb5bd8771a95c44d61fd504cd5ae82c94e015a88bdae9506b1a6ab1a774e151",
+   78839
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-01_alpha_paper_book_1_18e60abdaac4.json": [
+   "2bf7de9bfa7cdfc1cf25afb5930a0f126ef7a672640efc7a97ee6c0cc931aae0",
+   78812
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-02_alpha_paper_book_1_702c599ee5b3.json": [
+   "13791bc61a730cd7c3fba95e39355c4e99fbc9e06cb477fbe1adc2bc1de6a3b3",
+   82092
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-02_alpha_paper_book_1_a162fca969c9.json": [
+   "7552fde4bd68a5b10f47bde3bb8064ae4588baa02845796e8735083f82d90924",
+   83149
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-03_alpha_paper_book_1_f5f4a5643109.json": [
+   "2e29e49fbd93753eca6bd84bc7abdab2d43aea62906a6c8ae34dece8fa33a98c",
+   82844
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-04_alpha_paper_book_1_3db8c5b5ecfd.json": [
+   "1b6585fff3fcc7d4b1ed921b6618eb5faa568bf01ab86e2bd3332684bf10f8fc",
+   82861
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-08_alpha_paper_book_1_7034e1bf903e.json": [
+   "5d0bfe10c077d16629f2609120cb1e636a4edc3165c4ff516db60ebb5023e32b",
+   82834
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-08_alpha_paper_book_1_7850f8ef81cb.json": [
+   "f1121bb44ee66b2f6245217caa2aef4d1bbe68434c16e0be0872a4627382269b",
+   83590
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-09_alpha_paper_book_1_4e5bc33f0858.json": [
+   "b5d337984278a6d1dc9446b5232dbb4c2688113594df01cd392cae67c2f7b719",
+   82833
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-10_alpha_paper_book_1_c40dfce8082a.json": [
+   "85a229f12c18b129b10021d5530d69747a0b9823d33e47c715501cc6847ea082",
+   82848
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-11_alpha_paper_book_1_27cf4de2bb21.json": [
+   "1ac90ee39ac3a5918d5781fbd28d4488b5eb282659f5b57c27e16bd2b92af050",
+   82832
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-14_alpha_paper_book_1_67baa8c27f24.json": [
+   "f7096e58b1a3677e630782cacc20147e9a764f5aac5c2b9108cb6f3e8caec151",
+   82870
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-15_alpha_paper_book_1_bf56972dc569.json": [
+   "a231901b09fd5ce933348f431c73a72db0c24ca26f08d3759862076526950ae5",
+   82863
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-16_alpha_paper_book_1_0c9c849bb19a.json": [
+   "7511bd3afb89e3cf256b4bd09522b7fafeefa1503beab80fcffe64fe629cd25c",
+   82828
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-17_alpha_paper_book_1_3c8c78d99210.json": [
+   "ddf0e6cce5c0336d6d8423fa78e2fc9527753483f35169ab869ba152210e606f",
+   82860
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-18_alpha_paper_book_1_73b1f8504cc9.json": [
+   "c967f9685663b5237e9b9688e83c9cec33c87f90b483188d2ef0197e9469665e",
+   83230
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-21_alpha_paper_book_1_08c167bacaca.json": [
+   "ffbbed9ce9cda2cd38a95a3748cedf85857b5b57ea70a3e95229cbe7735f7e4a",
+   83268
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-22_alpha_paper_book_1_620d1a63c8b6.json": [
+   "133c53b23d8dde8f1bfef0cb7ea04d4b05a90b766c6bda1e70ef2c01767f9de5",
+   83234
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-22_alpha_paper_book_1_a9608a668990.json": [
+   "cb1578c745dccdffdd9bcfe5e177e6e03562c0b17c82a24dfb7c570e82d71e18",
+   83265
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-23_alpha_paper_book_1_bf80b4d9b1bd.json": [
+   "b336920906da7d939edaca358829e6a1936e29ef0cc50f63f3f5f324f881d848",
+   83256
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-23_alpha_paper_book_1_fef1e2b23b4d.json": [
+   "ebf6c475787dc6e471c0dfec9ff6e107bf7724e26972011d724940b6c1a67a42",
+   83251
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-24_alpha_paper_book_1_889ff28f64a1.json": [
+   "4d72cbb4766cb66bd6d59986354ec6fc5f3be90765a10d9e485556c10e9a8af1",
+   83245
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-24_alpha_paper_book_1_b1222948db7c.json": [
+   "b34e63289936ea78d9d6d1550172e331754cb6f8ae6c01ce59991e834805151e",
+   145792
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-25_alpha_paper_book_1_57ee6dfadc9c.json": [
+   "e83cd32df546252cf2f9d9945aeda6775c3be592b39c970d319b8488c6fa1c0d",
+   145803
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-28_alpha_paper_book_1_e0f5b38ac620.json": [
+   "615edc81051fc3fc13a1cc44818694bebeffe455756ef6902a3118c9700bc8da",
+   145767
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-09-29_alpha_paper_book_1_947c5c2e132d.json": [
+   "de97a319c6c013a1b88b965d1a3af7dbe6bd1c37981ede41fda6d7b8b7aca926",
+   145789
+  ],
+  "holding_opportunity_cost/artifacts/hoc_2026-10-01_alpha_paper_book_1_75ae607d5835.json": [
+   "7c1668e70accb6e09b55b07a3a477fa7f9574b4b188d3c23842d4e15a248b7b3",
+   145895
+  ],
+  "holding_opportunity_cost/index.json": [
+   "4d68a66738ea60d1267c0f1274bc19ae925a10ab27e06c9b966c38dbb081211f",
+   59524
+  ],
+  "r59_autonomous_alpha/challengers/R59_CALENDAR_TERM_STRUCTURE_F9BE2426.json": [
+   "2a05de2f479cd80fc13365b494c07cdb757ff8f5684f4c093de0cbd60424312f",
+   4161
+  ]
+ },
+ "api": {
+  "/v1/operational-book": {
+   "status": 200,
+   "sha256_stripped": "059c7a9a5507c96a0210f03fcbdad3b5b3e85ac43dd484e9930d6baa63296482"
+  },
+  "/v1/operations/workflow-state": {
+   "status": 200,
+   "sha256_stripped": "6275aa45e03bb102ffb16d3510ca07e3f7490da47e65169faa83a4e83aaedae3"
+  },
+  "/v1/operations/portfolio-reassessment": {
+   "status": 200,
+   "sha256_stripped": "dc0bb67d0644b0aa99332d87446d394a1c401ebb25ca1417599234fb59e8b257"
+  },
+  "/v1/operations/daily-close": {
+   "status": 200,
+   "sha256_stripped": "2bad8d996254787e852ced31bbcf56b2e1d503cd89840fdef43afb27c78b9fa7"
+  },
+  "/v1/ready": {
+   "status": 200,
+   "loaded_commit": "8d6c3669c0e3c61316040b192cee25d2ac76d50b",
+   "loaded_pid": 29108
+  }
+ },
+ "db": {
+  "portfolio": {
+   "rows": 1,
+   "max_id": "1"
+  },
+  "positions": {
+   "rows": 2,
+   "max_id": null
+  },
+  "orders": {
+   "rows": 2,
+   "max_id": null
+  },
+  "trades": {
+   "rows": 2,
+   "max_id": null
+  },
+  "trade_decisions": {
+   "rows": 2,
+   "max_id": null
+  },
+  "portfolio_snapshots": {
+   "rows": 9,
+   "max_id": null
+  }
+ },
+ "git": {
+  "head": "8d6c3669c0e3c61316040b192cee25d2ac76d50b",
+  "branch": "stage19-controlled-rebalance",
+  "porcelain_lines": 229,
+  "tracked_modified": [
+   ".claude/agents/quant-research-director.md",
+   "alpha_agent/agents_v2/books.py",
+   "alpha_agent/agents_v2/briefs.py",
+   "alpha_agent/agents_v2/pipeline.py",
+   "alpha_agent/agents_v2/runner.py",
+   "alpha_agent/r61/cost_budget.py",
+   "alpha_agent/r61/halts.py",
+   "docs/ARCHITECTURE_DECISIONS.md",
+   "research/agents/agent_contracts.json",
+   "research/agents/experiment_registry_schema.json",
+   "scripts/alpha_agents_v2.py",
+   "tests/test_paper_trader_alpha_agents_v2.py"
+  ]
+ },
+ "collection_worker": {
+  "loaded_commit": "8d6c3669c0e3c61316040b192cee25d2ac76d50b",
+  "pid": 20124,
+  "started_at": "2026-10-02T19:49:02.891303+00:00",
+  "collection_automation_enabled": true
+ },
+ "n_files": 175
+}

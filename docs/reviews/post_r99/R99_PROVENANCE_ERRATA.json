@@ -1,0 +1,118 @@
+{
+ "artifact": "R99_PROVENANCE_ERRATA",
+ "rewrites_history": false,
+ "ruling_order_used": [
+  "R99_DIRECTOR_RULING_W1.json",
+  "R99_DIRECTOR_RULING_W1A.json",
+  "R99_DIRECTOR_RULING_W2.json",
+  "R99_DIRECTOR_RULING_W3.json",
+  "R99_DIRECTOR_RULING_W4.json",
+  "R99_DIRECTOR_RULING_W5.json",
+  "R99_DIRECTOR_RULING_W6.json",
+  "R99_DIRECTOR_RULING_W7.json",
+  "R99_DIRECTOR_RULING_W8.json",
+  "R99_DIRECTOR_RULING_W9.json",
+  "R99_DIRECTOR_RULING_W10.json",
+  "R99_DIRECTOR_RULING_W11_AGENDA.json",
+  "R99_DIRECTOR_RULING_W12.json",
+  "R99_DIRECTOR_RULING_W14.json",
+  "R99_DIRECTOR_RULING_W15.json",
+  "R99_DIRECTOR_RULING_W16.json"
+ ],
+ "C04_governance_exception": {
+  "computed_by": "alpha_agent.agents_v2.provenance.admission_exceptions over R99's own ruling files",
+  "exceptions": [
+   {
+    "cell": "R99_C04",
+    "exception": "GOVERNANCE_EXCEPTION_POST_MEASUREMENT_WITHDRAWAL",
+    "latest_ruling": "R99_DIRECTOR_RULING_W1A.json",
+    "latest_g7": "FAIL",
+    "history": [
+     {
+      "ruling_file": "R99_DIRECTOR_RULING_W1.json",
+      "g7": "PASS"
+     },
+     {
+      "ruling_file": "R99_DIRECTOR_RULING_W1A.json",
+      "g7": "FAIL"
+     }
+    ]
+   }
+  ],
+  "timeline_utc": {
+   "W1_admits_C04_G7_PASS": "2026-10-04T15:40:57Z (file mtime)",
+   "C04_preregistered": "2026-10-04T15:45:04Z (research memory event 193160)",
+   "C04_power_assessed": "2026-10-04T15:45:05Z (event 193161)",
+   "C04_D_layer_revealed": "2026-10-04T15:46:12Z (event 193186; halted at D)",
+   "W1A_withdraws_C04_G1_FAIL_G7_FAIL": "2026-10-04T15:46:34Z (file mtime)"
+  },
+  "why_measured": "W1 admitted C04 and the wave-1 batch was dispatched on that admission while the director's W1A consistency amendment (prompted by the C01/C02 reopen evidence) was still being written. The runner had no admission door, so nothing re-read the ruling at measurement time; the withdrawal landed 22 s after C04's D layer was revealed.",
+  "treatment": "C04 remains in R99's MEASURED count as the guard computes it, but it is NOT a clean admissible experiment. Its outcome (NO_ALPHA_EVIDENCE at D) is unaffected; the R99 sensitivity without C04 (R99_PIPELINE_FINDINGS.json c04_sensitivity) changes no quota PASS/FAIL.",
+  "repair": "runner admission door + post-measurement exception list (alpha_agent/agents_v2/provenance.py)"
+ },
+ "PF4_hash_drift_corrected": {
+  "current_r99_cells_sha256": "f01ece668fc710c688f4ff36245f5e833984b3112fa15032a677154291cb124c",
+  "recorded_cells_file_sha256": {
+   "6786052f1f691bf7f288149551672d797893eb37da81cef5cb48475637056fb9": [
+    "R99_C01",
+    "R99_C02",
+    "R99_C03",
+    "R99_C04",
+    "R99_C05",
+    "R99_C22",
+    "R99_E03",
+    "R99_E11",
+    "R99_F01",
+    "R99_F06",
+    "R99_F10",
+    "R99_R01",
+    "R99_R02",
+    "R99_R03",
+    "R99_R04",
+    "R99_R06",
+    "R99_R14"
+   ],
+   "ac32c82d21101987542db300e2e054e9aed303e0c6a953d6cc33244b6f2a2b71": [
+    "R99_E33"
+   ],
+   "b8244a9f88b3ca99146f76fb8523bf2966b65a0ac03d20c80db89bacb9e484f9": [
+    "R99_R24"
+   ]
+  },
+  "distinct_recorded_cells_hashes": 3,
+  "any_equal_current": false,
+  "preregs_without_cells_file_hash": [
+   "R99_R15"
+  ],
+  "R15_event_binding": {
+   "frozen_rules_file": "research/agents/campaign_r99_multi_asset_alpha_offensive/R99_EVENT_RULES.json",
+   "frozen_rules_sha256_recorded": "3ec2571019a5b19f4d4d2682435bb7c00ee661904d457d6c87008e5513984a27",
+   "frozen_rules_sha256_now": "f5aaff49411e140a9a21548533480ff0deb6b16efb9964d1abde40e9d1011c65",
+   "frozen_rules_equal": false,
+   "source_sha256_recorded": "a104eb7595c35c4e1eedd8303f31df4c659e59c0b8e250deb92d5bc761f4296b",
+   "source_sha256_now": "a104eb7595c35c4e1eedd8303f31df4c659e59c0b8e250deb92d5bc761f4296b",
+   "source_equal": true,
+   "r15_rule_entry_unchanged": "UNVERIFIABLE (R99_EVENT_RULES.json is untracked; the prior bytes are not retained)"
+  },
+  "correction_to_R99_PF4": "PF4 counted 4 distinct hashes for r99_cells.py. Only 3 are cells-file hashes (19 preregistrations); the 4th (3ec25710...) is R15's frozen_rules_sha256 for R99_EVENT_RULES.json, which ALSO drifted (rewritten 12:30 after R15's 11:44 preregistration). R15's event source CSV is unchanged."
+ },
+ "PF2_horizon": {
+  "finding": "r99_cells.py CELLS literals show h=21 for wave-1 cells; an import-time daily-cadence override set h=1 and every preregistration records horizon_sessions=1 / cadence_sessions=1",
+  "historical_returns": "unchanged; measured at h=1, which is what the preregistrations state",
+  "repair": "runner refuses any executed horizon/cadence that differs from the frozen pair, a frozen spec that states no horizon, and a spec that states horizon/cadence twice with different values"
+ },
+ "F32_documentation_erratum": {
+  "where": "research/agents/campaign_r99_multi_asset_alpha_offensive/r99_cells.py sig_F32 docstring",
+  "states": "LONG an equal-vol basket of 6E 6J 6B 6C 6A 6S",
+  "frozen_code": "legs={s: 1.0 / 6 for s in FX6} - EQUAL-NOTIONAL, 1/6 each",
+  "authoritative_reading": "R99_F32 is an EQUAL-NOTIONAL G6 basket. The docstring is wrong; the frozen code is authoritative. R99_GATE_LEDGER.json already records the inconsistency in F32's G1 note.",
+  "historical_result": "F32 was REFUSED before measurement (no return read); nothing changes",
+  "not_edited_because": "editing the frozen cells file would add a further hash drift to a file 19 preregistrations name"
+ },
+ "X04_carry_forward": {
+  "superseded": "~3.4 years (assumed 70% non-zero surprise share)",
+  "authoritative": "~4.5 years (observed non-zero share 0.531 x 8 meetings/yr; (36-17)/4.25 = 4.47)",
+  "stale_copy": "R99_NEXT_CAMPAIGN_DRAFT.json ready_designs[R99_X04].state",
+  "replacement": "POST_R99_NEXT_CAMPAIGN_DRAFT.json, generated by scripts/build_next_campaign_draft.py from R99_CARRY_FORWARD.json"
+ }
+}

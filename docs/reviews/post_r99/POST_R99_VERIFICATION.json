@@ -1,0 +1,323 @@
+{
+ "artifact": "POST_R99_VERIFICATION",
+ "read_only": true,
+ "r99_dir": "C:\\Users\\binis\\paper_trader\\research\\agents\\campaign_r99_multi_asset_alpha_offensive",
+ "recount": {
+  "FRESH_HYPOTHESES_SCREENED": 169,
+  "FRESH_HYPOTHESES_SCREENED_queue_n_field": 169,
+  "FORMAL_GATE_ASSESSMENTS": 114,
+  "FORMAL_GATE_ASSESSMENTS_ledger_n_formal_field": 114,
+  "GATE_LEDGER_RECORDS": 128,
+  "EXPERIMENTS_PREREGISTERED": 20,
+  "EXPERIMENTS_PREREGISTERED_prereg_artifact": 20,
+  "PREREGISTER_PIPELINE_OK_TOKENS": 20,
+  "PREREGISTRATION_REFUSALS": 1,
+  "EXPERIMENTS_MEASURED": 20,
+  "EXPERIMENTS_MEASURED_measurement_rows": 20,
+  "ASSET_AREAS_MEASURED": 5,
+  "asset_areas": [
+   "COMMODITIES",
+   "EQUITY",
+   "FX",
+   "INTERNATIONAL",
+   "RATES"
+  ],
+  "by_area": {
+   "COMMODITIES": 6,
+   "EQUITY": 3,
+   "FX": 3,
+   "INTERNATIONAL": 3,
+   "RATES": 5
+  },
+  "HEDGED_OR_CROSS_ASSET_MEASURED": 19,
+  "CURVE_OR_SPREAD_MEASURED": 9,
+  "DIRECTIONAL_MEASURED": 1,
+  "EVENT_DRIVEN_MEASURED": 1,
+  "CROSS_SECTIONAL_MEASURED": 9,
+  "DISTINCT_INFORMATION_FAMILIES_MEASURED": 20,
+  "REACHED_LOCKBOX": 2,
+  "lockbox_experiments": [
+   "H_1b9c733e_787575045691",
+   "H_d1181435_4f695f30a9e1"
+  ],
+  "VALIDATION_RECORDS": [
+   "H_1b9c733e_787575045691",
+   "H_d1181435_4f695f30a9e1"
+  ],
+  "SKEPTIC_VERDICTS": {
+   "H_d1181435_4f695f30a9e1": "KILLED",
+   "H_1b9c733e_787575045691": "KILLED"
+  },
+  "SKEPTIC_KILLED": 2,
+  "SKEPTIC_SURVIVORS": 0,
+  "RISK_CLEARED": 0,
+  "RISK_STATUS": "NOT_REACHED",
+  "ENSEMBLES": 0,
+  "ENSEMBLE_STATUS": "NOT_REACHED",
+  "experiments_revealed_in_more_than_one_results_file": [],
+  "measurement_rows_match_results_files": true
+ },
+ "survivor_chain": {
+  "H_1b9c733e_787575045691": {
+   "cell": "R99_C02",
+   "skeptic": "KILLED",
+   "canonical_gate": "alpha_agent.r59.engines.gate: NO_ALPHA_EVIDENCE, qualified false; failed lockbox_material (-0.04618 vs floor 0.015), validation_same_sign, lockbox_t_positive (t -2.097, p 0.982) and burden_corrected_significant (p 1.0, denominator 157); 945 effective obs; validation material (0.01440 vs 0.00375)",
+   "failed_attacks": [
+    "concentration",
+    "cost_increase_2x",
+    "early_late_split",
+    "multiple_testing_burden",
+    "not_a_duplicate_identity",
+    "placebo_clean",
+    "regime_split",
+    "remove_best_year"
+   ]
+  },
+  "H_d1181435_4f695f30a9e1": {
+   "cell": "R99_R02",
+   "skeptic": "KILLED",
+   "canonical_gate": "alpha_agent.r59.engines.gate: NO_ALPHA_EVIDENCE, qualified false; failed lockbox_material (0.00157 vs floor 0.015) and burden_corrected_significant (p 1.0, denominator 153); lockbox t 0.076, p 0.470, 945 effective obs; validation same sign and material (0.00728 vs 0.00375)",
+   "failed_attacks": [
+    "concentration",
+    "cost_increase_2x",
+    "early_late_split",
+    "multiple_testing_burden",
+    "not_a_duplicate_identity",
+    "regime_split",
+    "remove_best_year"
+   ]
+  }
+ },
+ "research_memory_crosscheck": {
+  "path": "D:\\Stock_Prediction_app_data\\r59_autonomous_alpha\\research_memory.sqlite",
+  "tables_with_hypothesis": [
+   "hypotheses"
+  ],
+  "r99_experiment_ids_in_memory": {
+   "hypotheses": {
+    "n": 20,
+    "by_outcome": {
+     "NO_ALPHA_EVIDENCE": 20
+    }
+   }
+  }
+ },
+ "pf4_hash_drift": {
+  "current_r99_cells_sha256": "f01ece668fc710c688f4ff36245f5e833984b3112fa15032a677154291cb124c",
+  "recorded_cells_file_sha256": {
+   "6786052f1f691bf7f288149551672d797893eb37da81cef5cb48475637056fb9": [
+    "R99_C01",
+    "R99_C02",
+    "R99_C03",
+    "R99_C04",
+    "R99_C05",
+    "R99_C22",
+    "R99_E03",
+    "R99_E11",
+    "R99_F01",
+    "R99_F06",
+    "R99_F10",
+    "R99_R01",
+    "R99_R02",
+    "R99_R03",
+    "R99_R04",
+    "R99_R06",
+    "R99_R14"
+   ],
+   "ac32c82d21101987542db300e2e054e9aed303e0c6a953d6cc33244b6f2a2b71": [
+    "R99_E33"
+   ],
+   "b8244a9f88b3ca99146f76fb8523bf2966b65a0ac03d20c80db89bacb9e484f9": [
+    "R99_R24"
+   ]
+  },
+  "distinct_recorded_cells_hashes": 3,
+  "any_equal_current": false,
+  "preregs_without_cells_file_hash": [
+   "R99_R15"
+  ],
+  "R15_event_binding": {
+   "frozen_rules_file": "research/agents/campaign_r99_multi_asset_alpha_offensive/R99_EVENT_RULES.json",
+   "frozen_rules_sha256_recorded": "3ec2571019a5b19f4d4d2682435bb7c00ee661904d457d6c87008e5513984a27",
+   "frozen_rules_sha256_now": "f5aaff49411e140a9a21548533480ff0deb6b16efb9964d1abde40e9d1011c65",
+   "frozen_rules_equal": false,
+   "source_sha256_recorded": "a104eb7595c35c4e1eedd8303f31df4c659e59c0b8e250deb92d5bc761f4296b",
+   "source_sha256_now": "a104eb7595c35c4e1eedd8303f31df4c659e59c0b8e250deb92d5bc761f4296b",
+   "source_equal": true,
+   "r15_rule_entry_unchanged": "UNVERIFIABLE (R99_EVENT_RULES.json is untracked; the prior bytes are not retained)"
+  },
+  "correction_to_R99_PF4": "PF4 counted 4 distinct hashes for r99_cells.py. Only 3 are cells-file hashes (19 preregistrations); the 4th (3ec25710...) is R15's frozen_rules_sha256 for R99_EVENT_RULES.json, which ALSO drifted (rewritten 12:30 after R15's 11:44 preregistration). R15's event source CSV is unchanged."
+ },
+ "guard_state_before_closeout": {
+  "last_guard_decision": "R99_CONTINUE_REQUIRED",
+  "last_guard_timestamp": "2026-10-04T17:54:18Z",
+  "last_guard_active_minutes": 174.7,
+  "hard_stop_events_file_exists": false,
+  "final_report_files": []
+ },
+ "closeout": {
+  "guard_decision": "R99_CONTINUE_REQUIRED",
+  "guard_timestamp": "2026-10-04T18:48:13Z",
+  "active_minutes": 174.7,
+  "reason": "EXPERIMENTS_PREREGISTERED short by 10; EXPERIMENTS_MEASURED short by 4; DIRECTIONAL_MEASURED short by 5; EVENT_DRIVEN_MEASURED short by 3",
+  "hard_stop_events_valid": [],
+  "idle_exclusions": [
+   {
+    "tag": "POST_R99_CLOSEOUT_REVIEW",
+    "from_utc": "2026-10-04T17:54:18Z",
+    "to_utc": "2026-10-04T18:48:13Z",
+    "minutes": 53.917,
+    "reason": "No R99 research after the last R99 work-log entry. The interval is a post-campaign review (independent recount, pipeline repair, architecture review) and must not count as R99 active research minutes.",
+    "recorded_by": "docs/reviews/post_r99/post_r99_closeout_guard.py"
+   }
+  ],
+  "counters_unchanged_vs_before": {
+   "FRESH_HYPOTHESES_SCREENED": true,
+   "FORMAL_GATE_ASSESSMENTS": true,
+   "EXPERIMENTS_PREREGISTERED": true,
+   "EXPERIMENTS_MEASURED": true,
+   "ASSET_AREAS_MEASURED": true,
+   "NON_EQUITY_ASSET_AREAS_MEASURED": true,
+   "RATES_MEASURED": true,
+   "FX_MEASURED": true,
+   "COMMODITIES_MEASURED": true,
+   "EQUITY_OR_EQUITY_INDEX_MEASURED": true,
+   "OTHER_ASSET_MEASURED": true,
+   "DIRECTIONAL_MEASURED": true,
+   "HEDGED_OR_CROSS_ASSET_MEASURED": true,
+   "CURVE_OR_SPREAD_MEASURED": true,
+   "CROSS_SECTIONAL_MEASURED": true,
+   "EVENT_DRIVEN_MEASURED": true,
+   "DISTINCT_INFORMATION_FAMILIES_MEASURED": true,
+   "RATES_FORMAL": true,
+   "FX_FORMAL": true,
+   "COMMODITIES_FORMAL": true,
+   "RATES_RV_OR_CURVE_MEASURED": true,
+   "FX_HEDGED_OR_RV_MEASURED": true,
+   "COMMODITY_SPREAD_OR_HEDGE_MEASURED": true,
+   "EQUITY_SHARE_OF_MEASURED": true
+  },
+  "final_status": "R99_NOT_COMPLETED"
+ },
+ "production": {
+  "R99_BEFORE_vs_R99_AFTER": {
+   "diff_files": [],
+   "diff_api": [],
+   "diff_db": [],
+   "head_equal": true,
+   "verdict": "PRESERVED"
+  },
+  "R99_AFTER_vs_POST_R99_BEFORE": {
+   "diff_files": [],
+   "diff_api": [],
+   "diff_db": [],
+   "head_equal": true,
+   "verdict": "PRESERVED"
+  },
+  "db_rows_now": {
+   "portfolio": {
+    "rows": 1,
+    "max_id": "1"
+   },
+   "positions": {
+    "rows": 2,
+    "max_id": null
+   },
+   "orders": {
+    "rows": 2,
+    "max_id": null
+   },
+   "trades": {
+    "rows": 2,
+    "max_id": null
+   },
+   "trade_decisions": {
+    "rows": 2,
+    "max_id": null
+   },
+   "portfolio_snapshots": {
+    "rows": 9,
+    "max_id": null
+   }
+  },
+  "POST_R99_BEFORE_vs_POST_R99_AFTER": {
+   "diff_files": [],
+   "diff_api": [],
+   "diff_db": [],
+   "head_equal": true,
+   "verdict": "PRESERVED"
+  }
+ },
+ "UNVERIFIED_CLAIMS": [
+  "whether R15's own entry in R99_EVENT_RULES.json changed after its preregistration (the file is untracked and its prior bytes are not retained; the source CSV is unchanged)",
+  "the narrative reasons given in director rulings for admission/refusal (science judgements, not recountable from artifacts)"
+ ],
+ "VERIFIED": [
+  {
+   "counter": "FRESH_HYPOTHESES_SCREENED",
+   "claimed": 169,
+   "recounted": 169
+  },
+  {
+   "counter": "FORMAL_GATE_ASSESSMENTS",
+   "claimed": 114,
+   "recounted": 114
+  },
+  {
+   "counter": "EXPERIMENTS_PREREGISTERED",
+   "claimed": 20,
+   "recounted": 20
+  },
+  {
+   "counter": "EXPERIMENTS_MEASURED",
+   "claimed": 20,
+   "recounted": 20
+  },
+  {
+   "counter": "ASSET_AREAS_MEASURED",
+   "claimed": 5,
+   "recounted": 5
+  },
+  {
+   "counter": "HEDGED_OR_CROSS_ASSET_MEASURED",
+   "claimed": 19,
+   "recounted": 19
+  },
+  {
+   "counter": "CURVE_OR_SPREAD_MEASURED",
+   "claimed": 9,
+   "recounted": 9
+  },
+  {
+   "counter": "REACHED_LOCKBOX",
+   "claimed": 2,
+   "recounted": 2
+  },
+  {
+   "counter": "SKEPTIC_KILLED",
+   "claimed": 2,
+   "recounted": 2
+  },
+  {
+   "counter": "SKEPTIC_SURVIVORS",
+   "claimed": 0,
+   "recounted": 0
+  },
+  {
+   "counter": "RISK_CLEARED",
+   "claimed": 0,
+   "recounted": 0
+  },
+  {
+   "counter": "ENSEMBLES",
+   "claimed": 0,
+   "recounted": 0
+  },
+  {
+   "counter": "GUARD_ACTIVE_MINUTES_AT_LAST_RUN",
+   "claimed": 174.7,
+   "recounted": 174.7
+  }
+ ],
+ "DISCREPANCIES": []
+}

@@ -389,7 +389,10 @@ def test_09_the_ledger_is_the_one_research_memory_not_a_second_registry(pipe):
         "EVALUATION_SAMPLE", "PIT_STATUS", "TURNOVER", "COST_MODEL", "RESULT",
         "SKEPTIC_VERDICT", "RISK_VERDICT", "SURVIVOR_STATE", "FORWARD_STATE"]
     assert list(pipe.ledger()[0])[18:] == [
-        "STAGES_REVEALED", "HALTED_AT", "LOCKBOX_COMPUTED"]
+        "STAGES_REVEALED", "HALTED_AT", "LOCKBOX_COMPUTED",
+        # R89 appends the power class and research path AFTER R57's three, so
+        # the brief's eighteen and R57's three stay exactly where they were.
+        "POWER_CLASS", "RESEARCH_PATH"]
     # the package creates no database and no table of its own
     for py in PACKAGE_DIR.glob("*.py"):
         src = py.read_text(encoding="utf-8")

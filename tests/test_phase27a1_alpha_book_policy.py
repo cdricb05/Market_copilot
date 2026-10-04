@@ -819,7 +819,15 @@ class TestUiStatic:
         assert "INITIAL ALPHA TARGET: ' + value + ' NAMES" in html
 
     def test_desk_create_button_gated_by_alpha_flow(self, html):
-        assert "genBtn.style.display = ab ? 'none' : ''" in html
+        # R100 repair (D31): the old pin was the FAIL-OPEN line itself - a null
+        # alpha-book read rendered Create Paper Orders visible and enabled.
+        assert "genBtn.style.display = ab ? 'none' : ''" not in html
+        assert "genBtn.style.display = 'none';" in html
+        # an HTTP error with a JSON body is an object, not null: "loaded" is the
+        # backend's own boolean verdict being present
+        assert "var abLoaded = !!(ab && typeof ab.bootstrap_order_path_open === 'boolean');" in html
+        assert "var bsOpen = abLoaded && ab.bootstrap_order_path_open === true;" in html
+        assert "genBtn.disabled = !bsOpen;" in html
         assert "confirm the executable order plan above first" in html
 
     def test_alpha_buttons_present_and_not_blank(self, html):

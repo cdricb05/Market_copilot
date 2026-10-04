@@ -1,0 +1,75 @@
+{
+ "artifact": "R99_START_STATE",
+ "campaign_id": "R99_MULTI_ASSET_ALPHA_OFFENSIVE",
+ "started_at_utc": "2026-10-04T14:59:38Z",
+ "prior_active_minutes": 0.0,
+ "clock_rule": "active minutes = wall clock since started_at_utc minus any interval recorded in idle_exclusions",
+ "idle_exclusions": [],
+ "git_head": "8d6c3669c0e3c61316040b192cee25d2ac76d50b",
+ "research_memory": "D:\\Stock_Prediction_app_data\\r59_autonomous_alpha\\research_memory.sqlite",
+ "memory_summary": {
+  "hypotheses_total": 8584,
+  "hypotheses_settled": 8584,
+  "hypotheses_open": 0,
+  "by_outcome": {
+   "DATA_HOLD": 8,
+   "FORWARD_FROZEN": 56,
+   "NO_ALPHA_EVIDENCE": 8514,
+   "REJECTED": 6
+  },
+  "by_asset_class": {
+   "COMMODITY_FUTURES": 1666,
+   "CREDIT_PROXY": 2,
+   "CROSS_ASSET": 2474,
+   "EQUITY_INDEX_FUTURES": 934,
+   "FX_FUTURES": 706,
+   "RATES_FUTURES": 902,
+   "US_EQUITY": 1883,
+   "VOLATILITY": 17
+  }
+ },
+ "ALREADY_DONE": {
+  "R97": {
+   "hypotheses_screened": 133,
+   "formal_gates": 59,
+   "preregistered": 24,
+   "measured": 24,
+   "information_families_measured": 18,
+   "asset_areas_measured": 4,
+   "hedged_or_cross_asset_measured": 11,
+   "discovery_survivors": 0,
+   "guard": "R97_FINALIZATION_ALLOWED"
+  },
+  "R98": {
+   "analyst_revisions": "preview certified (29 names, 2018) - insufficient history",
+   "options": "2019 sample certified; single-name candidate R98_OPT_CPIV_SPREAD_H21 identified (not admitted)",
+   "dividend_test": "R98_DIV2_H21 measured: NO_ALPHA_EVIDENCE at D (net -1.55%/yr, t -1.05)",
+   "dividend_announcement_mechanism": "SETTLED",
+   "professional_macro_consensus": "VENDOR_RESPONSE_REQUIRED",
+   "historical_borrow_lending": "NO_PRACTICAL_ACCESS_FOUND (vendor-gated)",
+   "guard": "R98_FINALIZATION_ALLOWED"
+  }
+ },
+ "ALREADY_TRIED_FAILED": [
+  "generic price-only futures states (8,000+ H21 rank books, R59 frontier EXHAUSTED in every asset class)",
+  "price-only cross-asset lead/lag (R33/R34, R94 engine C refusals)",
+  "generic momentum / reversal retreads (XS/TS momentum in every class)",
+  "hedged price-only baskets (R94 engine E/A)",
+  "public macro first release vs historical-average / past-only surprise (R96/R97: 18 families, 4 areas, 0 survivors)",
+  "settled R96/R97 EIA WPSR / WNGSR / USDA NASS / WASDE ending-stocks / Treasury auction takedown / CFTC cells",
+  "dividend-announcement drift (17 settled rows)",
+  "Cboe aggregate put/call variants (R98 P2 gated out)",
+  "generic filing-text similarity (SEC_EDGAR_PERIODIC_FILING_TEXT_YOY_SIMILARITY)",
+  "every exact NO_ALPHA_EVIDENCE identity in R59 memory (see R99_PRIOR_WORK_LOCK.json)"
+ ],
+ "CURRENT_BLOCKERS": [
+  "historical analyst revisions: full history unavailable (Zacks quote-only)",
+  "historical single-name options: full history unavailable (pre-2018 completeness unverified)",
+  "professional historical macro consensus: unavailable (Bloomberg quote-only)",
+  "securities-lending / borrow history: unavailable (paid-only)",
+  "no ZQ / SR3 / ES contracts in the certified futures layer (rates = ZT ZF ZN TN ZB UB; US equity index via SPDR ETF layer)"
+ ],
+ "BLOCKER_POLICY": "none of the blockers stops R99; R99 runs on the certified owned estate",
+ "NEW_WORK": "R99 only - multi-asset alpha offensive (rates, FX, commodities, equity/index, international, volatility)",
+ "authorisation": "Cedric 2026-10-04: governed research-memory writes for R99 research only (certify_data, define_universe, publish_features, assess_power, preregister, D/V/L reveal, skeptic / risk / ensemble research records). NOT: portfolio, proposals, targets, orders, fills, broker, promotion, TRUE_FORWARD adoption, purchases, Claude memory."
+}

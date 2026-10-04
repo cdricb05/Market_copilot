@@ -41,6 +41,7 @@ SAFETY_STATE.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -371,6 +372,45 @@ def _dataset_digest(pipe, census: dict) -> dict:
 #: because the handoff budget counts words in string values.
 REFUSED_BY_FIELDS = "campaign_id|verdict|blocker_reason|ruling_scope|reopen"
 
+#: A reopen condition longer than this (characters), or containing whitespace,
+#: is rendered as ``<leading identifier>@<ruling-store key>`` instead of verbatim.
+MAX_INLINE_REOPEN_CHARS = 96
+#: The leading identifier of a compacted reopen condition is capped at this.
+MAX_REOPEN_ID_CHARS = 48
+#: Where the full text of a compacted reopen condition is read.
+REOPEN_OWNER = "mem.director_rulings()"
+
+
+def _reopen_token(ruling: dict) -> str:
+    """The reopen condition as ONE whitespace-free token the budget can afford.
+
+    R86 - TWO R81 RULINGS STORE A 279-WORD PROSE REOPEN CONDITION, and both the
+    ``refused_by`` join and ``ruled_economic_families`` appended it verbatim
+    after ``reopen=``. The director brief came to 902 words against the 500-word
+    handoff contract and ``agents_v2_brief.py`` printed BRIEF_REFUSED: the ruling
+    store made the director unbriefable, the same class as the R79/R80 overflows.
+
+    A condition that is already a short code is returned unchanged, so no
+    existing ruling loses meaning. A long one is rendered as its leading
+    identifier (the text before its first sentence break) plus the primary key
+    of the ruling that holds the full text - ``director_rulings[asset_class/
+    economic_family/information_family/model_family]`` - which the director
+    resolves through ``mem.director_rulings()``. The stored ruling is only
+    read, never shortened.
+    """
+    text = str(ruling.get("reopen_condition") or "").strip()
+    if not text:
+        return "?"
+    if len(text) <= MAX_INLINE_REOPEN_CHARS and not re.search(r"\s", text):
+        return text
+    lead = re.split(r"\.\s|:\s|;\s|\n", text, maxsplit=1)[0]
+    ident = re.sub(r"[^A-Za-z0-9_\-]+", "_", lead).strip("_")
+    ident = ident[:MAX_REOPEN_ID_CHARS].rstrip("_") or "REOPEN"
+    key = "/".join(str(ruling.get(k) or "*") for k in (
+        "asset_class", "economic_family", "information_family",
+        "model_family"))
+    return "%s@director_rulings[%s]" % (ident, re.sub(r"\s+", "_", key))
+
 
 def _queued_with_rulings(pipe, census: dict) -> list:
     """Queued census proposals, each joined to the ruling that already covers it.
@@ -491,7 +531,7 @@ def _queued_with_rulings(pipe, census: dict) -> list:
             row["refused_by"] = "|".join(str(x or "?") for x in (
                 binding.get("campaign_id"), binding.get("verdict"),
                 binding.get("blocker_reason"), binding.get("ruling_scope"),
-                "reopen=" + str(binding.get("reopen_condition") or "?")))
+                "reopen=" + _reopen_token(binding)))
             row["covering_ruling_count"] = len(covering)
         else:
             row["already_ruled"] = False
@@ -558,8 +598,11 @@ def _open_information_families(pipe, census: dict) -> dict:
         ruled.append("|".join(str(x or "?") for x in (
             r.get("asset_class"), r.get("economic_family"),
             r.get("verdict"), r.get("blocker_reason"),
-            "reopen=" + str(r.get("reopen_condition") or "?"))))
+            "reopen=" + _reopen_token(r))))
     return {
+        # A long reopen condition is an identifier@key pointer; the full text
+        # is read from its owner, never copied (see ``_reopen_token``).
+        "reopen_condition_owner": REOPEN_OWNER,
         # The prose stays in the census, which is an ARTIFACT_POINTER already.
         "narrative_pointer": "%s#best_domains" % CENSUS_FILE,
         "narrative_is_frozen_prose_not_live_state": True,

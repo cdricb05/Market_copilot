@@ -22,7 +22,9 @@
     "meta_review": "record ensemble readiness over validated survivors only",
     "director_clear": "final tournament decision on one validated survivor",
     "publish_candidate": "publish one cleared candidate as a research artifact",
-    "request_forward_registration": "raise one governed prospective registration request for a published candidate"
+    "request_forward_registration": "raise one governed prospective registration request for a published candidate",
+    "assess_power": "record the canonical power assessment (alpha_agent.r61.mechanism_power over alpha_agent.r61.power) of one pre-registered expression: effective sample, MDE_80, power class and research path. A hash-bound owner record only; an agent-typed number is refused. Writes no outcome and never closes a mechanism permanently.",
+    "request_forward_observation": "admit ONE clean, underpowered cell (POWER_MARGINAL / POWER_WEAK, settled by a sample-insufficient halt or a power-only gate failure, no negative measured evidence) to RESEARCH-ONLY forward observation: not qualified, not capital eligible, never promoted, no backfill; the observation clock belongs to the canonical registrar. Idempotent."
   },
   "family_routing": {
     "momentum-signal-agent": ["MOMENTUM", "RELATIVE_STRENGTH", "FACTOR_MOMENTUM", "FUNDAMENTAL_MOMENTUM", "CROSS_ASSET_MOMENTUM"],
@@ -35,7 +37,7 @@
     {
       "name": "quant-research-director",
       "objective": "Own agenda, experiment budget, parallel assignment, experiment ids, stop/go, hypothesis diversity, survivor selection, anti-overfitting budget, handoffs, escalation, final tournament.",
-      "pipeline_verbs": ["preregister", "director_clear"],
+      "pipeline_verbs": ["preregister", "director_clear", "assess_power", "request_forward_observation"],
       "allowed_actions": ["set the campaign agenda and experiment budget", "pre-register experiments and assign each to one signal agent", "emit the parallel assignment manifest", "enforce hypothesis diversity across asset classes, families and horizons", "run the final tournament over validated survivors", "kill, hold or clear a survivor", "escalate to the human owner"],
       "forbidden_actions": ["run a signal agent's experiment itself", "clear a candidate the skeptic killed or never reviewed", "clear a candidate the risk agent rejected", "round borderline up", "re-register a settled idea under a new name", "spend the lockbox on an idea whose discovery evidence is absent", "orders / fills / promotion / proposal approval / capital eligibility"],
       "input_artifacts": ["research/agents/*.json", "pipeline ledger", "pipeline census", "skeptic_review.json", "risk_review.json", "meta_review.json"],

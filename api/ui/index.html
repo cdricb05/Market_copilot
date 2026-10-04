@@ -41361,10 +41361,18 @@ function renderPaperDesk() {
   if (genBtn) {
     // R84 — hidden while the alpha workflow governs, and disabled with the
     // backend's reason once the book is live (the bootstrap path is closed).
-    genBtn.style.display = ab ? 'none' : '';
-    var bsClosed = !!(ab && ab.bootstrap_order_path_open === false);
-    genBtn.disabled = bsClosed;
-    if (bsClosed) genBtn.title = ((ab.bootstrap_order_path_refusal || {}).message) || 'Closed for a live book.';
+    // R100 repair (D31) — FAIL CLOSED: an unreadable alpha-book status used to
+    // render this control VISIBLE and ENABLED. It is enabled only on the
+    // backend's explicit verdict that the bootstrap path is open, and it is
+    // never shown.
+    // An HTTP error WITH a JSON body reaches here as an object (``_mhzGet``),
+    // so "loaded" means the backend's own boolean verdict is present.
+    genBtn.style.display = 'none';
+    var abLoaded = !!(ab && typeof ab.bootstrap_order_path_open === 'boolean');
+    var bsOpen = abLoaded && ab.bootstrap_order_path_open === true;
+    genBtn.disabled = !bsOpen;
+    if (!abLoaded) genBtn.title = 'Alpha book status unavailable — order creation stays closed.';
+    else if (!bsOpen) genBtn.title = ((ab.bootstrap_order_path_refusal || {}).message) || 'Closed for a live book.';
   }
   [['pd-act-confirm', 'No PROPOSED paper orders exist yet — confirm the executable order plan above first.',
     'Manually submit PROPOSED paper orders (PROPOSED to APPROVED to SUBMITTED; fills at the deterministic next close). Explicit token required.'],

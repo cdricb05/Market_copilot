@@ -1,0 +1,170 @@
+{
+ "R91_C06_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 11.94059405940594,
+  "mde_rho": 0.682699940044788,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C06_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 11.22,
+  "mde_rho": 0.7042816990218538,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C06_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 11.22,
+  "mde_rho": 0.7042816990218538,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C07_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 11.200000000000001,
+  "mde_rho": 0.7049102414932472,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C07_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 11.200000000000001,
+  "mde_rho": 0.7049102414932472,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C07_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 11.200000000000001,
+  "mde_rho": 0.7049102414932472,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C04_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 189.0,
+  "mde_rho": 0.17159788456989583,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C04_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 189.0,
+  "mde_rho": 0.17159788456989583,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C04_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 188.0,
+  "mde_rho": 0.17205365664640726,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C05_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 188.0,
+  "mde_rho": 0.17205365664640726,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C05_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 188.0,
+  "mde_rho": 0.17205365664640726,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C05_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 187.0,
+  "mde_rho": 0.17251307977839403,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C08_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 24.0,
+  "mde_rho": 0.4815453692667997,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C08_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 24.0,
+  "mde_rho": 0.4815453692667997,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C08_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 24.0,
+  "mde_rho": 0.4815453692667997,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C28_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 3.1034482758620694,
+  "mde_rho": 1.3391233288692175,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C28_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 3.1034482758620694,
+  "mde_rho": 1.3391233288692175,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C28_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 3.1034482758620694,
+  "mde_rho": 1.3391233288692175,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C15_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 10.0,
+  "mde_rho": 0.7460068782454464,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C15_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 10.0,
+  "mde_rho": 0.7460068782454464,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C15_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 10.0,
+  "mde_rho": 0.7460068782454464,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C08R_H1": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 29.0,
+  "mde_rho": 0.4380703228027697,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C08R_H2": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 29.0,
+  "mde_rho": 0.4380703228027697,
+  "token": "PIPELINE_OK assess_power"
+ },
+ "R91_C08R_H5": {
+  "power_class": "POWER_UNIDENTIFIABLE",
+  "research_path": "NOT_RESEARCHABLE_ON_THIS_EXPRESSION",
+  "independent_lockbox_decisions": 29.0,
+  "mde_rho": 0.4380703228027697,
+  "token": "PIPELINE_OK assess_power"
+ }
+}

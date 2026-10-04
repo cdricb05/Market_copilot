@@ -68,10 +68,25 @@ HALT_REASON_OUTCOMES = {
     "DATA_COVERAGE_FLOOR": r59.HO_DATA_HOLD,
     "INSTRUMENT_COVERAGE_FLOOR": r59.HO_DATA_HOLD,
     "SUBSTRATE_FROZEN_PENDING_AUDIT": r59.HO_DATA_HOLD,
+    # R89. A cell whose historical expression cannot detect any plausible
+    # effect (alpha_agent.r61.mechanism_power: POWER_MARGINAL / POWER_WEAK /
+    # POWER_UNIDENTIFIABLE) has not been measured and has said nothing about
+    # alpha. It is DATA_HOLD - the SAMPLE was not there yet - and reopens on
+    # forward evidence, width, decisions or cadence. R88 closed three such
+    # cells permanently at G7 on an agent-guessed IC; this reason is the
+    # governed alternative to that closure.
+    "STATISTICAL_POWER_FLOOR": r59.HO_DATA_HOLD,
     "COST_BUDGET_EXCEEDED": r59.HO_REJECTED,
     "TURNOVER_CEILING_EXCEEDED": r59.HO_REJECTED,
 }
 HALT_REASONS = tuple(sorted(HALT_REASON_OUTCOMES))
+
+#: Halt reasons that mean "insufficient sample", never "measured and failed".
+#: These are the ONLY halts from which research-only forward observation may
+#: be requested (alpha_agent.agents_v2.pipeline.request_forward_observation).
+SAMPLE_INSUFFICIENT_REASONS = ("STATISTICAL_POWER_FLOOR",
+                               "DATA_COVERAGE_FLOOR",
+                               "INSTRUMENT_COVERAGE_FLOOR")
 
 #: Outcomes this path may NEVER write. A halt before measurement is not a
 #: measurement, and QUALIFIED/FORWARD_FROZEN would be an adoption claim.
@@ -171,6 +186,12 @@ def reopen_condition_for(record: dict) -> str:
                 "any return is computed")
     if record["halt_reason"] == "SUBSTRATE_FROZEN_PENDING_AUDIT":
         return "SUBSTRATE_AUDIT_PASSES_ITS_PRE_REGISTERED_THRESHOLDS"
+    if record["halt_reason"] == "STATISTICAL_POWER_FLOOR":
+        return ("FORWARD_EVIDENCE_OR_WIDTH_OR_DECISIONS_OR_CADENCE: research-"
+                "only forward observation matures to the power owner's "
+                "minimum, OR a certified expression whose effective sample "
+                "lifts the cell to POWER_FEASIBLE; the mechanism is NOT "
+                "closed and the declared effect may not be raised to reopen")
     return ("NEW_PRE_REGISTRATION_UNDER_THE_CORRECTED_CONSTRAINT: a new "
             "experiment id, charged to the burden. This cell is NOT re-run "
             "under a changed ceiling; a ceiling chosen after a measurement is "

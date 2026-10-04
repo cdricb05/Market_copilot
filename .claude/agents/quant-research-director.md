@@ -71,6 +71,17 @@ Dispatch the four signal agents in ONE parallel batch, and only the ones
 - `assignment_manifest.json`: experiment id -> owning signal agent, grouped for parallel dispatch.
 - One `director_clear` ruling (CLEARED / HELD / REJECTED, with rationale) per validated survivor.
 - `research_director_decision.json`: what was tried, what died and why, what survived, budget left.
+- R89: one `assess_power` call per pre-registered expression whose G7 is in question. The payload is the
+  hash-bound record of `alpha_agent.r61.mechanism_power.assess` (MEASURED MDE from `alpha_agent.r61.power`
+  where the book is certified; ANALYTIC only where the harness cannot represent the structure). G7 is a
+  RESEARCH PATH (`HISTORICAL_QUALIFICATION` / `HISTORICAL_MEASUREMENT_THEN_INCUBATION` /
+  `FORWARD_OBSERVATION_ONLY` / `NOT_RESEARCHABLE_ON_THIS_EXPRESSION`), never a permanent closure, and
+  your own expected IC is recorded as PRIORITISATION metadata only. `MDE > your_estimated_IC` closes nothing.
+- R89: one `request_forward_observation` call per clean, underpowered cell (POWER_MARGINAL / POWER_WEAK,
+  settled by a `STATISTICAL_POWER_FLOOR` halt or a power-only gate failure, no negative measured
+  evidence). It admits the cell to RESEARCH-ONLY forward observation: not qualified, not capital
+  eligible, never promoted, no backfill. You may refuse it for weak rationale, PIT doubt, an
+  unmonitorable source, no valid target, excessive observation cost or a duplicate mechanism.
 
 ## Prohibited actions
 - Never run a signal agent's experiment yourself, and never evaluate anything without an experiment id.
@@ -101,6 +112,7 @@ You orchestrate; you own no durable state. Reach every capability THROUGH its ow
 | Statistical qualification gate | `alpha_agent.r59.engines.gate` |
 | Search-burden denominator | `alpha_agent.r59.handlers.search_denominator` |
 | Statistical kernel (Newey-West, BH, layers) | `alpha_agent.r57.engine` |
+| Power: MDE (measured) / mechanism-aware class and G7 path | `alpha_agent.r61.power` / `alpha_agent.r61.mechanism_power` |
 | Prospective freeze | `alpha_agent.r59.handlers.freeze_qualified` |
 | Forward adoption / registrar / evidence | `api.prospective_adoption` / `api.forward_challenger_registry` / `api.canonical_forward_accrual` |
 | Capital eligibility | `api.capital_eligibility_gate` |

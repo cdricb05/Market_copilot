@@ -1,0 +1,316 @@
+{
+ "artifact": "NEXT_CAMPAIGN_DRAFT",
+ "status": "DRAFT - generated, not preregistered. A new campaign id, a fresh declared cap, an immutable code snapshot, data certification and fresh director rulings are required before any return is read.",
+ "generator": "scripts/build_next_campaign_draft.py",
+ "generated_from": "research/agents/campaign_r99_multi_asset_alpha_offensive/R99_CARRY_FORWARD.json",
+ "source_artifact": "R99_CARRY_FORWARD",
+ "source_sha256": "c32de5f70bc9b8b1589ac6b3e13d411b7691dcfe7cff993f89c25f2d71d40d31",
+ "ranking": [
+  "READY: R99_C52 as C52F (hog breeding herd -> HE front vs 8-11m leg; W15 G1/G4 PASS; data acquired, parsed, revision-checked; return-free cost 0.96%/yr)",
+  "READY on science, cap-blocked: R99_C34 soybean crush",
+  "WAITING on time: R99_X04 RBA YIB (~4.5 years of meetings to the lockbox floor at the observed rate)",
+  "NOT READY: BK08 copper (spread roll cost alone 1.30%/yr > dead-family gross; outright is locked premium timing)",
+  "NOT READY: cattle LE-curve family (C53/C53B/C53H cost 2.9-3.8%/yr or G4)",
+  "STRUCTURAL / human decisions: commodity inventory cap; D/V/L boundaries for SR3/SONIA/CORRA; PF1 runner fix"
+ ],
+ "director_agenda": [
+  {
+   "rank": 1,
+   "item": "R99_BK08 LME copper warehouse stocks -> copper (new base-metals inventory information)",
+   "reopen_condition": "Next campaign with an open COMMODITY_FUTURES/PHYSICAL_INVENTORY_FLOW slot; data-foundation certifies @CUWS with an explicit availability rule (LME publication timing, first release vs revised, total vs cancelled-warrant stocks); a frozen expression whose sign is fixed by storage theory (principle e) gets a pre-return G1/G4 ruling; the burden carries the 6 R99 trials of the slot.",
+   "why": "The only owned, never-measured inventory information in a sub-area (base metals) that R99 did not touch. Daily data gives more observations than the weekly/monthly series that were measured. Prior is tempered: all 6 measured R99 inventory expressions failed (C01/C05 cost-killed, C03/C04/C22 gross-negative, C02 lockbox gross -3.86%/yr). The expression must be chosen on mechanism, not by steering away from the measured failures. Warehouse-financing distortions of LME stocks are director reasoning and must be addressed in G4."
+  },
+  {
+   "rank": 2,
+   "item": "R99_C34 WASDE soybean stocks -> board crush (ZS vs ZM+ZL)",
+   "reopen_condition": "Next campaign with an open PHYSICAL_INVENTORY_FLOW slot; preregister the W3-frozen expression unchanged (any change is a new id); the burden carries the R99 slot trials, including C05 (same WASDE information, cost-killed: gross 0.44%/yr vs cost 1.95%/yr).",
+   "why": "Ready now: G1/G4 PASS before any return, blocked only by the cap. Lower than BK08 because its information is not new (C05 used WASDE stocks) and its closest structural analogue, the C03 crack, was gross-negative in D (-2.08%/yr, net t -1.80)."
+  },
+  {
+   "rank": 3,
+   "item": "R99_X04 RBA-only Kuttner surprise (ASX YIB 30-day cash-rate futures) -> AUD",
+   "reopen_condition": "(a) Untouched lockbox decision-surprise events reach OBS_FLOOR 36 (currently 17, W9 line 7); (b) 2011-2018 meeting dates reconciled against the RBA's published schedule, a condition R99_RBA_SCHEDULE_RECONCILIATION.json does not meet: 35 BIS AU change dates off the first-Tuesday schedule, no-change meetings unverifiable from owned data, published dates not fetched; (c) the F01-overlap measurement for meta. No sign or filter change.",
+   "why": "The only directional/event cell in R99 that passed G1 (W8/W9) and is held on power alone. It does not overlap any dead family: F01 traded the policy-path premium level, not the decision surprise. Accrual is slow at about 8 RBA meetings a year (director knowledge, not an artifact), so this is a multi-year forward clock, not a next-campaign measurement."
+  },
+  {
+   "rank": 4,
+   "item": "BK41 policy-expectation strip (SR3/SOFR, pre-2018 ED, SONIA/ESTR equivalents) -> unblocks R99_F05, then R99_E05; R99_R05 last",
+   "reopen_condition": "Data-foundation certifies the strip in the PIT layer with a settlement-time availability rule. F05 then needs a fresh G1/G4/G5 ruling. E05 must clear the duplicate-transmission ground (the E10 standard). R05 must clear the COT-interaction G1 objection (W1 line 76) and probably fails it.",
+   "why": "One data purchase or certification unblocks three POWER_UNIDENTIFIABLE event cells that are WITHIN_COST_BUDGET. F05, a decision surprise versus the market-implied path across ECB/BoC/BoJ, is the cleanest of the three and widens the X04 mechanism beyond a single central bank."
+  },
+  {
+   "rank": 5,
+   "item": "R99_C44 / R99_C48 livestock feeding margins with USDA cattle-on-feed and hogs-and-pigs (BK36)",
+   "reopen_condition": "BK36 becomes owned and PIT-certified. New ids whose signal uses placement and breeding-herd lags, so that the sign is fixed by a forward-return channel (the G4 defect ruled in W4/W5). The W4/W5 frozen expressions may not be re-registered.",
+   "why": "The data is not owned and both cells failed G4 on mechanism, so the value is conditional on a purchase. It does add a livestock sub-area that R99 never measured."
+  },
+  {
+   "rank": 6,
+   "item": "R99_C08 WASDE revision x backwardation regime",
+   "reopen_condition": "A pre-return G1 ruling that the curve-state conditioning is not a conditioning filter on the settled WASDE revision (LO6) (W1 line 78), and a power design that makes G5 identifiable.",
+   "why": "Owned data, but it is G1-doubtful and power-unidentifiable, and it is in the capped inventory slot."
+  },
+  {
+   "rank": 7,
+   "item": "R08 reserve-level kink state (W10 reopen route 2) and the bill-supply channel (W10 reopen route 1)",
+   "reopen_condition": "Route 2: a design whose discovery sample contains reserve-scarcity episodes and keeps an untouched holdout (in practice forward accrual), because 2018-2019 and 2022+ are already revealed V/L. Route 1: owned Treasury net bill-issuance data and a bill/sub-1y instrument whose sign is fixed by supply. Neither is owned (W10).",
+   "why": "A credible mechanism, but no clean discovery sample exists and the bill-issuance data and instrument are unknown or not owned."
+  },
+  {
+   "rank": 8,
+   "item": "BK25 SEC comment letters (brief queue EQ_SEC_COMMENT_LETTER_DRIFT)",
+   "reopen_condition": "An EDGAR public-release-date availability stamp is certified, not the letter date (W4 line 10).",
+   "why": "Not settled in canonical memory and non-price, but NOT_PIT_SAFE today."
+  },
+  {
+   "rank": 9,
+   "item": "R99_E01/E06/E08/E09 sector cross-sections on policy-path / credit repricing; R99_V01 scheduled-event VX",
+   "reopen_condition": "An expression whose ex-ante cost is within the G6 budget, which must be decided before returns and not tuned against the measured equity cost drag. E06/E09 must also clear the LO2 objection that a credit-spread change is a market price (W1 line 82). V01 must also clear the neighbourhood of the settled R32 event-calendar and FOMC window-premium ledgers (W1 line 86).",
+   "why": "Lowest value. The measured equity cells carried the highest cost drag of any area (mean 1.74%/yr, decomposition by_area). The policy-path repricing information is dead in rates and FX (R01, R06 cost-killed; F01 gross-negative)."
+  }
+ ],
+ "not_reopenable": [
+  "net share issuance (H_644bcffe_280bc903ae38, settled)",
+  "TSMC monthly revenue (R92_C10, R93_A22)",
+  "SOMA / portfolio-balance pace (R04 dead; R16, E30, F32, C45, R51 refused)",
+  "TGA / reserve change (R97, R08, R49)"
+ ],
+ "evidence": {
+  "BK08_copper_primary": {
+   "spread_R99_C50": {
+    "annual_cost_drag": 0.04248003019508647,
+    "roll_drag": 0.03520780815235863,
+    "budget": "COST_BUDGET_EXCEEDED"
+   },
+   "directional_R99_C51": {
+    "annual_cost_drag": 0.0056815704633391305,
+    "budget": "WITHIN_COST_BUDGET",
+    "power": "POWER_MARGINAL"
+   },
+   "implication": "the HG calendar spread is cost-infeasible (roll); only a directional or cross-metal expression clears G6, and a directional one must survive the director premium-timing lock",
+   "director_W16": "C51 NOT_READY (one-leg = locked premium timing); ready route = low-turnover HG spread",
+   "cycle_month_spread_C50R": {
+    "near_rolls_per_year": 4.61276966659403,
+    "far_rolls_per_year": 4.118544345173241,
+    "annual_total_cost_drag_D": 0.020311410045032716,
+    "annual_roll_cost_drag_D": 0.013039188002304877,
+    "mean_gross_D": 1.8429133247547058,
+    "budget": "WITHIN_COST_BUDGET",
+    "power": {
+     "power_class": "POWER_MARGINAL",
+     "mde": 0.07674090693868987,
+     "units": "CROSS_SECTIONAL_RANK_IC",
+     "research_path": "HISTORICAL_MEASUREMENT_THEN_INCUBATION",
+     "lockbox_clears_obs_floor": true
+    },
+    "dead_family_gross_reference": {
+     "C01": 0.0068,
+     "C05": 0.0044
+    },
+    "note": "return-free carry-forward evidence for the director W16 ready route; not an R99 experiment",
+    "verdict_vs_W16_conditions": "budget PASS (2.03% < 3.0%); condition 2 FAIL (cost not materially below dead-family gross 0.44-0.68%/yr) -> NOT_READY without a further turnover reduction"
+   },
+   "condition2_floor": {
+    "roll_only_drag": 0.013039188002304877,
+    "dead_family_gross_max": 0.0068,
+    "verdict": "roll cost alone (1.30%/yr) exceeds the dead-family gross (0.68%/yr): condition 2 is unreachable for any HG calendar spread at the 10% vol target under R38 costs"
+   }
+  },
+  "X04_RBA_YIB": {
+   "lockbox_merged_obs_now": 17,
+   "floor": 36,
+   "discovery_rate_per_year": 7.69,
+   "meetings_per_year_since_2024": 8,
+   "schedule_reconciliation": "all BIS AU changes 2011+ fall on the first-Tuesday schedule (R99_RBA_SCHEDULE_RECONCILIATION.json); the 35 mismatches are 2005-2010 only",
+   "published_schedule_check": "88/88 published 2011-2018 RBA decision dates match the frozen first-Tuesday schedule (rba.gov.au)",
+   "expected_years_to_floor_at_70pct_nonzero_SUPERSEDED": 3.4,
+   "observed_lockbox_nonzero_share": 0.531,
+   "expected_years_to_floor_observed_rate": 4.5
+  },
+  "CB_balance_sheets_acquired": "ALFRED/FRED WALCL, ECBASSETSW, JPNASSETS acquired free (revisions <= 0.33%); R51 refused (portfolio-balance idea closed for R99); reopen only as QE-announcement surprise vs an expectation, or purchased-share-of-outstanding stock measure",
+  "BK36_cattle_on_feed": {
+   "status": "ACQUIRED_FREE_AND_PARSED",
+   "path": "D:/Stock_Prediction_app_data/r99_multi_asset_alpha/cattle_on_feed (manifest.json, sha256 per file)",
+   "releases": 252,
+   "first_release": "2005-01-21",
+   "last_release": "2026-09-18",
+   "pit": "release date per file (text Released line or filename)",
+   "still_needed": "parser for on-feed / placements tables, hogs-and-pigs equivalent, a fixed-sign lag mechanism ruled before returns",
+   "parsed_releases": 251,
+   "first_print_revisions": {
+    "pairs": 250,
+    "exact_match_share": 0.728,
+    "abs_rel_revision_median": 0.0,
+    "abs_rel_revision_max": 0.05031607722535452
+   },
+   "table": "D:/Stock_Prediction_app_data/r99_multi_asset_alpha/cattle_on_feed/cattle_on_feed_first_release.csv",
+   "placements_by_weight_raw": "D:/Stock_Prediction_app_data/r99_multi_asset_alpha/cattle_on_feed/cof_placements_by_weight_raw.json (verbatim US rows + headers; column mapping varies by era and is left to the next campaign data-foundation certification)",
+   "placements_heavy_light": {
+    "path": "D:/Stock_Prediction_app_data/r99_multi_asset_alpha/cattle_on_feed/cof_placements_heavy_light.csv",
+    "releases": 171,
+    "first": "2010-07-23",
+    "last": "2026-09-18",
+    "rule": "heavy (>=800 lb) = total - (<600 + 600-699 + 700-799), current-year US row; older releases (79) use a different table and are not mapped",
+    "qc": "Dec/Jan interleaved two-year layout handled (current-year members of each pair); remaining SUSPECT rows: 0"
+   }
+  },
+  "BK36_hogs_and_pigs": {
+   "status": "ACQUIRED_FREE_AND_PARSED",
+   "releases": 78,
+   "path": "D:/Stock_Prediction_app_data/r99_multi_asset_alpha/hogs_and_pigs/hogs_and_pigs_first_release.csv",
+   "caveat": "exact US row of the state inventory table for 2018+ releases; market+breeding=total holds for 100% of releases"
+  },
+  "BK36_designs": {
+   "R99_C52": {
+    "ruling": "W15 G1 PASS, G4 PASS, next_campaign READY (conditions in R99_DIRECTOR_RULING_W15.json)",
+    "return_free_cost": "1.67%/yr",
+    "tenor_caveat": "the R99 augmented layer deferred leg is R38 ret2 = SECOND-NEARBY contract (~2 months), not the ~10-month breeding-to-market lag; the next campaign must state and build a deferred tenor matching the lag before preregistration",
+    "tenor_resolution": {
+     "far_leg": "D:/Stock_Prediction_app_data/r99_multi_asset_alpha/layers/he_far_leg.npz",
+     "builder": "research/agents/campaign_r99_multi_asset_alpha_offensive/r99_build_he_far_leg.py",
+     "manifest": {
+      "contracts_used": 363,
+      "sessions": 5476,
+      "first": "2005-01-03",
+      "last": "2026-10-02",
+      "finite_return_share": 0.9682249817384952,
+      "rolls": 173,
+      "tenor_rule": "contract 8-11 months ahead (nearest in window)",
+      "sha256": "25c5c142aca241fb367ae52631378c69b86e7dca83f762627633cc3a6fcd12ab",
+      "cost_note": "HE cost 10 bp per side per the R38 class rate; rolls charged by the canonical book via the roll flags"
+     },
+     "next_step": "next campaign: freeze C52 with front HE vs this 8-11 month leg (a NEW expression id, since the R99 frozen C52 used ret2), data-foundation certify both BK36 hog data and the far leg, then preregister"
+    },
+    "lag_matched_C52F": {
+     "annual_total_cost_drag_D": 0.009556131491904544,
+     "annual_roll_cost_drag_D": 0.006875769428906309,
+     "mean_gross_D": 0.4675412068972546,
+     "activity_share_D": 1.0,
+     "budget": "WITHIN_COST_BUDGET",
+     "power": {
+      "power_class": "POWER_MARGINAL",
+      "mde": 0.07674090693868987,
+      "units": "CROSS_SECTIONAL_RANK_IC",
+      "research_path": "HISTORICAL_MEASUREMENT_THEN_INCUBATION",
+      "lockbox_clears_obs_floor": true
+     },
+     "note": "carry-forward evidence only; private layer; no R99 experiment"
+    }
+   },
+   "R99_C53": {
+    "ruling": "W15 G4 FAIL (total on-feed spans the whole pipeline)",
+    "next_campaign": "NOT_READY"
+   },
+   "R99_C53B": {
+    "what": "placements YoY (the W15 reopen route), built pre-return",
+    "return_free_cost": "3.75%/yr - G6 FAIL",
+    "note": "not iterated further; a lower-turnover placements expression is a next-campaign design question"
+   },
+   "R99_C53H": {
+    "annual_total_cost_drag_D": 0.03779202184577343,
+    "annual_roll_cost_drag_D": 0.01816057960720532,
+    "activity_share_D": 0.8569739952718676,
+    "budget": "COST_BUDGET_EXCEEDED",
+    "power": {
+     "power_class": "POWER_MARGINAL",
+     "mde": 0.07674090693868987,
+     "units": "CROSS_SECTIONAL_RANK_IC",
+     "research_path": "HISTORICAL_MEASUREMENT_THEN_INCUBATION",
+     "lockbox_clears_obs_floor": true
+    },
+    "note": "heavy-placements route (W15 reopen); mapped table from 2010-07, YoY from 2011-07"
+   }
+  },
+  "E42C_monthly_cadence": {
+   "annual_cost_drag": 0.03737422262396318,
+   "budget": "COST_BUDGET_EXCEEDED",
+   "power": {
+    "power_class": "POWER_MARGINAL",
+    "mde": 0.0795246004240709,
+    "units": "CROSS_SECTIONAL_RANK_IC",
+    "research_path": "HISTORICAL_MEASUREMENT_THEN_INCUBATION",
+    "lockbox_clears_obs_floor": true
+   }
+  },
+  "BK41_policy_expectation_futures_inventory": {
+   "ZQ-": {
+    "contracts": 516,
+    "first_contract": "ZQ-1988V",
+    "last_contract": "ZQ-2031U",
+    "first_trade_date": "1988-10-03",
+    "discovery_window_possible": true
+   },
+   "SR3-": {
+    "contracts": 72,
+    "first_contract": "SR3-2018M",
+    "last_contract": "SR3-2036H",
+    "first_trade_date": "2018-05-07",
+    "discovery_window_possible": false
+   },
+   "SO3-": {
+    "contracts": 58,
+    "first_contract": "SO3-2018M",
+    "last_contract": "SO3-2032U",
+    "first_trade_date": "2018-06-01",
+    "discovery_window_possible": false
+   },
+   "CRA-": {
+    "contracts": 37,
+    "first_contract": "CRA-2020M",
+    "last_contract": "CRA-2029M",
+    "first_trade_date": "2020-06-11",
+    "discovery_window_possible": false
+   },
+   "YIB-": {
+    "contracts": 295,
+    "first_contract": "YIB-2003U",
+    "last_contract": "YIB-2028H",
+    "first_trade_date": "2003-08-12",
+    "discovery_window_possible": true
+   },
+   "YIR-": {
+    "contracts": 175,
+    "first_contract": "YIR-1991H",
+    "last_contract": "YIR-2030U",
+    "first_trade_date": "1989-03-10",
+    "discovery_window_possible": true
+   },
+   "YIB4-": {
+    "contracts": 295,
+    "first_contract": "YIB4-2003U",
+    "last_contract": "YIB4-2028H",
+    "first_trade_date": "2003-08-12",
+    "discovery_window_possible": true
+   }
+  }
+ },
+ "derived_checks": {
+  "event_accrual": [
+   {
+    "evidence": "X04_RBA_YIB",
+    "derived_years_to_floor": 4.47,
+    "recorded_years_to_floor": 4.5,
+    "consistent": true
+   }
+  ],
+  "all_consistent": true
+ },
+ "superseded_values_not_to_reuse": [
+  {
+   "path": "added_evidence/X04_RBA_YIB/expected_years_to_floor_at_70pct_nonzero_SUPERSEDED",
+   "value": 3.4
+  }
+ ],
+ "stale_facts_in_checked_draft": {
+  "draft": "research/agents/campaign_r99_multi_asset_alpha_offensive/R99_NEXT_CAMPAIGN_DRAFT.json",
+  "findings": [
+   {
+    "superseded": {
+     "path": "added_evidence/X04_RBA_YIB/expected_years_to_floor_at_70pct_nonzero_SUPERSEDED",
+     "value": 3.4
+    },
+    "stale_text": "G1/G4 PASS; schedule 88/88 vs published; lockbox 17 < 36 (~3.4 years of meetings)"
+   }
+  ]
+ }
+}

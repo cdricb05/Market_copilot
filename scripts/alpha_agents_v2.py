@@ -102,7 +102,8 @@ def _check_mechanism(mem, payload: dict) -> dict:
 
 READ_ONLY_COMMANDS = ("status", "validate-contracts", "ledger", "survivors",
                       "validated-survivors", "census",
-                      "check-mechanism", "blocker-reconciliation")
+                      "check-mechanism", "mechanism-burden",
+                      "blocker-reconciliation")
 
 
 def _emit(body) -> None:
@@ -339,6 +340,20 @@ def main(argv=None) -> int:
                 # verdict field a script may never read.
                 raise P.PipelineRefusal("INVALID_QUERY",
                                         body["invalid_query_detail"])
+            return 0
+        elif cmd == "mechanism-burden":
+            # R91, READ-ONLY. The hierarchical burden view of ONE declared
+            # candidate: is it a re-expression of a settled economic object
+            # (same burden unit), how many campaign-local slots its mechanism
+            # family has used, and the untouched global denominator.
+            from alpha_agent.agents_v2 import mechanism_burden as MB
+            body = MB.cli_view(mem, json.loads(
+                Path(args.input).read_text(encoding="utf-8-sig"))
+                if args.input else {})
+            _emit(body)
+            if body["verdict"] == "INVALID_DECLARATION":
+                raise P.PipelineRefusal("INVALID_DECLARATION",
+                                        body["invalid_declaration_detail"])
             return 0
         elif cmd == "blocker-reconciliation":
             # R72, READ-ONLY. What the live queue believes about each blocked

@@ -20,6 +20,17 @@ summary per experiment for the agents to review.
 which experiments are pre-registered, which are already settled and which would
 run. It is the safe way to check a spec before spending compute.
 
+``--preregister <cell_id>`` (R100 repair, FULL_RECIPE_V1 campaigns only) is the
+ONE pre-registration path of a full-recipe campaign. It reads the cell from the
+spec's ``cells`` list, snapshots the source into the spec's
+``frozen_source_store`` AUTOMATICALLY, builds the plan WITHOUT reading any
+layer, freezes the eight-part recipe and pre-registers it through the
+pipeline. It then appends the experiment row to the spec and records a work
+event in the campaign work log (``agents_v2.campaign_clock``).
+
+Every measurement run records a runner span in the campaign folder's
+``WORK_LOG.jsonl``. That is real working time; wall-clock time is never counted.
+
 IDEMPOTENT. An experiment that has already been measured is reported
 ALREADY_MEASURED and is not measured again - one experiment, one result, and a
 second draw needs a second pre-registration.
@@ -67,17 +78,75 @@ def main(argv=None) -> int:
                     help="report what WOULD run; measure nothing")
     ap.add_argument("--memory", default="",
                     help="research memory path (tests); default = R59 root")
+    ap.add_argument("--preregister", default="",
+                    help="cell_id to pre-register under FULL_RECIPE_V1")
     args = ap.parse_args(argv)
 
     try:
         from alpha_agent import r59                          # type: ignore
+        from alpha_agent.agents_v2 import campaign_clock as CK  # type: ignore
         from alpha_agent.agents_v2 import pipeline as P      # type: ignore
+        from alpha_agent.agents_v2 import provenance as PV   # type: ignore
         from alpha_agent.agents_v2 import runner as R        # type: ignore
         from alpha_agent.r59 import memory as M              # type: ignore
         r59.assert_worktree_import()
 
-        spec = R.load_campaign_spec(args.spec)
         db = Path(args.memory) if args.memory else None
+        spec_path = Path(args.spec)
+        work_dir = spec_path.resolve().parent
+
+        if args.preregister:
+            raw = json.loads(spec_path.read_text(encoding="utf-8-sig"))
+            if raw.get("provenance_contract") != PV.PROVENANCE_CONTRACT_FULL:
+                raise R.CampaignRefusal(
+                    "--preregister serves %s campaigns only"
+                    % PV.PROVENANCE_CONTRACT_FULL)
+            prov = R.campaign_provenance(raw)
+            cell = next((c for c in raw.get("cells") or []
+                         if c.get("cell_id") == args.preregister), None)
+            if cell is None:
+                raise R.CampaignRefusal("cell %s is not in the spec's cells"
+                                        % args.preregister)
+            if any(e.get("cell_id") == cell["cell_id"]
+                   for e in raw.get("experiments") or []):
+                raise R.CampaignRefusal("cell %s is already pre-registered"
+                                        % cell["cell_id"])
+            # The admission door binds pre-registration too: no G7 PASS, no id.
+            PV.require_admission(cell["cell_id"], prov["admission_rulings"])
+            payload = json.loads(R._campaign_path(cell["payload"]).read_text(
+                encoding="utf-8-sig"))
+            payload.setdefault("campaign_id", raw["campaign_id"])
+            row = {"executor": cell["executor"], "book": cell["book"],
+                   "cell_id": cell["cell_id"]}
+            mem = M.ResearchMemory(db)
+            pipe = P.AgentPipeline(mem)
+            executors = R.load_executors(raw["executor_module"])
+            with CK.span(work_dir, "preregister %s" % cell["cell_id"],
+                         actor="quant-research-director"):
+                res = R.preregister_frozen(
+                    pipe, director="quant-research-director", row=row,
+                    payload=payload, executors=executors,
+                    store_dir=prov["frozen_source_store"],
+                    source_paths=[raw["executor_module"]]
+                    + list(cell.get("source_paths") or []))
+            raw.setdefault("experiments", []).append(
+                {"experiment_id": res["experiment_id"],
+                 "executor": cell["executor"], "book": cell["book"],
+                 "cell_id": cell["cell_id"],
+                 "recipe_sha256": res["recipe_sha256"],
+                 "frozen_source_manifest_sha256":
+                     res["frozen_source_manifest_sha256"]})
+            tmp = spec_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(raw, indent=1), encoding="utf-8")
+            tmp.replace(spec_path)
+            CK.record_work(work_dir, activity="preregistered %s as %s"
+                           % (cell["cell_id"], res["experiment_id"]),
+                           artifact=spec_path, actor="quant-research-director")
+            _emit(res)
+            print("CAMPAIGN_OK preregistered %s" % res["experiment_id"])
+            return 0
+
+        spec = R.load_campaign_spec(args.spec)
 
         if args.plan_only:
             mem = M.open_memory_readonly(db)
@@ -100,11 +169,18 @@ def main(argv=None) -> int:
         pipe = P.AgentPipeline(mem)
         out = R.run_campaign(
             pipe, spec, only=args.only,
-            artifact_dir=Path(args.artifacts) if args.artifacts else None)
+            artifact_dir=Path(args.artifacts) if args.artifacts else None,
+            work_dir=work_dir)
         if args.out:
             Path(args.out).write_text(
                 json.dumps(R._clean(out), indent=1, default=str),
                 encoding="utf-8")
+            try:
+                CK.record_work(work_dir, activity="campaign results %s"
+                               % Path(args.out).name, artifact=args.out,
+                               actor=R.CALCULATION_OWNER)
+            except CK.ClockRefusal:
+                pass        # an unchanged replay is no new work
         _emit({k: v for k, v in out.items() if k != "results"})
         for r in out["results"]:
             _emit(r)
@@ -113,7 +189,8 @@ def main(argv=None) -> int:
         return 0
     except Exception as exc:                                 # noqa: BLE001
         name = type(exc).__name__
-        if name in ("CampaignRefusal", "PipelineRefusal"):
+        if name in ("CampaignRefusal", "PipelineRefusal", "ProvenanceRefusal",
+                    "ClockRefusal"):
             _emit({"refused": name, "detail": str(exc)[:600]})
             print("CAMPAIGN_REFUSED %s" % name)
             return 3

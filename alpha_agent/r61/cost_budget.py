@@ -246,6 +246,98 @@ def rebalance_interval_from_spec(spec: Optional[dict]) -> Optional[float]:
 
 
 # --------------------------------------------------------------------------- #
+# R92: EVENT_DRIVEN books are annualised by EVENT FREQUENCY, not by 252/hold
+# --------------------------------------------------------------------------- #
+#: THE DEFECT THIS REMOVES (R91). ``evaluate_frozen_spec`` read the holding
+#: window of an event book as a rebalance interval and charged 252 / hold
+#: rebalances a year: a hold-1 book that trades 5 storms a year was budgeted
+#: as 252 round trips (R92_COST_BUDGET_BASELINE.json), and the R91 skeptic
+#: review recorded COST_BUDGET_NOT_EVALUABLE for the one event candidate it
+#: saw. An event strategy's annual cost is
+#:
+#:     expected independent observations per year
+#:       x one-way turnover per event (sum |w| over its legs)
+#:       x 2 (entry + exit)
+#:       x certified per-side rate
+#:     + roll / interior cost where the instrument set rolls inside the window
+#:
+#: which is EXACTLY what the canonical event book charges realised
+#: (``alpha_agent.agents_v2.event_book._episodes``: 2 x |w| @ cost per event
+#: plus the interior roll, averaged per merged observation and annualised by
+#: observations per year). The ceiling, the units and the materiality floor
+#: are unchanged; only the FREQUENCY an event spec is annualised by moves.
+EVENT_COST_BRANCH = "R92_EVENT_FREQUENCY_V1"
+EVENT_BOOKS = ("FUTURES_EVENT_WINDOW",)
+EVENT_STRUCTURE = "EVENT_DRIVEN"
+#: The frozen spec keys that state an event frequency, most specific first.
+#: "independent observations" is the unit-capital count the book annualises
+#: by (clusters and overlapping windows merged); "events" is the raw count.
+EVENT_FREQUENCY_KEYS = ("expected_independent_observations_per_year",
+                        "expected_events_per_year", "events_per_year")
+FREQUENCY_BASIS_INTERVAL = "SESSIONS_PER_YEAR_OVER_REBALANCE_INTERVAL"
+FREQUENCY_BASIS_EVENTS = "PREREGISTERED_EVENT_FREQUENCY"
+
+
+def is_event_spec(spec: Optional[dict]) -> bool:
+    """Does this frozen spec describe an EVENT_DRIVEN book?"""
+    if not isinstance(spec, dict):
+        return False
+    params = spec.get("parameters") or {}
+    for src in (params, spec):
+        if not isinstance(src, dict):
+            continue
+        if str(src.get("book") or "") in EVENT_BOOKS:
+            return True
+        if str(src.get("structure") or src.get("research_structure") or "") \
+                == EVENT_STRUCTURE:
+            return True
+        if any(k in src for k in EVENT_FREQUENCY_KEYS):
+            return True
+    return False
+
+
+def event_frequency_from_spec(spec: Optional[dict]) -> Optional[float]:
+    """The pre-registered expected independent observations per year, or
+    None. NONE IS NOT 252: a caller that gets None has no budget."""
+    if not isinstance(spec, dict):
+        return None
+    params = spec.get("parameters") or {}
+    for src in (params, spec):
+        if not isinstance(src, dict):
+            continue
+        for key in EVENT_FREQUENCY_KEYS:
+            v = src.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                    and float(v) > 0:
+                return float(v)
+    return None
+
+
+def turnover_per_event_from_legs(turnover_per_leg, n_legs) -> float:
+    """Total one-way turnover of one event: per-leg |w| times the leg count.
+    A four-leg equal-weight event (0.25 each) turns over 1.0 of capital."""
+    t = _positive_float(turnover_per_leg, "turnover_per_leg")
+    n = _positive_float(n_legs, "n_legs")
+    if n <= 0:
+        raise CostBudgetRefusal("n_legs must be >= 1")
+    return t * n
+
+
+def annualized_event_cost_drag(*, events_per_year, one_way_turnover_per_event,
+                               cost_per_side,
+                               additional_ann_cost_drag: float = 0.0) -> float:
+    """THE event-frequency calculation: events/yr x turnover/event x 2 x rate
+    + roll. Entry and exit are both paid (the factor 2); clustering and
+    overlap enter through ``events_per_year`` being the INDEPENDENT count
+    the book annualises by, while the per-event cost is never divided."""
+    n = _positive_float(events_per_year, "events_per_year")
+    t = _positive_float(one_way_turnover_per_event, "one_way_turnover_per_event")
+    c = _positive_float(cost_per_side, "cost_per_side")
+    return n * t * 2.0 * c + _positive_float(additional_ann_cost_drag,
+                                             "additional_ann_cost_drag")
+
+
+# --------------------------------------------------------------------------- #
 # The gate
 # --------------------------------------------------------------------------- #
 def evaluate_cost_budget(*, one_way_turnover, cost_per_side, rebalance_interval_sessions,
@@ -290,6 +382,7 @@ def evaluate_cost_budget(*, one_way_turnover, cost_per_side, rebalance_interval_
         "frozen_threshold_derivation":
             "%.1f x r59.GATE_MATERIALITY (%.4f)"
             % (COST_BUDGET_CEILING_MULTIPLE, r59.GATE_MATERIALITY),
+        "frequency_basis": FREQUENCY_BASIS_INTERVAL,
         "inputs": {
             "one_way_turnover": one_way_turnover,
             "cost_per_side": cost_per_side,
@@ -336,10 +429,113 @@ def evaluate_cost_budget(*, one_way_turnover, cost_per_side, rebalance_interval_
     }
 
 
+def evaluate_event_cost_budget(*, events_per_year, one_way_turnover_per_event=None,
+                               cost_per_side, additional_ann_cost_drag: float = 0.0,
+                               ceiling: float = COST_BUDGET_CEILING,
+                               label: str = "", raw_events_per_year=None,
+                               turnover_per_leg=None, n_legs=None) -> dict:
+    """The frozen budget for an EVENT_DRIVEN book (R92). Same ceiling, same
+    units, same NOT_EVALUABLE-fails-closed rule as :func:`evaluate_cost_budget`;
+    the frequency is the pre-registered independent observations per year.
+
+    ``one_way_turnover_per_event`` is the total |w| of one event over all its
+    legs; alternatively ``turnover_per_leg`` x ``n_legs``. ``raw_events_per_
+    year`` is a DIAGNOSTIC: the cost the book would pay if every raw event
+    (clusters and overlaps un-merged) were a separate unit of capital.
+    """
+    reasons = []
+    turnover = one_way_turnover_per_event
+    if turnover is None and turnover_per_leg is not None and n_legs is not None:
+        try:
+            turnover = turnover_per_event_from_legs(turnover_per_leg, n_legs)
+        except CostBudgetRefusal as exc:
+            reasons.append(str(exc))
+    for name, value in (("events_per_year", events_per_year),
+                        ("one_way_turnover_per_event", turnover),
+                        ("cost_per_side", cost_per_side),
+                        ("additional_ann_cost_drag", additional_ann_cost_drag)):
+        try:
+            f = _positive_float(value, name)
+            if name == "events_per_year" and f <= 0.0:
+                raise CostBudgetRefusal("events_per_year must be > 0")
+        except CostBudgetRefusal as exc:
+            reasons.append(str(exc))
+    per_year = (None if reasons else float(events_per_year))
+    implied_interval = (None if not per_year
+                        else TRADING_SESSIONS_PER_YEAR / per_year)
+    base = {
+        "owner": COST_BUDGET_OWNER,
+        "version": COST_BUDGET_VERSION,
+        "event_branch": EVENT_COST_BRANCH,
+        "label": str(label or ""),
+        "metric": "annualized_cost_drag",
+        "frozen_threshold": float(ceiling),
+        "frozen_threshold_derivation":
+            "%.1f x r59.GATE_MATERIALITY (%.4f)"
+            % (COST_BUDGET_CEILING_MULTIPLE, r59.GATE_MATERIALITY),
+        "frequency_basis": FREQUENCY_BASIS_EVENTS,
+        "inputs": {
+            "events_per_year": events_per_year,
+            "one_way_turnover_per_event": turnover,
+            "turnover_per_leg": turnover_per_leg, "n_legs": n_legs,
+            "cost_per_side": cost_per_side,
+            "entry_and_exit_factor": 2.0,
+            "rebalances_per_year": per_year,
+            "implied_rebalance_interval_sessions": implied_interval,
+            "raw_events_per_year": raw_events_per_year,
+            "additional_ann_cost_drag": additional_ann_cost_drag,
+            "trading_sessions_per_year": TRADING_SESSIONS_PER_YEAR,
+        },
+        "diagnostic_retired_turnover_ceiling": RETIRED_TURNOVER_CEILING,
+        "diagnostic_retired_gate_would_halt": (
+            None if not isinstance(turnover, (int, float))
+            or isinstance(turnover, bool)
+            else bool(float(turnover) > RETIRED_TURNOVER_CEILING)),
+        "diagnostic_note": RETIRED_TURNOVER_CEILING_NOTE,
+    }
+    if reasons:
+        return {**base, "state": BUDGET_NOT_EVALUABLE, "passed": False,
+                "measured": None, "reasons": reasons}
+    rebal = annualized_event_cost_drag(
+        events_per_year=per_year, one_way_turnover_per_event=turnover,
+        cost_per_side=cost_per_side)
+    total = rebal + float(additional_ann_cost_drag)
+    passed = total <= float(ceiling)
+    raw_diag = None
+    if isinstance(raw_events_per_year, (int, float)) \
+            and not isinstance(raw_events_per_year, bool) \
+            and float(raw_events_per_year) > 0:
+        raw_diag = annualized_event_cost_drag(
+            events_per_year=float(raw_events_per_year),
+            one_way_turnover_per_event=turnover, cost_per_side=cost_per_side)
+    return {
+        **base,
+        "state": BUDGET_PASS if passed else BUDGET_HALT,
+        "passed": bool(passed),
+        "measured": float(total),
+        "annualized_rebalance_cost_drag": float(rebal),
+        "annualized_roll_or_other_cost_drag": float(additional_ann_cost_drag),
+        "cost_per_event_round_trip": float(2.0 * float(turnover)
+                                           * float(cost_per_side)),
+        "diagnostic_unmerged_raw_event_cost_drag": raw_diag,
+        "required_gross_for_materiality":
+            required_gross_for_materiality(total),
+        "materiality_floor": float(r59.GATE_MATERIALITY),
+        "reasons": ([] if passed else [
+            "COST_BUDGET_EXCEEDED: projected annual cost drag %.6f against "
+            "the pre-registered ceiling %.6f at %.2f independent events/yr; "
+            "this construction would need a gross premium of %.6f/yr merely "
+            "to reach the %.4f materiality floor"
+            % (total, float(ceiling), per_year,
+               required_gross_for_materiality(total), r59.GATE_MATERIALITY)]),
+    }
+
+
 def evaluate_frozen_spec(spec: Optional[dict], *, one_way_turnover,
                          cost_per_side: Optional[float] = None,
                          additional_ann_cost_drag: float = 0.0,
-                         ceiling: float = COST_BUDGET_CEILING) -> dict:
+                         ceiling: float = COST_BUDGET_CEILING,
+                         events_per_year: Optional[float] = None) -> dict:
     """Apply the budget using the rate and cadence a pre-registration froze.
 
     ``cost_per_side`` overrides the frozen model, and must be supplied when
@@ -347,17 +543,41 @@ def evaluate_frozen_spec(spec: Optional[dict], *, one_way_turnover,
     is the caller's measured notional-weighted effective rate; there is no
     default, because defaulting a cost is how a cell passes on a cost nobody
     charged it.
+
+    R92: an EVENT_DRIVEN spec (``is_event_spec``) is annualised by its
+    pre-registered independent observations per year (``events_per_year``
+    overrides; else ``event_frequency_from_spec``); ``one_way_turnover`` is
+    then the per-event total turnover. A frozen event spec that states no
+    frequency is NOT_EVALUABLE - never 252.
     """
     spec = spec or {}
     rate = (cost_per_side if cost_per_side is not None
             else cost_per_side_from_model(spec.get("cost_model")))
-    interval = rebalance_interval_from_spec(spec)
-    out = evaluate_cost_budget(one_way_turnover=one_way_turnover,
-                   cost_per_side=rate,
-                   rebalance_interval_sessions=interval,
-                   additional_ann_cost_drag=additional_ann_cost_drag,
-                   ceiling=ceiling,
-                   label=str((spec.get("parameters") or {}).get("label") or ""))
+    label = str((spec.get("parameters") or {}).get("label") or "")
+    if is_event_spec(spec):
+        freq = (events_per_year if events_per_year is not None
+                else event_frequency_from_spec(spec))
+        params = spec.get("parameters") or {}
+        out = evaluate_event_cost_budget(
+            events_per_year=freq, one_way_turnover_per_event=one_way_turnover,
+            cost_per_side=rate, additional_ann_cost_drag=additional_ann_cost_drag,
+            ceiling=ceiling, label=label,
+            raw_events_per_year=params.get("expected_raw_events_per_year"))
+        out["events_per_year_source"] = ("CALLER_SUPPLIED"
+                                         if events_per_year is not None
+                                         else "FROZEN_SPEC")
+        if freq is None and out["state"] == BUDGET_NOT_EVALUABLE:
+            out.setdefault("reasons", []).append(
+                "the frozen event spec states no %s; an event book is never "
+                "annualised by 252 / holding window" % " / ".join(
+                    EVENT_FREQUENCY_KEYS))
+    else:
+        interval = rebalance_interval_from_spec(spec)
+        out = evaluate_cost_budget(one_way_turnover=one_way_turnover,
+                       cost_per_side=rate,
+                       rebalance_interval_sessions=interval,
+                       additional_ann_cost_drag=additional_ann_cost_drag,
+                       ceiling=ceiling, label=label)
     out["cost_model_id"] = (spec.get("cost_model") or {}).get("cost_model_id")
     out["cost_per_side_source"] = ("CALLER_MEASURED_EFFECTIVE"
                                    if cost_per_side is not None
