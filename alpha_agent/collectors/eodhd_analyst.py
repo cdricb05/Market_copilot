@@ -58,6 +58,13 @@ _RATING_FIELDS = ("Rating", "TargetPrice", "StrongBuy", "Buy", "Hold", "Sell",
 # R96: Earnings.History fields kept per vintage (the as-served actual/estimate).
 _HISTORY_FIELDS = ("date", "reportDate", "beforeAfterMarket", "currency",
                    "epsActual", "epsEstimate", "epsDifference", "surprisePercent")
+# R99.1: SharesStats and Holders are served by the SAME fundamentals request (no
+# extra API call) but only as a current snapshot, so a day not archived is lost.
+_SHARES_FIELDS = ("SharesOutstanding", "SharesFloat", "PercentInsiders",
+                  "PercentInstitutions", "SharesShort", "SharesShortPriorMonth",
+                  "ShortRatio", "ShortPercentOutstanding", "ShortPercentFloat")
+_HOLDER_FIELDS = ("name", "date", "totalShares", "totalAssets", "currentShares",
+                  "change", "change_p")
 
 
 def _base_ticker(symbol: str) -> str:
@@ -105,8 +112,16 @@ class EodhdAnalystCollector(BaseCollector):
         return ENT_UNKNOWN
 
     def _fundamentals_filter(self) -> str:
-        return self.ctx.source_cfg.get(
+        base = self.ctx.source_cfg.get(
             "analyst_filter", "General,Highlights,AnalystRatings,Earnings")
+        # R99.1: the snapshot-only SharesStats/Holders sections ride on the same
+        # request. Code-side (not a config edit) so the lane widens only when
+        # committed code is restarted through the canonical owner.
+        if not self.ctx.source_cfg.get("capture_shares_holders", True):
+            return base
+        parts = [p for p in base.split(",") if p]
+        parts += [p for p in ("SharesStats", "Holders") if p not in parts]
+        return ",".join(parts)
 
     def _vintage_root(self) -> Path:
         sub = self.ctx.source_cfg.get("vintage_subdir", "vintages/eodhd_analyst")
@@ -284,7 +299,23 @@ class EodhdAnalystCollector(BaseCollector):
         for row in estimate_trend:
             present.update(k for k, v in row.items() if v is not None)
         not_available = sorted(f for f in _TREND_FIELDS if f not in present)
+        # R99.1: shares/short snapshot and the largest holders, as served today.
+        shares = obj.get("SharesStats") if isinstance(obj.get("SharesStats"), dict) else {}
+        holders = obj.get("Holders") if isinstance(obj.get("Holders"), dict) else {}
+        top = int(self.ctx.source_cfg.get("holders_top_cap", 10))
+        holders_top = {}
+        for group in ("Institutions", "Funds"):
+            rows = holders.get(group)
+            rows = list(rows.values()) if isinstance(rows, dict) else (rows or [])
+            rows = [r for r in rows if isinstance(r, dict)]
+            rows.sort(key=lambda r: -float(r.get("totalShares") or 0))
+            if rows:
+                holders_top[group] = [{k: r.get(k) for k in _HOLDER_FIELDS if k in r}
+                                      for r in rows[:top]]
         return {
+            "shares_stats": ({k: shares.get(k) for k in _SHARES_FIELDS if k in shares}
+                             or None),
+            "holders_top": holders_top or None,
             "earnings_history_recent": earnings_history,
             "fields_not_available": not_available,
             "provider": "EODHD",

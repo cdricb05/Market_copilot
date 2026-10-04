@@ -1,0 +1,69 @@
+{
+ "artifact": "PAID_DATA_RETENTION_REVIEW_2026-10",
+ "generated_at": "2026-10-04",
+ "scope": "the two recurring paid data subscriptions; Databento is pay-as-you-go and out of scope",
+ "actions_taken": {"subscriptions_cancelled": 0, "purchases_made": 0, "trials_started": 0, "payment_details_entered": 0},
+ "method": "mechanical: R95 audit inputs (norgate_audit.json, eodhd_audit.json), the collection service's own source_runtime_health.json and service log, the on-disk forward archives measured on 2026-10-04 by alpha_agent.r59.data_scout, the R95-R100 campaign artifacts and the R59 research memory. No price was guessed.",
+ "providers": {
+  "NORGATE": {
+   "CURRENT_ENTITLEMENT": "Databases present (entitlement evidence): Cash Commodities, Continuous Futures, Economic, Forex Spot, Futures (27,501 dated contracts, 105 markets), US Equities, US Equities Delisted, US Indices, World Indices",
+   "CURRENT_STATUS": "ACTIVE - Norgate Data Updater running (PID 25592 since 2026-09-29); collector norgate_local last success 2026-10-03T03:38Z, 0 consecutive failures",
+   "KNOWN_COST": "World Futures USD 270/yr (operator-stated, R95); US equities tier UNKNOWN_NOT_VERIFIED",
+   "RENEWAL_FREQUENCY": "UNKNOWN_NOT_VERIFIED (not exposed by the norgatedata API)",
+   "FIELDS_DATASETS_OWNED": ["dated futures OHLC + Volume + Open Interest per contract", "continuous futures (_CCB back-adjusted)", "ZQ 516 contracts from 1988; SR3 2018+; SO3 2018+; CRA 2020+; YIR 1991+; ZN 1982+; ZT 1990+", "international government-bond futures incl. FBTP, FOAT, FGBX (R38 layer, R99 rates cells) and CGB (Norgate market list)", "PIT index membership (S&P 500 from 1982, Russell from 1990, Nasdaq 100 from 1993)", "US delisted equities", "capital events / dividends / unadjusted close / SPAC flags", "World Indices (31)", "Cash Commodities (100)", "Economic DB (148 US series, release timing not PIT)"],
+   "LOCAL_DATA_STORED": "24 local cache roots, 74.9 GB (R95 norgate_audit local_caches)",
+   "COLLECTORS_PRESENT": ["norgate_local (Stage-2 canonical collector)", "Norgate Data Updater (vendor process)"],
+   "COLLECTORS_ACTUALLY_RUNNING": ["norgate_local - YES (last success 2026-10-03)", "Norgate Data Updater - YES"],
+   "LAST_SUCCESSFUL_COLLECTION": "2026-10-03T03:38:43Z (norgate_local); vendor database update 2026-10-02 09:55 ET at the R95 audit",
+   "R95_R99_USAGE": "Instrument returns for every R99 (20/20) and R100 (3/3) measured experiment come from Norgate-derived layers (R60/R38 futures layer, deferred legs, the R99 HE far leg built with norgatedata). R96-R98 equity panels use Norgate membership and prices (63 code files import norgatedata; 19 research directories use it).",
+   "NUMBER_OF_EXPERIMENTS_DEPENDING_ON_PROVIDER": ">= 23 verified in R99+R100 alone (instrument-return dependency); effectively every price-based experiment in the estate",
+   "UNIQUE_CAPABILITIES": ["dated individual futures contracts with OI/volume across 105 markets (R99 calendar spreads, HE far leg, curve depth beyond the second contract)", "PIT index membership incl. delisted (survivorship-safe universes)", "US delisted equity prices"],
+   "FREE_OR_PAID_SUBSTITUTE": "NONE equivalent. Free sources have no dated-contract history with OI. Paid substitutes (CSI Data, Databento futures history) would require rebuilding every certified layer. EODHD covers delisted US equity PRICES but not PIT index membership or dated futures.",
+   "FORWARD_ONLY_DATA_AT_RISK_IF_CANCELLED": "none forward-only, but the ENTIRE certified history (futures layers, membership, delisted panel) loses its update path and its licence for continued use",
+   "UNDERUSED_CAPABILITIES": ["per-contract OI/volume feeds the R96 per-instrument cost model (alpha_agent.r61.instrument_costs) but that model is NOT adopted by the book cost layer; no OI/ADV capacity check exists in cost_budget", "capital_event / dividend_yield / unadjusted_close timeseries never called", "World Indices and Cash Commodities enumerated but unused", "non-S&P/Russell index constituent histories unused"],
+   "VALUE_GAPS": ["29 of 68 futures markets cost MORE than the flat research rate under the owned OI/volume model (2018+) - flat costs flatter thin markets (R96_COST_MODEL_VALIDATION.json)", "no capacity limit derived from owned OI/ADV"],
+   "CANCELLATION_IMPACT": "SEVERE - every futures and equity research layer and the operational universe lose their source; no equivalent replacement exists",
+   "DECISION": "KEEP_CORE",
+   "DECISION_REASON": "Norgate is the price, curve and survivorship foundation of every R96-R100 experiment and no equivalent replacement exists for dated futures with OI/volume, PIT membership, delisted equities or the international futures the research uses."
+  },
+  "EODHD": {
+   "CURRENT_ENTITLEMENT": "subscriptionType=monthly, dailyRateLimit 100,000 (+500 extra); product inferred from probes = EOD All-World + Fundamentals class; NOT entitled to options, intraday, technicals or screener",
+   "CURRENT_STATUS": "ACTIVE - four collectors healthy, 0 consecutive failures; last successes 2026-10-03T01:45Z (eodhd) and 2026-10-03T02:58Z (eodhd_analyst, eodhd_forward_archive). Weekend gap is policy (SESSION_TRADING_DAY lanes, 4-day maximum staleness).",
+   "KNOWN_COST": "UNKNOWN_NOT_VERIFIED (/api/user does not expose the product or price)",
+   "RENEWAL_FREQUENCY": "monthly (subscriptionType=monthly)",
+   "FIELDS_DATASETS_OWNED": ["EOD prices incl. delisted (60,410 delisted US symbols)", "dividends with declarationDate, splits", "fundamentals incl. Earnings.Trend, Earnings.History (actual/estimate/beforeAfterMarket), AnalystRatings, SharesStats, Holders, ETF_Data", "news (symbol-tagged, sentiment)", "economic-events calendar (actual/estimate/previous)", "earnings / IPO / splits calendars", "FX 997 pairs, GBOND yields, /ust yield curve, 70 international exchanges", "index historical constituents (GSPC from 1957)"],
+   "LOCAL_DATA_STORED": "forward archives: eodhd_analyst 23.0 MB (daily vintages), eodhd_forward_archive 10.8 MB (news 5,955 articles + economic-calendar snapshots); R98 dividend v2 panel; R96 earnings-surprise and release-calendar builds",
+   "COLLECTORS_PRESENT": ["eodhd (7 sample symbols: EOD, dividends, splits, earnings calendar, news, fundamentals)", "eodhd_analyst (daily estimate vintages, 1,775-name universe)", "eodhd_forward_archive news lane (1,775 names)", "eodhd_forward_archive economic-calendar lane"],
+   "COLLECTORS_ACTUALLY_RUNNING": {
+    "EODHD_NEWS_COLLECTION": "ACTIVE - latest capture 2026-10-03, coverage 1,775/1,775 on 2026-10-02 (1,770 COMPLETE), 4-day lookback recovers weekend articles",
+    "EODHD_ECON_EVENTS_COLLECTION": "ACTIVE - snapshots 2026-10-02 and 2026-10-03",
+    "EODHD_ESTIMATE_SNAPSHOTS": "ACTIVE - 1,774/1,775 vintages on 2026-10-02 (SNBRQ has no fundamentals)",
+    "EODHD_EARNINGS_COLLECTION": "ACTIVE - Earnings.History (actual, estimate, beforeAfterMarket, surprise) present in 97.5% of a 40-vintage sample"
+   },
+   "LAST_SUCCESSFUL_COLLECTION": "2026-10-03T02:58:18Z",
+   "R95_R99_USAGE": "R96 earnings-surprise cells H14 and H15 (6 measured cells, all halted); R98 DIV2_H21 dividend-announcement panel (H_63012714_6f505e87f7e1, NO_ALPHA_EVIDENCE at Discovery); R96 release calendar consensus; R99 used EODHD in 1 builder file; R100 used none (its surprises are market-implied from Norgate STIR futures)",
+   "NUMBER_OF_EXPERIMENTS_DEPENDING_ON_PROVIDER": "7 measured R95-R100 (R96 H14 x3, H15 x3; R98 DIV2_H21 x1); 0 survivors",
+   "UNIQUE_CAPABILITIES": ["the only OWNED route to forward estimate vintages (daily Earnings.Trend archive)", "the only owned macro-consensus feed (economic-events estimate), archived forward", "symbol-tagged news archived forward for 1,775 names", "dividend declaration dates incl. delisted (Norgate has no declaration date)"],
+   "FREE_OR_PAID_SUBSTITUTE": "Partial only: news -> GDELT/RSS (already collected, no symbol tags); macro consensus -> Kalshi (2021+, market-implied) or Bloomberg PIT (paid, quote pending); estimate vintages -> Zacks/NDL or I/B/E/S (paid, quote pending); dividends -> Norgate (no declaration date); delisted prices -> Norgate",
+   "FORWARD_ONLY_DATA_AT_RISK_IF_CANCELLED": ["daily estimate-trend vintages (started 2026-10-02 for the universe; 2026-07-31 for 6 names)", "economic-calendar estimate snapshots (started 2026-10-02)", "symbol-tagged news archive (started 2026-10-02)", "SharesStats/Holders snapshots (capture implemented in R99.1, activates on the next committed restart)"],
+   "UNDERUSED_CAPABILITIES": ["SharesStats + Holders snapshot (dropped from the fundamentals response the collector already pays for; fixed in code, not yet live)", "ETF_Data holdings snapshot (not collected; SEC N-PORT is a quarterly free substitute)", "earnings calendar is collected for 7 names only (Earnings.History in the daily vintage covers the universe after the fact)", "delisted list / international EOD / FX / GBOND - history, downloadable any time while owned"],
+   "VALUE_GAPS": ["the forward archives are 2 days old: no EODHD-native forward test is possible before a Discovery window accumulates", "7 measured EODHD-dependent experiments, 0 survivors", "price unknown, so cost per experiment cannot be computed"],
+   "CANCELLATION_IMPACT": "MODERATE now, growing daily: cancelling stops three forward-only archives that cannot be recreated, and removes dividend-declaration and estimate-snapshot capability. Historical EOD/fundamentals are substitutable by Norgate for prices only.",
+   "DECISION": "KEEP_PROVISIONALLY",
+   "DECISION_REASON": "EODHD's value now lives in forward-only archives that started on 2026-10-02 and are verified running. Cancelling destroys them irreversibly. But no EODHD-dependent experiment has survived, and the archives cannot be tested until a Discovery window accrues, so EODHD is not yet KEEP_CORE.",
+   "REVIEW_CONDITION": "Re-review at the first of (a) the forward archives holding a full Discovery window agreed by the director for a preregistered forward test, (b) a paid estimate/consensus vendor (Zacks/NDL, Bloomberg) being bought, which would make the EODHD snapshots redundant, (c) any archive lane going STALE for more than 4 days. The data scout reports (c) automatically."
+  }
+ },
+ "governed_follow_ups": [
+  {"id": "NORGATE_INSTRUMENT_COST_MODEL_REVIEW",
+   "status": "REQUIRES_SEPARATE_GOVERNED_DECISION",
+   "finding": "the owned Norgate OI/volume per-instrument cost model (alpha_agent.r61.instrument_costs, R96_COST_MODEL_VALIDATION.json) prices about 29 of 68 futures markets ABOVE the current flat research rate (2018+)",
+   "why_not_adopted_now": "changing the canonical cost model can change recorded research verdicts; adoption needs its own governed decision with before/after verdict reconciliation",
+   "implemented_in_r99_1": false,
+   "opened": "2026-10-04"}
+ ],
+ "prior_expectation": {"NORGATE": "KEEP_CORE", "EODHD": "KEEP_PROVISIONALLY"},
+ "prior_overturned": false,
+ "NORGATE_RETENTION": "KEEP_CORE",
+ "EODHD_RETENTION": "KEEP_PROVISIONALLY"
+}

@@ -40,6 +40,7 @@ from . import governor as GOV
 from . import handlers as H
 from . import memory as M
 from . import opportunities as OPP
+from . import data_scout as DS
 
 CALCULATION_OWNER = "alpha_agent.r59.loop"
 QUEUE_NAME = "r59_autonomy.sqlite"
@@ -122,6 +123,15 @@ def run_session(*, max_iterations: Optional[int] = None, batch: int = 12,
     queue = queue or open_queue()
     if seed_opportunities:
         OPP.seed(mem)
+        # R99.1 - the persistent data scout. It is due at most once a day (a
+        # delta pass) and once a week; between those it returns NOT_DUE without
+        # touching the registry. A scout failure must never cost a session.
+        try:
+            DS.run(mem, mode="auto")
+        except Exception as exc:                         # noqa: BLE001
+            mem.event("DATA_SCOUT_FAILED", subject="run_session",
+                      detail={"error": "%s: %s" % (type(exc).__name__,
+                                                   str(exc)[:200])})
 
     # R61 - the governed prospective-adoption owner, INJECTED. The research
     # package may not import the application layer, so a freeze reaches its

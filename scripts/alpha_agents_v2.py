@@ -12,6 +12,9 @@ forward clock.
     & .\.venv-win\Scripts\python.exe scripts\alpha_agents_v2.py ledger
     & .\.venv-win\Scripts\python.exe scripts\alpha_agents_v2.py survivors | validated-survivors
     & .\.venv-win\Scripts\python.exe scripts\alpha_agents_v2.py census [--out <file.json>]
+    & .\.venv-win\Scripts\python.exe scripts\alpha_agents_v2.py data-scout-status
+    & .\.venv-win\Scripts\python.exe scripts\alpha_agents_v2.py data-scout --mode daily|weekly|auto [--ingestion-root <dir> --collection-root <dir>]
+    & .\.venv-win\Scripts\python.exe scripts\alpha_agents_v2.py data-scout --mode vendor-event --input <event.json>
 
 VERBS  certify_data define_universe publish_features preregister submit_candidate
        skeptic_review risk_review meta_review director_clear publish_candidate
@@ -28,7 +31,7 @@ mode. The request artifact names that door and the challenger id for the human
 operator. There is no date argument and there never may be.
 
 ``status``, ``validate-contracts``, ``ledger``, ``survivors``,
-``validated-survivors`` and ``census`` are READ-ONLY: they open the memory
+``validated-survivors``, ``census`` and ``data-scout-status`` are READ-ONLY: they open the memory
 through its read-only handle and write nothing.
 
 RESEARCH ONLY. Nothing here can create an order or a fill, promote a model,
@@ -103,7 +106,31 @@ def _check_mechanism(mem, payload: dict) -> dict:
 READ_ONLY_COMMANDS = ("status", "validate-contracts", "ledger", "survivors",
                       "validated-survivors", "census",
                       "check-mechanism", "mechanism-burden",
-                      "blocker-reconciliation")
+                      "blocker-reconciliation", "data-scout-status")
+
+
+def _data_scout(mem, mode: str, input_path: str, ingestion_root: str,
+                collection_root: str) -> dict:
+    """R99.1 - the persistent data scout's operator door.
+
+    ``--mode auto|daily|weekly`` runs one delta pass. This command composes no
+    application owner, so the Stage-2 ingestion root and the collection-service
+    root are passed EXPLICITLY (``--ingestion-root`` / ``--collection-root``) the
+    first time; the scout remembers them, so later passes and the research loop
+    reuse the same roots without a second copy of the root policy.
+    ``--mode vendor-event --input <json>`` records a HUMAN vendor interaction
+    (opportunity_id, event, on, evidence[, note, price]); the scout contacts nobody.
+    """
+    from alpha_agent.r59 import data_scout as DS             # type: ignore
+    if mode == "vendor-event":
+        body = json.loads(Path(input_path).read_text(encoding="utf-8-sig")) \
+            if input_path else {}
+        return DS.record_vendor_event(
+            mem, body.get("opportunity_id", ""), event=body.get("event", ""),
+            on=body.get("on", ""), evidence=body.get("evidence", ""),
+            note=body.get("note", ""), price=body.get("price"))
+    return DS.run(mem, mode=mode, ingestion_root=ingestion_root or None,
+                  collection_root=collection_root or None)
 
 
 def _emit(body) -> None:
@@ -273,6 +300,12 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default="")
     ap.add_argument("--memory", default="",
                     help="research memory path (tests); default = R59 root")
+    ap.add_argument("--mode", default="auto",
+                    help="data-scout: auto | daily | weekly | vendor-event")
+    ap.add_argument("--ingestion-root", default="",
+                    help="data-scout: the Stage-2 ingestion store root")
+    ap.add_argument("--collection-root", default="",
+                    help="data-scout: the information-collection service root")
     args = ap.parse_args(argv)
     cmd = args.command.replace("-", "_") \
         if args.command not in READ_ONLY_COMMANDS else args.command
@@ -355,6 +388,17 @@ def main(argv=None) -> int:
                 raise P.PipelineRefusal("INVALID_DECLARATION",
                                         body["invalid_declaration_detail"])
             return 0
+        elif cmd == "data-scout-status":
+            from alpha_agent.r59 import data_scout as DS     # type: ignore
+            _emit(DS.status(mem))
+        elif cmd == "data_scout":
+            if args.mode not in ("auto", "daily", "weekly", "vendor-event"):
+                raise P.PipelineRefusal("BAD_MODE", "--mode %s" % args.mode)
+            try:
+                _emit(_data_scout(mem, args.mode, args.input,
+                                  args.ingestion_root, args.collection_root))
+            except ValueError as exc:
+                raise P.PipelineRefusal(str(exc).split(":")[0][:40], str(exc))
         elif cmd == "blocker-reconciliation":
             # R72, READ-ONLY. What the live queue believes about each blocked
             # job, against what the director has durably ruled. It mutates no

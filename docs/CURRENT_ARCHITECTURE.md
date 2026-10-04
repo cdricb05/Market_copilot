@@ -3877,6 +3877,7 @@ rows):
 | prospective freeze (inception only) | `alpha_agent/r59/memory.py` `freeze_forward` | memory + a challenger artifact |
 | TRUE_FORWARD maturation | `alpha_agent/r52/runtime.py` over `alpha_agent/r46/advance.py` | the R46/R52 roots |
 | data-opportunity frontier | `alpha_agent/r59/opportunities.py` | memory |
+| persistent data scout (R99.1): delta freshness / sample / vendor lifecycle over the SAME frontier rows (`detail.scout`) | `alpha_agent/r59/data_scout.py`, run daily/weekly from `r59/loop.run_session` and by `scripts/alpha_agents_v2.py data-scout` | memory (no second registry) |
 | **research outcomes (read)** | **`api/alphaagent_outcomes.py`** → `GET /v1/research/alphaagent-outcomes` | none — pure projection |
 
 **Two runtimes exist and are deliberately distinct.**

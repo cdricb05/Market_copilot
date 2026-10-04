@@ -44,6 +44,21 @@ FRONTIER_QUESTIONS = (
 )
 
 
+def _seed_set(mem: M.ResearchMemory, opportunity_id: str, **row) -> None:
+    """Seed one opportunity unless the R99.1 data scout already owns it.
+
+    A row carrying a ``detail["scout"]`` block has a MEASURED lifecycle state
+    (alpha_agent.r59.data_scout). Re-seeding it from a static declaration on every
+    session would flip it back to a stale claim - EODHD news was re-declared
+    ALREADY_OWNED_UNUSED long after the forward archive began collecting it - and
+    each flip would move the governor's information-set fingerprint for nothing.
+    """
+    current = {o["opportunity_id"]: o for o in mem.opportunities()}.get(opportunity_id)
+    if current and isinstance((current.get("detail") or {}).get("scout"), dict):
+        return
+    mem.set_opportunity(opportunity_id, **row)
+
+
 def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
     """Declare the R59 opportunities the estate can act on.
 
@@ -56,7 +71,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
     # 1. Insider direction - owned, complete, and unreadable by the pipeline.
     cov = F4.coverage_report()
     owned = cov["owned_r46_parse"]
-    mem.set_opportunity(
+    _seed_set(mem,
         "INSIDER_TRANSACTION_DIRECTION",
         title="Form 4 acquired/disposed direction for the full daily universe",
         state=r59.DO_ALREADY_OWNED_UNUSED,
@@ -75,7 +90,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
                 "coverage": cov})
 
     # 2. Analyst revisions (Steele) - waiting on an external sample.
-    mem.set_opportunity(
+    _seed_set(mem,
         "ANALYST_REVISIONS",
         title="Historical point-in-time analyst estimate revisions",
         state=r59.DO_WAITING_FOR_SAMPLE,
@@ -102,7 +117,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
             "no_purchase_may_occur": True})
 
     # 3. Options / implied-volatility surface - investigation only.
-    mem.set_opportunity(
+    _seed_set(mem,
         "OPTIONS_IMPLIED_VOLATILITY_SURFACE",
         title="Historical option implied volatility, skew and term structure",
         state=r59.DO_PURCHASE_CANDIDATE,
@@ -144,7 +159,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
     if probe:
         v = PP.verdict(probe)
         f = probe.get("findings") or {}
-        mem.set_opportunity(
+        _seed_set(mem,
             "EODHD_NEWS_UNIVERSE",
             title="EODHD news for the full universe (collector samples 7 names)",
             state=v["state"],
@@ -166,7 +181,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
                     "entitlement_measured": f.get("news_off_sample_recent"),
                     "history_measured": f.get("news_history"),
                     "verdict": v})
-        mem.set_opportunity(
+        _seed_set(mem,
             "EODHD_CORPORATE_ACTION_HISTORY",
             title="EODHD dividend/split history for the full universe",
             state=r59.DO_FREE_AVAILABLE,
@@ -187,7 +202,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
                                       "for 5 tickers while 16 years of "
                                       "universe-wide history is entitled; the "
                                       "MNST split phantom was repaired by hand"})
-        mem.set_opportunity(
+        _seed_set(mem,
             "EODHD_EARNINGS_SESSION_TIMING",
             title="Earnings before/after-market flag as a usable session bound",
             state=r59.DO_FREE_AVAILABLE,
@@ -213,7 +228,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
                            "null; an unflagged row gets no bound at all"})
 
     # 4. Point-in-time sector classification - a measured, blocking gap.
-    mem.set_opportunity(
+    _seed_set(mem,
         "POINT_IN_TIME_SECTOR",
         title="Point-in-time GICS/sector classification history",
         state=r59.DO_BLOCKED,
@@ -233,7 +248,7 @@ def seed(mem: Optional[M.ResearchMemory] = None) -> dict:
                         "sector-neutral claim from being retrospective"})
 
     # 5. Intraday / execution-cost reality for the futures scopes.
-    mem.set_opportunity(
+    _seed_set(mem,
         "FUTURES_EXECUTION_COST_REALITY",
         title="Measured futures bid/ask and slippage by market and hour",
         state=r59.DO_FREE_AVAILABLE,
