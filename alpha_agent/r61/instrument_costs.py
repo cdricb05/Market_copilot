@@ -10,6 +10,18 @@ data and writes the comparison.
 It does NOT change any operational cost policy, any book's charged rate or any
 frozen gate. Adoption into a book is a separate governed decision.
 
+That decision was taken on 2026-10-05 (D-PRE-R101-1, docs/ARCHITECTURE_DECISIONS.md):
+REJECTED as a book cost. The R96 application of these estimators
+(campaign_r96_*/r96_build_cost_model.py) prices a market-year from that whole
+year's median price, volume and volatility (days after the trade), applies
+today's contract specification to 2004-2026, divides tick and commission by a
+back-adjusted continuation price, reads a volume series that is orders of
+magnitude below exchange volume for some markets (PL ~20 contracts/day) and
+never reads open interest. The research books keep the ONE canonical cost
+owner, FUTURES_PER_MARKET_R38_PLUS_ROLL_V1 (alpha_agent.agents_v2.books). These
+estimators stay as pure research functions; no book, runner or cost budget may
+import them (tests/test_pre_r101_futures_cost_owner.py).
+
 Every number is tagged with its EVIDENCE CLASS, never promoted:
 
   OBSERVED   read directly from an owned record (a contract's tick size and
@@ -31,6 +43,8 @@ import numpy as np
 
 OWNER = "alpha_agent.r61.instrument_costs"
 VERSION = "R96_INSTRUMENT_COSTS_V1"
+ADOPTION_STATUS = "REJECTED_AS_BOOK_COST"
+ADOPTION_DECISION = "D-PRE-R101-1"
 
 OBSERVED = "OBSERVED"
 ESTIMATED = "ESTIMATED"
@@ -135,6 +149,6 @@ def one_way_cost(components: dict) -> dict:
             "share_by_evidence": {e: (float(v) / total if total > 0 else None) for e, v in by.items()}}
 
 
-__all__ = ["OWNER", "VERSION", "OBSERVED", "ESTIMATED", "ASSUMED", "EVIDENCE_CLASSES",
+__all__ = ["OWNER", "VERSION", "ADOPTION_STATUS", "ADOPTION_DECISION", "OBSERVED", "ESTIMATED", "ASSUMED", "EVIDENCE_CLASSES",
            "ASSUMPTIONS", "corwin_schultz", "abdi_ranaldo", "tick_floor_half_spread",
            "sqrt_impact", "component", "one_way_cost"]

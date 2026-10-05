@@ -56,8 +56,12 @@
  },
  "governed_follow_ups": [
   {"id": "NORGATE_INSTRUMENT_COST_MODEL_REVIEW",
-   "status": "REQUIRES_SEPARATE_GOVERNED_DECISION",
-   "finding": "the owned Norgate OI/volume per-instrument cost model (alpha_agent.r61.instrument_costs, R96_COST_MODEL_VALIDATION.json) prices about 29 of 68 futures markets ABOVE the current flat research rate (2018+)",
+   "status": "CLOSED",
+   "decision": "REJECT_NORGATE_MODEL",
+   "decision_record": "D-PRE-R101-1 (docs/ARCHITECTURE_DECISIONS.md)",
+   "closed": "2026-10-05",
+   "closure_evidence": "R96 implementation not PIT (calendar-year medians incl. post-trade days, current contract spec, back-adjusted price as denominator, no OI, no roll term); re-costing 23 measured R99/R100 cells changed 0 verdicts (1 discovery-advance flag, R99_F06); canonical research cost stays FUTURES_PER_MARKET_R38_PLUS_ROLL_V1",
+   "finding": "the owned Norgate volume (not OI) per-instrument cost model (alpha_agent.r61.instrument_costs, R96_COST_MODEL_VALIDATION.json) prices about 29 of 68 futures markets ABOVE the current flat research rate (2018+)",
    "why_not_adopted_now": "changing the canonical cost model can change recorded research verdicts; adoption needs its own governed decision with before/after verdict reconciliation",
    "implemented_in_r99_1": false,
    "opened": "2026-10-04"}

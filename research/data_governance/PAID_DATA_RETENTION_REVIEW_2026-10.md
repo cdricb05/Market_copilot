@@ -25,13 +25,13 @@ Nothing was cancelled, bought or trialled. Unknown prices were not guessed. Mach
   - PIT index membership;
   - US delisted equities.
 - **Underused.**
-  1. Per-contract OI/volume already drives the R96 per-instrument cost model, but the book cost layer still charges flat rates. On the owned model, **29 of 68 futures markets cost more than the flat rate** (2018+).
+  1. Per-contract volume (not OI, which it never reads) drives the R96 per-instrument cost model, but the book cost layer still charges flat rates. On the owned model, **29 of 68 futures markets cost more than the flat rate** (2018+).
   2. No OI/ADV capacity check exists.
   3. Capital-event, dividend-yield and unadjusted-close series are never read.
 
   Adopting (1) is a governed cost decision, because it can change verdicts. It is the next Norgate action, not something to switch on silently.
 
-  Open follow-up: **NORGATE_INSTRUMENT_COST_MODEL_REVIEW**, status **REQUIRES_SEPARATE_GOVERNED_DECISION**. Not implemented in R99.1.
+  Follow-up **NORGATE_INSTRUMENT_COST_MODEL_REVIEW**: **CLOSED 2026-10-05 - REJECT_NORGATE_MODEL** (D-PRE-R101-1 in `docs/ARCHITECTURE_DECISIONS.md`). The R96 implementation is not point-in-time (calendar-year medians, current contract spec, back-adjusted price) and its volume input is unreliable; re-costing all 23 measured R99/R100 cells changed 0 verdicts. R38 per-market + roll stays the one research futures cost. Norgate stays KEEP_CORE.
 
 ## EODHD — KEEP_PROVISIONALLY
 

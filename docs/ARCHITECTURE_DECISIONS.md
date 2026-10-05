@@ -4094,3 +4094,52 @@ rank-identical books; D3 ill-conditioned long-horizon overlapping t; D4 universe
 vs timing; D5 dependence on the null construction) and named an amended rule (de-duplicate; pass BOTH
 null constructions; non-overlapping agreement at long horizons) as the single next governed action, a
 human decision. PROVISIONAL until that decision is recorded.
+
+
+### D-PRE-R101-1 - the R96 instrument-cost model is rejected as a book cost; R38 per-market + roll stays the one research futures cost owner (CONFIRMED)
+
+**Decision.** The governed review NORGATE_INSTRUMENT_COST_MODEL_REVIEW (opened by the R99.1 paid-data
+retention review, 2026-10-04) is closed: `REJECT_NORGATE_MODEL`. The one authoritative research futures
+cost remains `FUTURES_PER_MARKET_R38_PLUS_ROLL_V1`: the per-market rates of `alpha_agent/r38/contract.py`
+`COST_BPS_PER_SIDE`, carried as `cost_per_side` on the futures layer and charged by the frozen
+`run_futures_book` (re-exported by `alpha_agent/agents_v2/books.py`) as `|dw| . cost` per rebalance plus
+`2 |w| cost` per held-contract roll. `alpha_agent/r61/instrument_costs.py` keeps its pure estimators,
+marked `ADOPTION_STATUS = REJECTED_AS_BOOK_COST`; no book, runner or cost budget may import it.
+
+**Evidence - PIT.** The R96 application (`campaign_r96_*/r96_build_cost_model.py futures()`) prices a
+market-YEAR from that whole year's median price, median volume and realised volatility, i.e. from days
+after the trade; applies today's Norgate tick size and point value to 2004-2026; never reads open
+interest (the retention review's "OI/volume" wording was wrong); and computes no roll term although its
+spec names one. Per input: volume - R60 layer volume, same-calendar-year median, NOT PIT; price -
+back-adjusted `&SYM_CCB` continuation, same-year median, NOT PIT and not a traded price; tick/multiplier -
+current spec, NOT as-of; spread - ASSUMED 1 tick; impact - square-root law on same-year volatility and an
+ASSUMED USD 1m order unrelated to book size, NOT PIT; open interest, liquidity bucket - not used; roll
+state - not used by the model (the book's R38 held-contract roll flags are PIT). The R38 constants use no
+market data and are declared per cost group ex ante: PIT-safe and deterministic, but not measured.
+
+**Evidence - economics.** On the 67 markets with a 2018+ estimate (AFB has none): 26 more than 20% above
+the R38 rate, 31 more than 20% below, 10 within 20%; median difference -0.72 bp (-18.7%), P90 +45 bp,
+max +162 bp (AWM 170 bp vs 8 bp). The outliers are input defects, not liquidity: PL 83 bp on a layer volume
+of ~20 contracts/day; GC 5,713 contracts/day; CC 70 bp and GAS 59 bp with 18.5k / 73k contracts/day,
+because tick and commission are divided by a back-adjusted price. At the other end the model charges
+0.3-0.6 bp per side for ZT/6E/HSI/FDAX, a 1-tick floor that ignores settlement-to-execution slippage.
+
+**Evidence - re-costing diagnostic (no historical artifact touched).** Every measured R99 (20) and R100
+(3) cell was re-run through its own frozen executor and the canonical book with the R96 2018+ per-market
+vector substituted (legs with no R96 estimate unchanged), only on layers that had already been revealed.
+All 23 reproduce their recorded discovery net exactly under the original costs. Final verdicts changed:
+0 of 23 (R99_R02, R99_C02 and R100_A1 still fail `engines.gate` at prior_burden 0). One discovery-advance
+flag: R99_F06 net +0.24% -> +0.49%/yr would clear the deliberately weak D advance floor; its verdict
+cannot be re-determined without opening an unrevealed validation layer, which is forbidden, and the
+candidate cost is rejected in any case. C52F stays dead (-4.38% -> -4.72%/yr).
+
+**Consequence / open.** A future measured cost model must be point-in-time by construction (trailing
+windows ending t-1, as-of contract specifications, the held dated contract's own unadjusted price and
+volume, an order size tied to the book) and enter through the existing `cost_per_side` interface with a
+before/after verdict reconciliation; it would replace the R38 vector, never sit beside it. Capacity:
+`NOT_BLOCKING_R101` - the research books measure return per unit weight with no notional, capital is sized
+only by the global allocator, and the futures layer's volume field is itself unreliable for a guard (PL,
+GC above). ADV/participation caps exist for equities (`r31/allocation.py`) and crypto (`r42/capacity.py`)
+but NOT for futures: a PIT-lagged % of ADV / % of OI cap on the held dated contract is a precondition for
+any futures sleeve becoming capital-eligible, not for research measurement.
+Guard: `tests/test_pre_r101_futures_cost_owner.py`.
