@@ -4068,3 +4068,29 @@ signal agents in one parallel batch.
 
 **Evidence.** Claude Code subagents cannot spawn subagents. A director definition
 that pretended otherwise would have had the director run every experiment itself.
+
+
+### D-R94-1 - a mass discovery screen selects against an empirical null frozen before it is read (PROVISIONAL)
+
+**Decision.** The analytic Newey-West t on overlapping decisions and Benjamini-Hochberg on its
+p are retired as discovery eligibility criteria (R93 finding: misaligned targets reproduce the real
+exceedance rates). `alpha_agent/r57/empirical_null.py` owns the replacement: the identical screen is
+run on circularly shifted targets (one offset for every market and horizon inside the discovery
+decision span, >= 260 sessions), per-stratum empirical p and a count-based FDR q with a +1 floor are
+computed against that null, and the selection rule plus the null summary are hashed BEFORE any real
+row is read. The D/V/L verdict stays with the canonical gate; the layer only decides which rows may ask
+for it. Documented in `docs/EMPIRICAL_NULL_CALIBRATION.md`.
+
+**Evidence.** R94: 472,939 relationship rows across five engines and six calibration / extension lanes; four
+engines at or below their null; the one promoted cluster (SOFTS 10-day XS reversal) died at untouched
+V and is not promoted under non-overlapping cadence, under the per-market null, or under the amended
+rule. Tests `tests/test_r94_empirical_null.py`, `tests/test_r94_amended_rule_prototype.py` (the
+hedged-basket engine test exercises campaign-local R94 scripts and stays with those uncommitted research
+artifacts). Recorded in the repository during the pre-R101 hardening pass (2026-10-05); no R95-R100
+release adopted, amended or superseded it, and the D1-D5 human decision is still unrecorded.
+
+**Consequence / open.** The R94 director recorded five defects (D1 one offset per seed; D2 duplicate
+rank-identical books; D3 ill-conditioned long-horizon overlapping t; D4 universe pooling and alignment
+vs timing; D5 dependence on the null construction) and named an amended rule (de-duplicate; pass BOTH
+null constructions; non-overlapping agreement at long horizons) as the single next governed action, a
+human decision. PROVISIONAL until that decision is recorded.
