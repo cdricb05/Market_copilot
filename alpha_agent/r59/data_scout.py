@@ -628,14 +628,23 @@ def measure_lanes(*, ingestion_root: Path, collection_root: Optional[Path],
     lanes["EODHD_ESTIMATES"] = {"latest": latest and latest.isoformat(),
                                 "coverage": cov,
                                 "status": _classify(latest, cov, today)}
-    with_hist = with_stats = sampled = 0
+    with_hist = sampled = 0
     if best is not None:
         for p in sorted(best.glob("*.json"))[:40]:
             body = r59.read_json(p) or {}
             sampled += 1
             with_hist += bool(body.get("earnings_history_recent"))
-            with_stats += bool(body.get("shares_stats"))
     hist_frac = (with_hist / sampled) if sampled else None
+    # SharesStats/Holders were first captured by R99.1: a field the collector
+    # only began writing is measured on the NEWEST vintage, not the fullest one.
+    # Sampling the fullest of three dates read a pre-R99.1 day and reported a
+    # live capture as MISSING while the first post-activation day was partial.
+    stats_sampled = with_stats = 0
+    if adirs:
+        for p in sorted(adirs[-1].glob("*.json"))[:40]:
+            body = r59.read_json(p) or {}
+            stats_sampled += 1
+            with_stats += bool(body.get("shares_stats"))
     lanes["EODHD_EARNINGS"] = {
         "latest": latest and latest.isoformat(), "coverage": cov,
         "earnings_history_fraction_of_sample": hist_frac,
@@ -644,8 +653,9 @@ def measure_lanes(*, ingestion_root: Path, collection_root: Optional[Path],
                    (LANE_MISSING if latest is None else LANE_STALE))}
     lanes["EODHD_SHARES_STATS"] = {
         "latest": latest and latest.isoformat(),
-        "shares_stats_fraction_of_sample": (with_stats / sampled) if sampled else None,
-        "status": (LANE_ACTIVE if sampled and with_stats / sampled >= 0.5
+        "shares_stats_fraction_of_sample": ((with_stats / stats_sampled)
+                                            if stats_sampled else None),
+        "status": (LANE_ACTIVE if stats_sampled and with_stats / stats_sampled >= 0.5
                    and _classify(latest, None, today) == LANE_ACTIVE
                    else LANE_MISSING)}
 

@@ -359,3 +359,22 @@ def test_analyst_vintage_captures_shares_stats_and_holders(tmp_path):
                                    vintage_subdir="vintages/off"))).collect("2026-10-05")
     assert parse_qs(urlparse(calls[-1]).query)["filter"][0] == \
         "General,Highlights,AnalystRatings,Earnings"
+
+
+def test_shares_stats_lane_reads_the_newest_vintage_not_the_fullest(tmp_path):
+    # Live 2026-10-05: the fullest of the last three vintages pre-dated R99.1
+    # (no shares_stats), the first post-activation vintage was still partial,
+    # and the lane read MISSING although every new file carried the field.
+    roots = _fixture_roots(tmp_path, day="2026-10-02")
+    new = roots["ingestion_root"] / "vintages" / "eodhd_analyst" / "2026-10-04"
+    new.mkdir(parents=True)
+    (new / "AAA.json").write_text(json.dumps(
+        {"earnings_history_recent": [{"epsActual": 1.0}],
+         "shares_stats": {"SharesFloat": 1.0}}))
+    lanes = DS.measure_lanes(ingestion_root=roots["ingestion_root"],
+                             collection_root=roots["collection_root"], now=NOW,
+                             universe_file=roots["universe_file"])["lanes"]
+    assert lanes["EODHD_SHARES_STATS"]["shares_stats_fraction_of_sample"] == 1.0
+    assert lanes["EODHD_SHARES_STATS"]["status"] == DS.LANE_ACTIVE
+    # Coverage is still judged on the fullest recent vintage (3 of 3 symbols).
+    assert lanes["EODHD_ESTIMATES"]["coverage"] == 1.0
